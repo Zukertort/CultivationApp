@@ -32,11 +32,17 @@ export interface RulesConfig {
   tierStartFraction: number;
   /** SIM: base gold before the tier bonus. */
   gold: { exercise: number; routine: number };
+  /**
+   * Body repetition decay penalizes stagnation, not consistency: a version of
+   * an exercise or routine pays full value for a while after its first
+   * completion, however often it is done, then decays week by week until the
+   * cultivator levels it up ("BJJ" -> "BJJ II").
+   */
   repetition: {
-    /** Completions within a tier that pay full value (original + 2 repeats). */
-    fullValueCompletions: number;
-    /** Value lost per completion beyond that, as a fraction of base. */
-    stepLoss: number;
+    /** Weeks of full value after a version's first completion. */
+    fullValueWeeks: number;
+    /** Value lost per week beyond that, as a fraction of base. */
+    weeklyLoss: number;
     /** Floor, as a fraction of base. */
     floor: number;
   };
@@ -61,19 +67,19 @@ export interface RulesConfig {
 }
 
 export const RULES_V1: RulesConfig = Object.freeze({
-  version: "1.0.0",
+  version: "1.1.0",
   tiers: {
     turtle: { capacity: 30, weeklyLoss: 10, goldBonus: 0.01, coreQiBonus: 0, breakthroughLegendaryChance: 0 },
     panda: { capacity: 800, weeklyLoss: 200, goldBonus: 0.1, coreQiBonus: 0, breakthroughLegendaryChance: 0 },
-    horse: { capacity: 1600, weeklyLoss: 400, goldBonus: 0.2, coreQiBonus: 0.1, breakthroughLegendaryChance: 0 },
-    tiger: { capacity: 3200, weeklyLoss: 500, goldBonus: 0.3, coreQiBonus: 0.15, breakthroughLegendaryChance: 0 },
-    lion: { capacity: 5000, weeklyLoss: 600, goldBonus: 0.35, coreQiBonus: 0.15, breakthroughLegendaryChance: 0.02 },
+    horse: { capacity: 1600, weeklyLoss: 300, goldBonus: 0.2, coreQiBonus: 0.1, breakthroughLegendaryChance: 0 },
+    tiger: { capacity: 3200, weeklyLoss: 400, goldBonus: 0.3, coreQiBonus: 0.15, breakthroughLegendaryChance: 0 },
+    lion: { capacity: 5000, weeklyLoss: 500, goldBonus: 0.35, coreQiBonus: 0.15, breakthroughLegendaryChance: 0.02 },
   },
   treats: { exercise: 10, routine: 200 },
   routinesPerDayCap: 2,
   tierStartFraction: 0.5,
   gold: { exercise: 1, routine: 10 },
-  repetition: { fullValueCompletions: 3, stepLoss: 0.15, floor: 0.25 },
+  repetition: { fullValueWeeks: 4, weeklyLoss: 0.15, floor: 0.25 },
   poses: [
     { name: "standing", minMastered: 0 },
     { name: "heroic", minMastered: 1 },

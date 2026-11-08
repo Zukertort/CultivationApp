@@ -89,18 +89,25 @@ describe("companion food meter", () => {
 });
 
 describe("repetition decay", () => {
-  it("pays full for 3 completions, then loses 15% per completion down to 25%", () => {
-    expect([1, 2, 3, 4, 5, 8, 20].map((n) => repetitionMultiplier(n))).toEqual([1, 1, 1, 0.85, 0.7, 0.25, 0.25]);
+  it("pays full for 4 weeks after the first completion, then loses 15% a week down to 25%", () => {
+    const weeks = [0, 3.9, 4, 5, 6, 8, 20];
+    expect(weeks.map((w) => repetitionMultiplier(w * WEEK))).toEqual([1, 1, 0.85, 0.7, 0.55, 0.25, 0.25]);
   });
 
-  it("resets the count when the tier changes", () => {
+  it("does not penalize frequency inside the full-value window", () => {
     const evs: GameEvent[] = [created, defineExercise("squats")];
-    for (let i = 0; i < 3; i++) evs.push(log("squats", T0 + i));
-    const s = replay(evs);
-    // 15 + 10 + 10 (=35 >= 30, promote to Panda at 400, counts reset) + 10
-    expect(s.companion.tier).toBe("panda");
-    expect(s.companion.completionsInTier).toEqual({ squats: 1 });
-    expect(s.companion.food).toBeCloseTo(410, 3);
+    for (let i = 0; i < 20; i++) evs.push(log("squats", T0 + i));
+    // 15 + 10 + 10 -> Panda at 400 on the 2nd log, then 18 more logs at full value.
+    expect(replay(evs).companion.food).toBeCloseTo(400 + 18 * 10, 2);
+  });
+
+  it("decays a stale version and restarts with a new one", () => {
+    let s = replay([created, defineRoutine("bjj"), log("bjj", T0)]);
+    s = { ...s, gold: 0 };
+    const stale = applyEvent(s, log("bjj", T0 + 6 * WEEK));
+    s = applyEvent(s, defineRoutine("bjj-2", T0 + 6 * WEEK));
+    const fresh = applyEvent(s, log("bjj-2", T0 + 6 * WEEK));
+    expect(stale.gold / fresh.gold).toBeCloseTo(0.55, 6);
   });
 });
 

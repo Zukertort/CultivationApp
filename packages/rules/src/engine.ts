@@ -33,8 +33,8 @@ export interface CultivatorState {
   companion: {
     tier: Tier;
     food: number;
-    /** Completions per activity within the current tier (repetition decay). */
-    completionsInTier: Record<string, number>;
+    /** First paying completion of each activity version (repetition decay). */
+    firstCompletedAt: Record<string, number>;
     /** Local day key and routines counted that day (daily cap). */
     routineDay: number;
     routinesToday: number;
@@ -65,7 +65,7 @@ export function initialState(rules: RulesConfig = RULES_V1): CultivatorState {
     companion: {
       tier: "turtle",
       food: rules.tiers.turtle.capacity * rules.tierStartFraction,
-      completionsInTier: {},
+      firstCompletedAt: {},
       routineDay: -1,
       routinesToday: 0,
     },
@@ -105,11 +105,17 @@ export function localDay(at: number, tzOffsetMinutes: number): number {
   return Math.floor((at + tzOffsetMinutes * MINUTE) / DAY);
 }
 
-/** Value multiplier for the n-th completion (1-based) of the same activity within a tier. */
-export function repetitionMultiplier(n: number, rules: RulesConfig = RULES_V1): number {
+/**
+ * Value multiplier for an activity version that was first completed `ageMs`
+ * ago: full value for `fullValueWeeks`, then one step of `weeklyLoss` at the
+ * start of each further week, down to `floor`.
+ */
+export function repetitionMultiplier(ageMs: number, rules: RulesConfig = RULES_V1): number {
   const r = rules.repetition;
-  if (n <= r.fullValueCompletions) return 1;
-  return Math.max(r.floor, 1 - r.stepLoss * (n - r.fullValueCompletions));
+  const fullMs = r.fullValueWeeks * WEEK;
+  if (ageMs < fullMs) return 1;
+  const steps = Math.floor((ageMs - fullMs) / WEEK) + 1;
+  return Math.max(r.floor, 1 - r.weeklyLoss * steps);
 }
 
 export function goldMultiplier(state: CultivatorState, rules: RulesConfig = RULES_V1): number {
@@ -172,7 +178,6 @@ function changeTier(s: CultivatorState, to: Tier, at: number, reason: "promoted"
   const from = s.companion.tier;
   s.companion.tier = to;
   s.companion.food = rules.tiers[to].capacity * rules.tierStartFraction;
-  s.companion.completionsInTier = {};
   s.tierHistory.push({ at, from, to, reason });
 }
 
@@ -247,9 +252,8 @@ const onActivityLogged: Handler<"BodyActivityLogged"> = (s, e, rules) => {
     c.routinesToday += 1;
   }
 
-  const n = (c.completionsInTier[e.activityId] ?? 0) + 1;
-  c.completionsInTier[e.activityId] = n;
-  const rep = repetitionMultiplier(n, rules);
+  const first = (c.firstCompletedAt[e.activityId] ??= e.at);
+  const rep = repetitionMultiplier(e.at - first, rules);
 
   // Gold uses the multiplier of the tier the activity was done in.
   s.gold += rules.gold[activity.kind] * rep * goldMultiplier(s, rules);

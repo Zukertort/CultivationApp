@@ -39,8 +39,8 @@ export const BodyActivityKind = z.enum(["exercise", "routine"]);
 
 /**
  * Raising a task's difficulty means defining a new named version
- * ("Squats" -> "Squats II"), which gets a new activityId and a fresh
- * repetition count.
+ * ("Squats" -> "Squats II"), which gets a new activityId and restarts the
+ * repetition-decay clock.
  */
 export const BodyActivityDefined = z.object({
   ...base,
