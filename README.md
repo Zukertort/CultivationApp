@@ -33,3 +33,10 @@ pnpm test        # all packages
 pnpm typecheck
 pnpm sim         # food-economy simulation, prints a summary and writes CSV to tools/sim/out
 ```
+
+Requires Node 22+ and pnpm (`corepack enable` installs the version pinned in `package.json`).
+
+## License
+
+Source code: [MIT](LICENSE). Art, animation files and lore in `assets/`:
+[CC BY-NC 4.0](assets/LICENSE).
