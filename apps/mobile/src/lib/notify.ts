@@ -21,6 +21,14 @@ export const notificationsSupported = Platform.OS !== "web";
 
 export type PermissionState = "granted" | "denied" | "unsupported";
 
+let channelReady = false;
+
+const dateTrigger = (at: number): Notifications.NotificationTriggerInput => ({
+  type: Notifications.SchedulableTriggerInputTypes.DATE,
+  date: new Date(at),
+  ...(channelReady ? { channelId: CHANNEL_ID } : {}),
+});
+
 export async function setupNotifications(): Promise<PermissionState> {
   if (!notificationsSupported) return "unsupported";
   Notifications.setNotificationHandler({
@@ -32,11 +40,19 @@ export async function setupNotifications(): Promise<PermissionState> {
     }),
   });
   if (Platform.OS === "android") {
-    await Notifications.setNotificationChannelAsync(CHANNEL_ID, {
-      name: "Close losses",
-      description: "A demon near a threshold, the soul about to break, the companion about to leave",
-      importance: Notifications.AndroidImportance.HIGH,
-    });
+    // Expo Go 58.0.5 on Android 16 / One UI 8.5 throws a NullPointerException
+    // here. Don't let that block the permission request: fall back to the
+    // default channel.
+    try {
+      await Notifications.setNotificationChannelAsync(CHANNEL_ID, {
+        name: "Close losses",
+        description: "A demon near a threshold, the soul about to break, the companion about to leave",
+        importance: Notifications.AndroidImportance.HIGH,
+      });
+      channelReady = true;
+    } catch (e) {
+      console.warn("Notification channel not created; using the default channel.", e);
+    }
   }
   const current = await Notifications.getPermissionsAsync();
   if (current.granted) return "granted";
@@ -70,7 +86,7 @@ export async function schedulePlan(plan: readonly PushAlert[], companionTier: st
   for (const a of plan) {
     await Notifications.scheduleNotificationAsync({
       content: { ...alertText(a, companionTier), data: { kind: a.kind, scheduledFor: a.at } },
-      trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: new Date(a.at), channelId: CHANNEL_ID },
+      trigger: dateTrigger(a.at),
     });
   }
 }
@@ -81,7 +97,7 @@ export async function scheduleTest(minutes: number): Promise<void> {
   const at = Date.now() + minutes * 60_000;
   await Notifications.scheduleNotificationAsync({
     content: { title: "Test from the System", body: `Scheduled for ${new Date(at).toLocaleTimeString()}.`, data: { kind: "test", scheduledFor: at } },
-    trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: new Date(at), channelId: CHANNEL_ID },
+    trigger: dateTrigger(at),
   });
 }
 
