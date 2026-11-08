@@ -134,10 +134,18 @@ export interface RulesConfig {
   scales: { goldBonusEach: number; qiBonusEach: number; forWings: number };
   wings: { goldBonus: number; qiBonus: number };
   soul: SoulRules;
+  notifications: {
+    /** Push notifications per local day; the most urgent are kept. */
+    maxPerDay: number;
+    /** How far ahead local notifications are scheduled (rebuilt after every event). */
+    horizonDays: number;
+    /** Push when the companion is projected to fall to this fraction of its meter. */
+    companionHungryFraction: number;
+  };
 }
 
 export const RULES_V1: RulesConfig = Object.freeze({
-  version: "1.4.0",
+  version: "1.5.0",
   tiers: {
     turtle: { capacity: 30, weeklyLoss: 10, goldBonus: 0.01, coreQiBonus: 0, breakthroughLegendaryChance: 0 },
     panda: { capacity: 800, weeklyLoss: 200, goldBonus: 0.1, coreQiBonus: 0, breakthroughLegendaryChance: 0 },
@@ -171,6 +179,7 @@ export const RULES_V1: RulesConfig = Object.freeze({
   },
   scales: { goldBonusEach: 0.1, qiBonusEach: 0.05, forWings: 9 },
   wings: { goldBonus: 1.0, qiBonus: 0.5 },
+  notifications: { maxPerDay: 3, horizonDays: 14, companionHungryFraction: 0.05 },
   soul: {
     startHp: 50,
     maxHp: 100,
