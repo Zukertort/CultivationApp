@@ -8,7 +8,8 @@ A xianxia-themed life gamification app (a deeper Habitica). The full game
 design is the *Cultivation System — Design To-Do* doc; when code and doc
 disagree, ask before changing either. 
 
-The design spec is docs/design.md.
+The design spec is docs/design.md. Its "Rulings" section records settled
+decisions; apply them without asking again, and add new rulings there.
 
 ## Non-negotiable architecture rules
 

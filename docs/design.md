@@ -375,3 +375,18 @@ None open.
 ## Open questions
 
 None open. Each decision is recorded in its section; the remaining numbers are listed for the economy simulator.
+
+## Rulings
+
+Decisions made while implementing the rules engine. They are settled: future sessions apply them without asking again. Where code and this list disagree, the list wins.
+
+**Soul (Nov 8, 2026)**
+
+1. Deleting a heart demon at a growth color drops the soul to White and holds it there (unless a demon pushes it into a weakening color) until the next demon is defeated. Without the hold, the drop would undo itself at the next evaluation, and deleting an undefeated demon would even help toward Golden.
+2. Golden clock: it starts when the Golden condition (every demon defeated, at least 7) first holds, and only a revival resets it; a new demon breaks the condition but not the clock. Golden needs 1 week on the clock, Translucent 1 month, Rainbow 1 year, and Translucent and Rainbow also require the Golden condition to hold.
+3. Passive-growth multipliers by soul color are simulator numbers, to tune: Broken, Black, Violet and White 1×, Green 1.1×, Blue 1.2×, Red 1.3×, Golden 1.4×, Translucent 1.6×, Rainbow 2×.
+4. "At most one new demon per week" means 7 rolling days since the last new demon.
+5. "Defeated" in the color ladder counts demons defeated right now, so a revival lowers the count.
+6. Deleted demons count as neither created nor defeated.
+7. Deleting at a weakening color raises every remaining demon by the same amount until the strongest is at 80% HP.
+8. Rest (vacation or closed-door) freezes demon growth, the 3-day grace period, the soul color and the Golden clock. The color is next evaluated at the first local midnight after the rest ends; immediate color changes (first demon, deletion at a growth color) also wait until then.
