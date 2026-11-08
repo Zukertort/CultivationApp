@@ -80,6 +80,50 @@ export const SkillRankAchieved = z.object({
   evidence: Evidence.optional(),
 });
 
+// ---- Soul: heart demons -------------------------------------------------------
+
+/** A soul task. Its id links it to exactly one demon (ids are unique across demons). */
+export const SoulTask = z.object({
+  taskId: id,
+  name: z.string().min(1).max(80),
+});
+
+const demonDefinition = {
+  demonId: id,
+  /** The thought, feeling, mood or behavior to change. */
+  name: z.string().min(1).max(120),
+  /** Tasks that counter the demon (damage it). At least one is required. */
+  positiveTasks: z.array(SoulTask).min(1).max(20),
+  /** Habits that feed the demon (heal it). Optional: not every demon has one. */
+  negativeTasks: z.array(SoulTask).max(20).default([]),
+};
+
+export const HeartDemonCreated = z.object({
+  ...base,
+  type: z.literal("HeartDemonCreated"),
+  ...demonDefinition,
+});
+
+/** Rename an undefeated demon and redefine its tasks (to fight a different demon first). */
+export const HeartDemonRenamed = z.object({
+  ...base,
+  type: z.literal("HeartDemonRenamed"),
+  ...demonDefinition,
+});
+
+export const HeartDemonDeleted = z.object({
+  ...base,
+  type: z.literal("HeartDemonDeleted"),
+  demonId: id,
+});
+
+/** A completed positive task or a logged negative task; the polarity comes from the demon's definition. */
+export const SoulTaskLogged = z.object({
+  ...base,
+  type: z.literal("SoulTaskLogged"),
+  taskId: id,
+});
+
 // ---- Rest -------------------------------------------------------------------
 
 export const RestStarted = z.object({
@@ -114,6 +158,10 @@ export const GameEvent = z.discriminatedUnion("type", [
   BodyActivityLogged,
   SkillDefined,
   SkillRankAchieved,
+  HeartDemonCreated,
+  HeartDemonRenamed,
+  HeartDemonDeleted,
+  SoulTaskLogged,
   RestStarted,
   RestEnded,
   RouletteSpun,
@@ -125,6 +173,7 @@ export type EventOf<T extends GameEventType> = Extract<GameEvent, { type: T }>;
 export type BodyActivityKind = z.infer<typeof BodyActivityKind>;
 export type RoulettePrize = z.infer<typeof RoulettePrize>;
 export type Evidence = z.infer<typeof Evidence>;
+export type SoulTask = z.infer<typeof SoulTask>;
 
 /** Validate untrusted input (sync payloads, local DB rows) into a typed event. */
 export function parseEvent(input: unknown): GameEvent {

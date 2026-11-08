@@ -1,9 +1,8 @@
 import type { BodyActivityKind, EventOf, Evidence, GameEvent, RoulettePrize } from "@cultivation/schema";
 import { RULES_V1, TIERS, type RulesConfig, type Tier } from "./config.js";
-
-export const MINUTE = 60_000;
-export const DAY = 24 * 60 * MINUTE;
-export const WEEK = 7 * DAY;
+import { violate } from "./errors.js";
+import { endOfDay, growDemons, initialSoul, onDemonCreated, onDemonDeleted, onDemonRenamed, onSoulTaskLogged, type SoulState } from "./soul.js";
+import { DAY, WEEK, localDay, nextLocalMidnight } from "./time.js";
 
 // ---- State --------------------------------------------------------------------
 
@@ -49,6 +48,7 @@ export interface CultivatorState {
   closedDoorLog: RestPeriod[];
   goldenTickets: number;
   inventory: { potions: number; legendary: number; scales: number; wings: boolean };
+  soul: SoulState;
   /** Things that should be impossible (e.g. a second set of wings); flagged, never silently fixed. */
   anomalies: { at: number; code: string }[];
 }
@@ -78,32 +78,12 @@ export function initialState(rules: RulesConfig = RULES_V1): CultivatorState {
     closedDoorLog: [],
     goldenTickets: 0,
     inventory: { potions: 0, legendary: 0, scales: 0, wings: false },
+    soul: initialSoul(),
     anomalies: [],
   };
 }
 
-// ---- Errors ---------------------------------------------------------------------
-
-export class RuleViolation extends Error {
-  constructor(
-    public readonly code: string,
-    message: string,
-  ) {
-    super(message);
-    this.name = "RuleViolation";
-  }
-}
-
-function violate(code: string, message: string): never {
-  throw new RuleViolation(code, message);
-}
-
 // ---- Helpers --------------------------------------------------------------------
-
-/** Local calendar day number for the cultivator's timezone. */
-export function localDay(at: number, tzOffsetMinutes: number): number {
-  return Math.floor((at + tzOffsetMinutes * MINUTE) / DAY);
-}
 
 /**
  * Value multiplier for an activity version that was first completed `ageMs`
@@ -184,20 +164,39 @@ function changeTier(s: CultivatorState, to: Tier, at: number, reason: "promoted"
 // ---- Time ------------------------------------------------------------------------
 
 /**
- * Move the state forward to `to`: food decays continuously, the companion
- * demotes when its meter empties, and rest pauses everything. Pure function of
- * (state, to, rules); no clock, no randomness.
+ * Move the state forward to `to`: food decays and demons grow continuously,
+ * the companion demotes when its meter empties, the soul color is evaluated at
+ * each local midnight, and rest pauses food loss and demon growth. Pure
+ * function of (state, to, rules); no clock, no randomness.
  */
 function advanceMut(s: CultivatorState, to: number, rules: RulesConfig): void {
   if (to < s.clock) violate("out_of_order", `cannot move from ${s.clock} back to ${to}`);
+  if (!s.created) {
+    s.clock = to;
+    return;
+  }
   let cur = s.clock;
   while (cur < to) {
+    // Stop at every local midnight so the soul color (and with it the demon growth rate) is fixed within a stretch.
+    const dayEnd = nextLocalMidnight(cur, s.tzOffsetMinutes);
+    let stop = Math.min(to, dayEnd);
     if (s.rest) {
-      const end = Math.min(to, s.rest.end);
-      cur = end;
-      if (end === s.rest.end) s.rest = null;
-      continue;
+      stop = Math.min(stop, s.rest.end);
+    } else {
+      advanceCompanion(s, cur, stop, rules);
+      growDemons(s.soul, cur, stop, rules);
     }
+    cur = stop;
+    if (s.rest && cur >= s.rest.end) s.rest = null;
+    if (cur === dayEnd) endOfDay(s.soul, cur, rules);
+  }
+  s.clock = to;
+}
+
+/** Food loss over [from, to], a stretch with no rest. */
+function advanceCompanion(s: CultivatorState, from: number, to: number, rules: RulesConfig): void {
+  let cur = from;
+  while (cur < to) {
     const c = s.companion;
     const t = rules.tiers[c.tier];
     const perMs = t.weeklyLoss / WEEK;
@@ -217,7 +216,6 @@ function advanceMut(s: CultivatorState, to: number, rules: RulesConfig): void {
       changeTier(s, lower, cur, "demoted", rules);
     }
   }
-  s.clock = to;
 }
 
 // ---- Event handlers --------------------------------------------------------------
@@ -366,6 +364,10 @@ const handlers: { [T in GameEvent["type"]]: Handler<T> } = {
   RestStarted: onRestStarted,
   RestEnded: onRestEnded,
   RouletteSpun: onRouletteSpun,
+  HeartDemonCreated: (s, e, rules) => onDemonCreated(s.soul, e, rules),
+  HeartDemonRenamed: (s, e, rules) => onDemonRenamed(s.soul, e, rules),
+  HeartDemonDeleted: (s, e, rules) => onDemonDeleted(s.soul, e, rules),
+  SoulTaskLogged: (s, e, rules) => onSoulTaskLogged(s.soul, e, rules),
 };
 
 // ---- Public API ---------------------------------------------------------------------

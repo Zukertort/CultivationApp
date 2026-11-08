@@ -9,6 +9,52 @@
 export const TIERS = ["turtle", "panda", "horse", "tiger", "lion"] as const;
 export type Tier = (typeof TIERS)[number];
 
+/** Soul colors from worst to best. Broken, Black and Violet are the weakening colors. */
+export const SOUL_COLORS = ["broken", "black", "violet", "white", "green", "blue", "red", "golden", "translucent", "rainbow"] as const;
+export type SoulColor = (typeof SOUL_COLORS)[number];
+export const WEAKENING_COLORS: readonly SoulColor[] = ["broken", "black", "violet"];
+export const GROWTH_COLORS: readonly SoulColor[] = ["green", "blue", "red", "golden", "translucent", "rainbow"];
+
+export interface SoulRules {
+  /** All HP values are percentages of a demon's maximum (0-100). */
+  startHp: number;
+  maxHp: number;
+  /** HP removed by a completed positive task. */
+  positiveDamage: number;
+  /** HP added by a logged negative task. */
+  negativeHeal: number;
+  passive: {
+    /** Days without a positive task (rest excluded) before a demon starts healing. */
+    graceDays: number;
+    /** Base healing per day after the grace period. */
+    hpPerDay: number;
+    /** SIM: multiplier on hpPerDay by the current soul color (2x at Rainbow per the doc). */
+    colorMultiplier: Record<SoulColor, number>;
+  };
+  /** A defeated demon that climbs back to this HP revives. */
+  reviveHp: number;
+  /** A demon strictly above these HP values triggers the color at day's end. */
+  weakening: { violet: number; black: number; broken: number };
+  /** Minimum demons created (existing) and currently defeated for each growth color. */
+  growth: {
+    green: { created: number; defeated: number };
+    blue: { created: number; defeated: number };
+    red: { created: number; defeated: number };
+    /** Golden and above: every demon defeated, at least this many. */
+    goldenMinDemons: number;
+    /** Days without any revival needed for Golden, Translucent and Rainbow. */
+    noRevivalDays: { golden: number; translucent: number; rainbow: number };
+  };
+  /** Minimum days between two new demons. */
+  newDemonCooldownDays: number;
+  /** A demon can't be deleted until it is this many days old. */
+  deletionLockDays: number;
+  /** Deleting at a weakening color feeds the remaining demons until the strongest is at this HP. */
+  deletionFeedToHp: number;
+  /** A renamed demon below this HP is raised to it. */
+  renameMinHp: number;
+}
+
 export interface TierRules {
   /** Food meter size in treats. */
   capacity: number;
@@ -64,10 +110,11 @@ export interface RulesConfig {
   };
   scales: { goldBonusEach: number; qiBonusEach: number; forWings: number };
   wings: { goldBonus: number; qiBonus: number };
+  soul: SoulRules;
 }
 
 export const RULES_V1: RulesConfig = Object.freeze({
-  version: "1.1.0",
+  version: "1.2.0",
   tiers: {
     turtle: { capacity: 30, weeklyLoss: 10, goldBonus: 0.01, coreQiBonus: 0, breakthroughLegendaryChance: 0 },
     panda: { capacity: 800, weeklyLoss: 200, goldBonus: 0.1, coreQiBonus: 0, breakthroughLegendaryChance: 0 },
@@ -101,4 +148,39 @@ export const RULES_V1: RulesConfig = Object.freeze({
   },
   scales: { goldBonusEach: 0.1, qiBonusEach: 0.05, forWings: 9 },
   wings: { goldBonus: 1.0, qiBonus: 0.5 },
+  soul: {
+    startHp: 50,
+    maxHp: 100,
+    positiveDamage: 5,
+    negativeHeal: 10,
+    passive: {
+      graceDays: 3,
+      hpPerDay: 1,
+      colorMultiplier: {
+        broken: 1,
+        black: 1,
+        violet: 1,
+        white: 1,
+        green: 1.1,
+        blue: 1.2,
+        red: 1.3,
+        golden: 1.4,
+        translucent: 1.6,
+        rainbow: 2,
+      },
+    },
+    reviveHp: 50,
+    weakening: { violet: 70, black: 80, broken: 90 },
+    growth: {
+      green: { created: 1, defeated: 1 },
+      blue: { created: 3, defeated: 3 },
+      red: { created: 6, defeated: 6 },
+      goldenMinDemons: 7,
+      noRevivalDays: { golden: 7, translucent: 30, rainbow: 365 },
+    },
+    newDemonCooldownDays: 7,
+    deletionLockDays: 7,
+    deletionFeedToHp: 80,
+    renameMinHp: 50,
+  },
 } satisfies RulesConfig);
