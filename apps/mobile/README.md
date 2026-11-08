@@ -43,6 +43,15 @@ emulator, `ANDROID_HOME` set to `%LOCALAPPDATA%\Android\Sdk`.
   then reopen the app; the delivery log shows how late each notification was.
   If delays are large, try Settings → Battery → Background usage limits and
   keep the app (Expo Go during development) out of "Sleeping apps".
+- Measured on 2026-11-08 (Galaxy A24, Android 16, One UI 8.5, Expo Go
+  58.0.5, unplugged, screen locked, 10-minute test):
+  - Battery "Optimized" (default): 7 min 40 s late. One UI's app freezer
+    (freecess) deferred the alarm, and it only fired when the phone was
+    plugged in, so the real delay could have been longer.
+  - Battery "Unrestricted": on time (under 1 s), with the phone in light
+    Doze and no deferral.
+  The shipped app will need to ask for Unrestricted (or accept late alerts).
+  Deep Doze, which starts after a longer idle, hasn't been measured yet.
 - Notification text never includes demon names (lock screens are visible).
 - Expo Go 58.0.5 on Android 16 / One UI 8.5 fails to create the `close-losses`
   channel (a NullPointerException inside Expo Go). The app logs a warning and
