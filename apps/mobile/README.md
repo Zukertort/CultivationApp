@@ -1,14 +1,49 @@
 # apps/mobile
 
-Expo app for iOS, Android and web. Not scaffolded yet.
+Expo (SDK 58) app for Android and web. Imports `@cultivation/rules` and
+`@cultivation/schema` directly from the workspace; it never reimplements a rule.
 
-Planned stack (see the stack diagram in the design doc):
+## Run
 
-- React Native + Expo Router for UI
-- Rive (`@rive-app/react-native`) for the avatar, companion and cinematics; Reanimated for UI motion
-- `expo-sqlite` as the local event log on iOS and Android (offline-first)
-- `expo-notifications` for **locally scheduled** alerts, computed by projecting
-  state forward with `@cultivation/rules` after every event or sync
-- The web build runs online against the server instead of local SQLite
+```sh
+pnpm install                 # from the repo root
+cd apps/mobile
+npx expo start               # scan the QR code with Expo Go on the phone
+npx expo start --web         # Chrome
+```
 
-Imports `@cultivation/rules` and `@cultivation/schema` directly from the workspace.
+On Windows, Expo needs pnpm on PATH (`corepack enable pnpm`) and, for the
+emulator, `ANDROID_HOME` set to `%LOCALAPPDATA%\Android\Sdk`.
+
+## What's here
+
+- `src/app/` — Expo Router screens: oath (onboarding), Cultivator (companion
+  meter, soul color, coming losses, notification diagnostics), Body (define and
+  log exercises and routines), Soul (demon list with HP and soul color, identify
+  a demon, log positive and negative tasks).
+- `src/lib/db.ts` — the local event log in SQLite (`expo-sqlite`), on Android
+  and on web (WebAssembly; `metro.config.js` adds the `wasm` asset and the
+  cross-origin headers it needs). Only raw events are stored.
+- `src/lib/store.tsx` — replays the log through the rules engine; new events
+  are checked by the engine before they are written.
+- `src/lib/notify.ts` + `notifications-context.tsx` — schedules the rules
+  engine's `pushAlertPlan` (built from `companionAlertAt` and `demonAlerts`, at
+  most 3 a day) as local notifications, rebuilt after every event, on return to
+  the foreground and on the minute tick. Web shows the plan but can't schedule.
+
+## Notifications on Android
+
+- Scheduled with `DATE` triggers on the `close-losses` channel. Without the
+  exact-alarm permission Android delivers them "at an approximate time"; these
+  are early warnings, so the app doesn't request it.
+- Samsung One UI can delay or drop alarms for apps it marks as sleeping. To
+  measure it on a device: Cultivator tab → "Test in 10 min", lock the phone,
+  then reopen the app; the delivery log shows how late each notification was.
+  If delays are large, try Settings → Battery → Background usage limits and
+  keep the app (Expo Go during development) out of "Sleeping apps".
+- Notification text never includes demon names (lock screens are visible).
+
+## Not yet
+
+Sync with the server (drop rolls stay pending until then), rest, deletion and
+rename screens, quests, art (Rive), the daily to-do reminder.
