@@ -24,6 +24,8 @@ emulator, `ANDROID_HOME` set to `%LOCALAPPDATA%\Android\Sdk`.
 - `src/lib/db.ts` — the local event log in SQLite (`expo-sqlite`), on Android
   and on web (WebAssembly; `metro.config.js` adds the `wasm` asset and the
   cross-origin headers it needs). Only raw events are stored.
+  The web build keeps its own separate log in the browser until server sync
+  exists: events logged on the phone don't appear on web, and the reverse.
 - `src/lib/store.tsx` — replays the log through the rules engine; new events
   are checked by the engine before they are written.
 - `src/lib/notify.ts` + `notifications-context.tsx` — schedules the rules
@@ -42,6 +44,9 @@ emulator, `ANDROID_HOME` set to `%LOCALAPPDATA%\Android\Sdk`.
   If delays are large, try Settings → Battery → Background usage limits and
   keep the app (Expo Go during development) out of "Sleeping apps".
 - Notification text never includes demon names (lock screens are visible).
+- Expo Go 58.0.5 on Android 16 / One UI 8.5 fails to create the `close-losses`
+  channel (a NullPointerException inside Expo Go). The app logs a warning and
+  uses the default channel; a development build should be checked for this.
 
 ## Not yet
 
