@@ -7,7 +7,10 @@ import {
   advanceTo,
   applyEvent,
   evaluateSoulColor,
-  growDemons,
+  advanceSoul,
+  demonAlerts,
+  soulDropOutcome,
+  WEEK as WEEK_MS,
   initialSoul,
   onSoulTaskLogged,
   replay,
@@ -129,7 +132,7 @@ describe("passive growth", () => {
   it("grows faster at better soul colors, twice as fast at Rainbow", () => {
     const grow = (color: SoulState["color"]) => {
       const soul = soulWith([{ hp: 10, defeated: true, idleMs: 3 * DAY }], { color });
-      growDemons(soul, 0, DAY, RULES_V1);
+      advanceSoul(soul, 0, DAY, RULES_V1);
       return soul.demons.d0?.hp;
     };
     expect(grow("white")).toBeCloseTo(11, 9);
@@ -176,19 +179,18 @@ describe("soul color", () => {
   });
 
   it("weakens on any single demon: Violet above 70%, Black above 80%, Broken above 90%", () => {
-    const at = (hps: number[]) => evaluateSoulColor(soulWith(hps.map((h) => ({ hp: h }))), 0, RULES_V1);
+    const at = (hps: number[]) => evaluateSoulColor(soulWith(hps.map((h) => ({ hp: h }))), RULES_V1);
     expect(at([70])).toBe("white");
     expect(at([70.5])).toBe("violet");
     expect(at([10, 81])).toBe("black");
     expect(at([10, 20, 91])).toBe("broken");
-    expect(evaluateSoulColor(initialSoul(), 0, RULES_V1)).toBe("broken");
+    expect(evaluateSoulColor(initialSoul(), RULES_V1)).toBe("broken");
   });
 
   it("climbs the growth ladder by demons created and defeated", () => {
     const at = (created: number, defeated: number) =>
       evaluateSoulColor(
         soulWith(Array.from({ length: created }, (_, i) => (i < defeated ? { hp: 0, defeated: true } : { hp: 50 }))),
-        0,
         RULES_V1,
       );
     expect(at(1, 0)).toBe("white");
@@ -201,34 +203,53 @@ describe("soul color", () => {
 
   it("lets weakening colors override growth colors", () => {
     const soul = soulWith([...Array.from({ length: 7 }, () => ({ hp: 0, defeated: true })), { hp: 75 }]);
-    expect(evaluateSoulColor(soul, 0, RULES_V1)).toBe("violet");
+    expect(evaluateSoulColor(soul, RULES_V1)).toBe("violet");
   });
 
-  it("needs all demons defeated (at least 7) and 1 week / 1 month / 1 year without revival for Golden / Translucent / Rainbow", () => {
+  it("needs the Golden condition plus 1 week / 1 month / 1 year on the Golden clock for Golden / Translucent / Rainbow", () => {
     const seven = () => Array.from({ length: 7 }, () => ({ hp: 0, defeated: true }));
-    const now = 1000 * DAY;
-    const since = (days: number) => evaluateSoulColor(soulWith(seven(), { lastRevivalAt: now - days * DAY }), now, RULES_V1);
-    expect(since(6)).toBe("red");
-    expect(since(7)).toBe("golden");
-    expect(since(30)).toBe("translucent");
-    expect(since(365)).toBe("rainbow");
-    // With no revival ever, the clock runs from the first demon.
-    expect(evaluateSoulColor(soulWith(seven(), { firstDemonAt: now - 400 * DAY }), now, RULES_V1)).toBe("rainbow");
+    const clock = (days: number) => evaluateSoulColor(soulWith(seven(), { goldenClockMs: days * DAY }), RULES_V1);
+    expect(clock(6)).toBe("red");
+    expect(clock(7)).toBe("golden");
+    expect(clock(30)).toBe("translucent");
+    expect(clock(365)).toBe("rainbow");
+    // Translucent and Rainbow require the Golden condition: an undefeated demon caps the soul at Red.
+    const eight = soulWith([...seven(), { hp: 40 }], { goldenClockMs: 400 * DAY });
+    expect(evaluateSoulColor(eight, RULES_V1)).toBe("red");
   });
 
-  it("resets the Translucent and Rainbow clocks when any defeated demon revives", () => {
-    const now = 1000 * DAY;
+  it("starts the Golden clock when the condition first holds, not at the first demon", () => {
+    const soul = soulWith([...Array.from({ length: 6 }, () => ({ hp: 0, defeated: true })), { hp: 5 }], { firstDemonAt: -400 * DAY });
+    expect(soul.goldenClockMs).toBeNull();
+    onSoulTaskLogged(soul, { ...task("d6+"), at: 0 }, RULES_V1);
+    expect(soul.goldenClockMs).toBe(0);
+    expect(evaluateSoulColor(soul, RULES_V1)).toBe("red");
+    advanceSoul(soul, 0, 7 * DAY, RULES_V1);
+    expect(evaluateSoulColor(soul, RULES_V1)).toBe("golden");
+  });
+
+  it("resets the Golden clock when any defeated demon revives", () => {
     const soul = soulWith(
       Array.from({ length: 7 }, () => ({ hp: 0, defeated: true })),
-      { firstDemonAt: now - 400 * DAY, color: "rainbow" },
+      { goldenClockMs: 400 * DAY, color: "rainbow" },
     );
-    for (let i = 0; i < 5; i++) onSoulTaskLogged(soul, { ...task("d3-"), at: now + i }, RULES_V1);
-    expect(soul.lastRevivalAt).toBe(now + 4);
-    for (let i = 0; i < 10; i++) onSoulTaskLogged(soul, { ...task("d3+"), at: now + 10 + i }, RULES_V1);
-    expect(evaluateSoulColor(soul, now + DAY, RULES_V1)).toBe("red");
-    expect(evaluateSoulColor(soul, now + 8 * DAY, RULES_V1)).toBe("golden");
-    expect(evaluateSoulColor(soul, now + 31 * DAY, RULES_V1)).toBe("translucent");
-    expect(evaluateSoulColor(soul, now + 366 * DAY, RULES_V1)).toBe("rainbow");
+    for (let i = 0; i < 5; i++) onSoulTaskLogged(soul, { ...task("d3-"), at: i }, RULES_V1);
+    expect(soul.lastRevivalAt).toBe(4);
+    expect(soul.goldenClockMs).toBeNull();
+    for (let i = 0; i < 10; i++) onSoulTaskLogged(soul, { ...task("d3+"), at: 10 + i }, RULES_V1);
+    // Defeating it again restarts the clock from zero.
+    expect(soul.goldenClockMs).toBe(0);
+    expect(evaluateSoulColor(soul, RULES_V1)).toBe("red");
+  });
+
+  it("keeps the Golden clock running when a new demon breaks the condition (only revivals reset it)", () => {
+    const soul = soulWith(Array.from({ length: 7 }, () => ({ hp: 0, defeated: true })), { goldenClockMs: 20 * DAY });
+    soul.demons.d7 = { ...(soul.demons.d0 as HeartDemon), hp: 50, defeated: false, positiveTasks: [{ taskId: "d7+", name: "x" }], negativeTasks: [] };
+    expect(evaluateSoulColor(soul, RULES_V1)).toBe("red");
+    advanceSoul(soul, 0, 15 * DAY, RULES_V1);
+    for (let i = 0; i < 20; i++) onSoulTaskLogged(soul, { ...task("d7+"), at: 15 * DAY + i }, RULES_V1);
+    expect(soul.demons.d7?.defeated).toBe(true);
+    expect(evaluateSoulColor(soul, RULES_V1)).toBe("translucent");
   });
 
   it("reaches Green the day the first demon is defeated, through the event log", () => {
@@ -371,6 +392,147 @@ describe("soul determinism", () => {
   it("replays to identical state", () => {
     const evs = [created, demon("a", T0), pos("a", T0 + DAY), neg("a", T0 + 5 * DAY), demon("b", T0 + 9 * DAY)];
     expect(replay(evs, RULES_V1, T0 + 90 * DAY)).toEqual(replay(evs, RULES_V1, T0 + 90 * DAY));
+  });
+});
+
+describe("rest and the soul", () => {
+  const rest = (from: number, to: number) => ev("RestStarted", from, { kind: "closed_door", until: to });
+
+  it("freezes the soul color during rest and evaluates it again at the first midnight after", () => {
+    // Pushed to 80% during rest: no Violet until rest ends.
+    let s = replay([created, demon("a", T0), rest(T0 + H, T0 + 5 * DAY + 12 * H), ...times(3, T0 + 2 * H, (at) => neg("a", at))]);
+    expect(advanceTo(s, T0 + 5 * DAY).soul.color).toBe("white");
+    s = advanceTo(s, T0 + 6 * DAY);
+    expect(s.soul.color).toBe("violet");
+    expect(s.soul.colorHistory.at(-1)?.at).toBe(T0 + 6 * DAY);
+  });
+
+  it("holds even the immediate changes: a first demon identified during rest lifts Broken only after rest", () => {
+    const s = replay([created, rest(T0 + H, T0 + 3 * DAY), demon("a", T0 + 2 * H)]);
+    expect(s.soul.color).toBe("broken");
+    expect(advanceTo(s, T0 + 3 * DAY).soul.color).toBe("white");
+  });
+
+  it("pauses the Golden clock during rest", () => {
+    const evs: GameEvent[] = [created];
+    for (let k = 0; k < 7; k++) {
+      evs.push(demon(`d${k}`, T0 + k * WEEK_MS));
+      evs.push(...times(10, T0 + k * WEEK_MS + H, (at) => pos(`d${k}`, at)));
+      // Keep the beaten demons down.
+      for (let j = 0; j < k; j++) evs.push(pos(`d${j}`, T0 + k * WEEK_MS + 2 * H + j));
+    }
+    const golden = T0 + 6 * WEEK_MS + H + 9 * 60_000; // the 7th defeat
+    let s = replay(evs);
+    // The clock started at the 7th defeat and has run since.
+    expect(s.soul.goldenClockMs).toBe(s.clock - golden);
+    s = applyEvent(s, rest(golden + H, golden + H + 10 * DAY));
+    s = advanceTo(s, golden + 12 * DAY);
+    // 12 days elapsed, 10 of them resting.
+    expect(s.soul.goldenClockMs).toBe(2 * DAY);
+    expect(s.soul.color).toBe("red");
+  });
+});
+
+describe("soul quests", () => {
+  const quest = (id: string, demonIds: string[], at = T0 + 7 * DAY + H) => ev("SoulQuestDefined", at, { questId: id, name: id, demonIds });
+  const complete = (id: string, at: number, drop?: string) => ev("SoulQuestCompleted", at, { questId: id, ...(drop ? { drop } : {}) } as never);
+
+  it("attacks every linked demon once and resets their grace periods", () => {
+    const s = replay([created, demon("a", T0), demon("b", T0 + 7 * DAY), quest("q", ["a", "b"]), complete("q", T0 + 7 * DAY + 2 * H)]);
+    expect(hp(s, "a")).toBeCloseTo(54.0833 - 5, 3);
+    expect(hp(s, "b")).toBe(45);
+    expect(s.soul.demons.a?.idleMs).toBe(0);
+    expect(s.soul.quests.q?.completedAt).toBe(T0 + 7 * DAY + 2 * H);
+  });
+
+  it("completes once and needs existing, distinct demons", () => {
+    const s = replay([created, demon("a", T0), demon("b", T0 + 7 * DAY), quest("q", ["a", "b"]), complete("q", T0 + 7 * DAY + 2 * H)]);
+    expect(code(() => applyEvent(s, complete("q", T0 + 8 * DAY)))).toBe("quest_already_completed");
+    expect(code(() => applyEvent(s, complete("zzz", T0 + 8 * DAY)))).toBe("unknown_quest");
+    expect(code(() => applyEvent(s, quest("q", ["a", "b"], T0 + 8 * DAY)))).toBe("duplicate_quest");
+    expect(code(() => applyEvent(s, quest("r", ["a", "zzz"], T0 + 8 * DAY)))).toBe("unknown_demon");
+    expect(code(() => applyEvent(s, quest("r", ["a", "a"], T0 + 8 * DAY)))).toBe("duplicate_quest_demon");
+  });
+
+  it("skips linked demons that were deleted", () => {
+    const s = replay([
+      created,
+      demon("a", T0),
+      demon("b", T0 + 7 * DAY),
+      quest("q", ["a", "b"]),
+      ev("HeartDemonDeleted", T0 + 7 * DAY + 2 * H, { demonId: "a" }),
+      complete("q", T0 + 7 * DAY + 3 * H),
+    ]);
+    expect(hp(s, "b")).toBe(45);
+  });
+});
+
+describe("soul drops", () => {
+  it("maps u to outcomes by the current color's odds", () => {
+    expect(soulDropOutcome("white", 0, RULES_V1)).toBe("none");
+    expect(soulDropOutcome("rainbow", 0.39, RULES_V1)).toBe("gold");
+    expect(soulDropOutcome("rainbow", 0.5, RULES_V1)).toBe("legendary");
+    expect(soulDropOutcome("rainbow", 0.6, RULES_V1)).toBe("none");
+    expect(soulDropOutcome("broken", 0.1, RULES_V1)).toBe("lose_gold");
+    expect(soulDropOutcome("broken", 0.22, RULES_V1)).toBe("lose_item");
+    expect(soulDropOutcome("broken", 0.25, RULES_V1)).toBe("none");
+    expect(() => soulDropOutcome("white", 1, RULES_V1)).toThrow(RangeError);
+  });
+
+  it("keeps each color's total chance from the doc", () => {
+    const totals = Object.fromEntries(
+      Object.entries(RULES_V1.soul.drops.oddsBp).map(([c, o]) => [c, Object.values(o).reduce((a, b) => a + (b ?? 0), 0)]),
+    );
+    expect(totals).toEqual({ rainbow: 6000, translucent: 1000, golden: 800, red: 600, blue: 400, green: 200, white: 0, violet: 500, black: 1000, broken: 2500 });
+  });
+
+  it("applies the stored outcome, never taking balances below 0", () => {
+    const base = replay([created, demon("a", T0)]);
+    const drop = (d: string, s: CultivatorState = base) => applyEvent(s, ev("SoulTaskLogged", T0 + H, { taskId: "a+", drop: d } as never));
+    expect(drop("gold").gold).toBeCloseTo(20 * 1.01, 9); // Turtle gold bonus applies
+    expect(drop("qi").qi).toBeCloseTo(10, 9);
+    expect(drop("item").inventory.potions).toBe(1);
+    expect(drop("legendary").inventory.legendary).toBe(1);
+    expect(drop("lose_gold").gold).toBe(0);
+    expect(drop("lose_gold", { ...base, gold: 50 }).gold).toBe(30);
+    expect(drop("lose_item").inventory.potions).toBe(0);
+    expect(drop("none").soul.drops).toEqual({ none: 1 });
+  });
+
+  it("rolls only on completed positive tasks", () => {
+    const s = replay([created, demon("a", T0)]);
+    expect(code(() => applyEvent(s, ev("SoulTaskLogged", T0 + H, { taskId: "a-", drop: "gold" } as never)))).toBe("drop_on_negative_task");
+  });
+});
+
+describe("demon alerts", () => {
+  it("projects when each demon will cross the alert thresholds, soonest first", () => {
+    const s = replay([created, demon("a", T0)]);
+    const alerts = demonAlerts(s);
+    // Growth starts after the 3-day grace period at 1%/day from 50%.
+    expect(alerts.map((a) => [a.kind, (a.at - T0) / DAY])).toEqual([
+      ["near_violet", 18],
+      ["violet", 23],
+      ["black", 33],
+      ["broken", 43],
+    ]);
+  });
+
+  it("warns before a defeated demon revives", () => {
+    const s = replay([created, demon("a", T0), ...times(10, T0, (at) => pos("a", at))]);
+    const first = demonAlerts(s)[0];
+    expect(first?.kind).toBe("near_revival");
+    expect(first?.hp).toBe(45);
+  });
+
+  it("starts the projection after the current rest", () => {
+    const s = replay([created, demon("a", T0), ev("RestStarted", T0 + H, { kind: "closed_door", until: T0 + 10 * DAY })]);
+    expect((demonAlerts(s)[0]?.at ?? 0) - T0).toBe(10 * DAY + (3 * DAY - H) + 15 * DAY);
+  });
+
+  it("skips thresholds already passed", () => {
+    const s = replay([created, demon("a", T0), ...times(3, T0 + H, (at) => neg("a", at))]);
+    expect(demonAlerts(s).map((a) => a.kind)).toEqual(["broken"]);
   });
 });
 

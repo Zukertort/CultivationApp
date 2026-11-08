@@ -59,4 +59,16 @@ describe("parseEvent", () => {
   it("requires a userId on soul events", () => {
     expect(() => parseEvent({ id: "e1", at: 0, type: "SoulTaskLogged", taskId: "t1" })).toThrow();
   });
+
+  it("accepts a stored drop outcome and rejects an unknown one", () => {
+    const e = { id: "e1", userId: "u1", at: 0, type: "SoulTaskLogged", taskId: "t1" };
+    expect(parseEvent({ ...e, drop: "lose_gold" }).type).toBe("SoulTaskLogged");
+    expect(() => parseEvent({ ...e, drop: "wings" })).toThrow();
+  });
+
+  it("requires a soul quest to link at least two demons", () => {
+    const q = { id: "e1", userId: "u1", at: 0, type: "SoulQuestDefined", questId: "q1", name: "Meditate" };
+    expect(() => parseEvent({ ...q, demonIds: ["d1"] })).toThrow();
+    expect(parseEvent({ ...q, demonIds: ["d1", "d2"] }).type).toBe("SoulQuestDefined");
+  });
 });

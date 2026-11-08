@@ -1,7 +1,19 @@
-import type { BodyActivityKind, EventOf, Evidence, GameEvent, RoulettePrize } from "@cultivation/schema";
+import type { BodyActivityKind, EventOf, Evidence, GameEvent, RoulettePrize, SoulDrop } from "@cultivation/schema";
 import { RULES_V1, TIERS, type RulesConfig, type Tier } from "./config.js";
 import { violate } from "./errors.js";
-import { endOfDay, growDemons, initialSoul, onDemonCreated, onDemonDeleted, onDemonRenamed, onSoulTaskLogged, type SoulState } from "./soul.js";
+import {
+  advanceSoul,
+  endOfDay,
+  initialSoul,
+  onDemonCreated,
+  onDemonDeleted,
+  onDemonRenamed,
+  onQuestCompleted,
+  onQuestDefined,
+  onSoulTaskLogged,
+  type SoulContext,
+  type SoulState,
+} from "./soul.js";
 import { DAY, WEEK, localDay, nextLocalMidnight } from "./time.js";
 
 // ---- State --------------------------------------------------------------------
@@ -150,6 +162,50 @@ export function companionAlertAt(state: CultivatorState, fraction = 0.05, rules:
   return Math.max(state.clock, restEnd) + Math.ceil((c.food - target) * msPerTreat);
 }
 
+export type DemonAlertKind = "near_violet" | "violet" | "black" | "broken" | "near_revival" | "revival";
+
+export interface DemonAlert {
+  demonId: string;
+  kind: DemonAlertKind;
+  /** When the demon's HP is projected to reach the threshold. */
+  at: number;
+  hp: number;
+}
+
+/**
+ * When each demon will reach each alert threshold, assuming no new events and
+ * no rest beyond the current one, at the current soul color's growth rate (the
+ * color can change at midnight, so reproject after each day's evaluation).
+ * Thresholds: within the alert margin of 70% and of reviving, and the Violet
+ * (70%), Black (80%) and Broken (90%) lines. Only future crossings, soonest
+ * first. Used to schedule the soul push notifications and awakening alerts.
+ */
+export function demonAlerts(state: CultivatorState, rules: RulesConfig = RULES_V1): DemonAlert[] {
+  const r = rules.soul;
+  const w = r.weakening;
+  const hpPerDay = r.passive.hpPerDay * r.passive.colorMultiplier[state.soul.color];
+  if (hpPerDay <= 0) return [];
+  const start = Math.max(state.clock, state.rest ? state.rest.end : state.clock);
+  const awake: [DemonAlertKind, number][] = [
+    ["near_violet", w.violet - r.alertMargin],
+    ["violet", w.violet],
+    ["black", w.black],
+    ["broken", w.broken],
+  ];
+  const alerts: DemonAlert[] = [];
+  for (const [demonId, d] of Object.entries(state.soul.demons)) {
+    const thresholds: [DemonAlertKind, number][] = d.defeated
+      ? [["near_revival", r.reviveHp - r.alertMargin], ["revival", r.reviveHp], ...awake]
+      : awake;
+    const growthStart = start + Math.max(0, r.passive.graceDays * DAY - d.idleMs);
+    for (const [kind, hp] of thresholds) {
+      if (d.hp >= hp) continue;
+      alerts.push({ demonId, kind, hp, at: growthStart + Math.ceil(((hp - d.hp) * DAY) / hpPerDay) });
+    }
+  }
+  return alerts.sort((a, b) => a.at - b.at);
+}
+
 function tierIndex(t: Tier): number {
   return TIERS.indexOf(t);
 }
@@ -166,8 +222,9 @@ function changeTier(s: CultivatorState, to: Tier, at: number, reason: "promoted"
 /**
  * Move the state forward to `to`: food decays and demons grow continuously,
  * the companion demotes when its meter empties, the soul color is evaluated at
- * each local midnight, and rest pauses food loss and demon growth. Pure
- * function of (state, to, rules); no clock, no randomness.
+ * each local midnight, and rest pauses food loss, demon growth, the soul
+ * color and the Golden clock. Pure function of (state, to, rules); no clock,
+ * no randomness.
  */
 function advanceMut(s: CultivatorState, to: number, rules: RulesConfig): void {
   if (to < s.clock) violate("out_of_order", `cannot move from ${s.clock} back to ${to}`);
@@ -184,11 +241,12 @@ function advanceMut(s: CultivatorState, to: number, rules: RulesConfig): void {
       stop = Math.min(stop, s.rest.end);
     } else {
       advanceCompanion(s, cur, stop, rules);
-      growDemons(s.soul, cur, stop, rules);
+      advanceSoul(s.soul, cur, stop, rules);
     }
     cur = stop;
     if (s.rest && cur >= s.rest.end) s.rest = null;
-    if (cur === dayEnd) endOfDay(s.soul, cur, rules);
+    // Rest freezes the soul color; a midnight that ends the rest is evaluated.
+    if (cur === dayEnd && !s.rest) endOfDay(s.soul, cur, rules);
   }
   s.clock = to;
 }
@@ -355,6 +413,47 @@ const onRouletteSpun: Handler<"RouletteSpun"> = (s, e, rules) => {
   }
 };
 
+function soulContext(s: CultivatorState): SoulContext {
+  return { resting: s.rest !== null };
+}
+
+/**
+ * Apply a server-rolled soul drop. Gains get the gold/Qi multipliers; losses
+ * never take a balance below 0. "item" is a potion until gear exists, and a
+ * lost item is a potion (never a legendary).
+ */
+function applySoulDrop(s: CultivatorState, drop: SoulDrop | undefined, rules: RulesConfig): void {
+  if (drop === undefined) return;
+  const d = rules.soul.drops;
+  const inv = s.inventory;
+  s.soul.drops[drop] = (s.soul.drops[drop] ?? 0) + 1;
+  switch (drop) {
+    case "none":
+      break;
+    case "gold":
+      s.gold += d.gold * goldMultiplier(s, rules);
+      break;
+    case "qi":
+      s.qi += d.qi * qiMultiplier(s, rules);
+      break;
+    case "item":
+      inv.potions += 1;
+      break;
+    case "legendary":
+      inv.legendary += 1;
+      break;
+    case "lose_gold":
+      s.gold = Math.max(0, s.gold - d.loseGold);
+      break;
+    case "lose_qi":
+      s.qi = Math.max(0, s.qi - d.loseQi);
+      break;
+    case "lose_item":
+      inv.potions = Math.max(0, inv.potions - 1);
+      break;
+  }
+}
+
 const handlers: { [T in GameEvent["type"]]: Handler<T> } = {
   CultivatorCreated: onCreated,
   BodyActivityDefined: onActivityDefined,
@@ -364,10 +463,18 @@ const handlers: { [T in GameEvent["type"]]: Handler<T> } = {
   RestStarted: onRestStarted,
   RestEnded: onRestEnded,
   RouletteSpun: onRouletteSpun,
-  HeartDemonCreated: (s, e, rules) => onDemonCreated(s.soul, e, rules),
+  HeartDemonCreated: (s, e, rules) => onDemonCreated(s.soul, e, rules, soulContext(s)),
   HeartDemonRenamed: (s, e, rules) => onDemonRenamed(s.soul, e, rules),
-  HeartDemonDeleted: (s, e, rules) => onDemonDeleted(s.soul, e, rules),
-  SoulTaskLogged: (s, e, rules) => onSoulTaskLogged(s.soul, e, rules),
+  HeartDemonDeleted: (s, e, rules) => onDemonDeleted(s.soul, e, rules, soulContext(s)),
+  SoulTaskLogged: (s, e, rules) => {
+    onSoulTaskLogged(s.soul, e, rules);
+    applySoulDrop(s, e.drop, rules);
+  },
+  SoulQuestDefined: (s, e) => onQuestDefined(s.soul, e),
+  SoulQuestCompleted: (s, e, rules) => {
+    onQuestCompleted(s.soul, e, rules);
+    applySoulDrop(s, e.drop, rules);
+  },
 };
 
 // ---- Public API ---------------------------------------------------------------------

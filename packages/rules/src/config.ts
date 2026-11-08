@@ -5,6 +5,7 @@
  * Numbers marked SIM are placeholders the design doc leaves to the economy
  * simulator.
  */
+import type { SoulDrop } from "@cultivation/schema";
 
 export const TIERS = ["turtle", "panda", "horse", "tiger", "lion"] as const;
 export type Tier = (typeof TIERS)[number];
@@ -42,8 +43,12 @@ export interface SoulRules {
     red: { created: number; defeated: number };
     /** Golden and above: every demon defeated, at least this many. */
     goldenMinDemons: number;
-    /** Days without any revival needed for Golden, Translucent and Rainbow. */
-    noRevivalDays: { golden: number; translucent: number; rainbow: number };
+    /**
+     * Days on the Golden clock needed for Golden, Translucent and Rainbow. The
+     * clock starts when the Golden condition first holds, pauses during rest,
+     * and resets when any defeated demon revives.
+     */
+    goldenClockDays: { golden: number; translucent: number; rainbow: number };
   };
   /** Minimum days between two new demons. */
   newDemonCooldownDays: number;
@@ -53,6 +58,21 @@ export interface SoulRules {
   deletionFeedToHp: number;
   /** A renamed demon below this HP is raised to it. */
   renameMinHp: number;
+  drops: {
+    /**
+     * Odds in basis points per soul color for the one drop roll per completed
+     * soul task or quest; the rest of 10000 is "none". The doc fixes each
+     * color's total; SIM: the split of "gain/loss (items, gold or Qi)".
+     */
+    oddsBp: Record<SoulColor, Partial<Record<Exclude<SoulDrop, "none">, number>>>;
+    /** SIM: amounts. Gains get the gold/Qi multipliers; losses don't and never go below 0. */
+    gold: number;
+    qi: number;
+    loseGold: number;
+    loseQi: number;
+  };
+  /** Push alerts fire when a demon is within this many HP points of a threshold. */
+  alertMargin: number;
 }
 
 export interface TierRules {
@@ -114,7 +134,7 @@ export interface RulesConfig {
 }
 
 export const RULES_V1: RulesConfig = Object.freeze({
-  version: "1.2.0",
+  version: "1.3.0",
   tiers: {
     turtle: { capacity: 30, weeklyLoss: 10, goldBonus: 0.01, coreQiBonus: 0, breakthroughLegendaryChance: 0 },
     panda: { capacity: 800, weeklyLoss: 200, goldBonus: 0.1, coreQiBonus: 0, breakthroughLegendaryChance: 0 },
@@ -176,11 +196,30 @@ export const RULES_V1: RulesConfig = Object.freeze({
       blue: { created: 3, defeated: 3 },
       red: { created: 6, defeated: 6 },
       goldenMinDemons: 7,
-      noRevivalDays: { golden: 7, translucent: 30, rainbow: 365 },
+      goldenClockDays: { golden: 7, translucent: 30, rainbow: 365 },
     },
     newDemonCooldownDays: 7,
     deletionLockDays: 7,
     deletionFeedToHp: 80,
     renameMinHp: 50,
+    drops: {
+      oddsBp: {
+        rainbow: { gold: 4000, legendary: 2000 },
+        translucent: { gold: 1000 },
+        golden: { gold: 300, qi: 300, item: 200 },
+        red: { gold: 200, qi: 200, item: 200 },
+        blue: { gold: 150, qi: 150, item: 100 },
+        green: { gold: 100, qi: 50, item: 50 },
+        white: {},
+        violet: { lose_gold: 200, lose_qi: 200, lose_item: 100 },
+        black: { lose_gold: 1000 },
+        broken: { lose_gold: 2000, lose_item: 500 },
+      },
+      gold: 20,
+      qi: 10,
+      loseGold: 20,
+      loseQi: 10,
+    },
+    alertMargin: 5,
   },
 } satisfies RulesConfig);

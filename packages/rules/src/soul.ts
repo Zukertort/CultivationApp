@@ -1,18 +1,23 @@
 /**
  * Soul path: heart demons and the soul color they produce.
  *
- * Demon HP is a percentage (0-100). Positive tasks damage a demon, negative
- * tasks heal it, and after a grace period without a positive task it heals on
- * its own. The soul color is evaluated once per local day, at its end, so a
- * demon that crosses 70% during the day can still be pushed back in time.
+ * Demon HP is a percentage (0-100). Positive tasks and soul quests damage
+ * demons, negative tasks heal them, and after a grace period without a
+ * positive task a demon heals on its own. The soul color is evaluated once per
+ * local day, at its end, so a demon that crosses 70% during the day can still
+ * be pushed back in time. Rest freezes demon growth, the soul color and the
+ * Golden clock. See "Rulings" in docs/design.md.
  */
-import type { EventOf, SoulTask } from "@cultivation/schema";
+import type { EventOf, SoulDrop, SoulTask } from "@cultivation/schema";
 import { GROWTH_COLORS, WEAKENING_COLORS, type RulesConfig, type SoulColor } from "./config.js";
 import { violate } from "./errors.js";
 import { DAY } from "./time.js";
 
 /** Float tolerance for HP thresholds (passive growth produces fractions). */
 const HP_EPS = 1e-9;
+
+/** Fixed order in which drop odds are laid out on [0, 1). */
+export const SOUL_DROP_ORDER: readonly Exclude<SoulDrop, "none">[] = ["gold", "qi", "item", "legendary", "lose_gold", "lose_qi", "lose_item"];
 
 export interface HeartDemon {
   name: string;
@@ -22,12 +27,18 @@ export interface HeartDemon {
   defeated: boolean;
   createdAt: number;
   /**
-   * Time since the last positive task (or creation), not counting rest.
-   * Passive growth applies to the part beyond the grace period.
+   * Time since the last positive task or quest (or creation), not counting
+   * rest. Passive growth applies to the part beyond the grace period.
    */
   idleMs: number;
   defeats: number;
   revivals: number;
+}
+
+export interface SoulQuest {
+  name: string;
+  demonIds: string[];
+  completedAt: number | null;
 }
 
 export type SoulColorReason = "day_end" | "first_demon" | "deletion";
@@ -48,27 +59,45 @@ export interface DemonHistoryEntry {
 export interface SoulState {
   color: SoulColor;
   demons: Record<string, HeartDemon>;
+  quests: Record<string, SoulQuest>;
   firstDemonAt: number | null;
   lastDemonCreatedAt: number | null;
-  /** Last time any defeated demon revived; resets the Golden, Translucent and Rainbow clocks. */
   lastRevivalAt: number | null;
+  /**
+   * Golden clock: non-resting time since the Golden condition (every demon
+   * defeated, at least 7) first held. Null until then; a revival resets it to
+   * null. Golden, Translucent and Rainbow need the condition to hold now and
+   * the clock to have run 1 week, 1 month and 1 year.
+   */
+  goldenClockMs: number | null;
   /**
    * Set when a demon is deleted at a growth color: the soul drops to White and
    * stays there (unless it weakens further) until the next demon is defeated.
    */
   heldAtWhite: boolean;
+  /** How many of each drop outcome were recorded. */
+  drops: Partial<Record<SoulDrop, number>>;
   colorHistory: SoulColorChange[];
   demonHistory: DemonHistoryEntry[];
+}
+
+/** What the soul handlers need to know about the rest of the cultivator. */
+export interface SoulContext {
+  /** Rest freezes the soul color: no immediate color changes while resting. */
+  resting: boolean;
 }
 
 export function initialSoul(): SoulState {
   return {
     color: "broken",
     demons: {},
+    quests: {},
     firstDemonAt: null,
     lastDemonCreatedAt: null,
     lastRevivalAt: null,
+    goldenClockMs: null,
     heldAtWhite: false,
+    drops: {},
     colorHistory: [],
     demonHistory: [],
   };
@@ -82,11 +111,17 @@ export function isGrowth(color: SoulColor): boolean {
   return GROWTH_COLORS.includes(color);
 }
 
+/** Every demon defeated, with at least the Golden minimum. */
+export function goldenCondition(soul: SoulState, rules: RulesConfig): boolean {
+  const demons = Object.values(soul.demons);
+  return demons.length >= rules.soul.growth.goldenMinDemons && demons.every((d) => d.defeated);
+}
+
 /**
- * The color the soul would get if evaluated at `at`. Weakening colors take
+ * The color the soul would get if evaluated now. Weakening colors take
  * precedence (any single demon is enough), then the growth ladder from the top.
  */
-export function evaluateSoulColor(soul: SoulState, at: number, rules: RulesConfig): SoulColor {
+export function evaluateSoulColor(soul: SoulState, rules: RulesConfig): SoulColor {
   const r = rules.soul;
   const demons = Object.values(soul.demons);
   if (demons.length === 0) return "broken";
@@ -97,16 +132,15 @@ export function evaluateSoulColor(soul: SoulState, at: number, rules: RulesConfi
   if (top > r.weakening.violet) return "violet";
   if (soul.heldAtWhite) return "white";
 
+  const g = r.growth;
+  if (goldenCondition(soul, rules) && soul.goldenClockMs !== null) {
+    const clock = soul.goldenClockMs;
+    if (clock >= g.goldenClockDays.rainbow * DAY) return "rainbow";
+    if (clock >= g.goldenClockDays.translucent * DAY) return "translucent";
+    if (clock >= g.goldenClockDays.golden * DAY) return "golden";
+  }
   const created = demons.length;
   const defeated = demons.filter((d) => d.defeated).length;
-  const g = r.growth;
-  if (defeated === created && created >= g.goldenMinDemons) {
-    // With no revival yet, the clock runs from the first demon ever identified.
-    const since = at - (soul.lastRevivalAt ?? soul.firstDemonAt ?? at);
-    if (since >= g.noRevivalDays.rainbow * DAY) return "rainbow";
-    if (since >= g.noRevivalDays.translucent * DAY) return "translucent";
-    if (since >= g.noRevivalDays.golden * DAY) return "golden";
-  }
   if (created >= g.red.created && defeated >= g.red.defeated) return "red";
   if (created >= g.blue.created && defeated >= g.blue.defeated) return "blue";
   if (created >= g.green.created && defeated >= g.green.defeated) return "green";
@@ -119,9 +153,14 @@ function setColor(soul: SoulState, to: SoulColor, at: number, reason: SoulColorR
   soul.color = to;
 }
 
-/** Evaluate the soul color at the end of a local day. */
+/** Evaluate the soul color at the end of a local day. The engine skips this during rest. */
 export function endOfDay(soul: SoulState, at: number, rules: RulesConfig): void {
-  setColor(soul, evaluateSoulColor(soul, at, rules), at, "day_end");
+  setColor(soul, evaluateSoulColor(soul, rules), at, "day_end");
+}
+
+/** Start the Golden clock the first time the condition holds (after any change that can make it hold). */
+function syncGoldenClock(soul: SoulState, rules: RulesConfig): void {
+  if (soul.goldenClockMs === null && goldenCondition(soul, rules)) soul.goldenClockMs = 0;
 }
 
 /** Set a demon's HP, clamped, and apply defeat at 0 and revival at the revive threshold. */
@@ -143,19 +182,28 @@ function revive(soul: SoulState, demonId: string, d: HeartDemon, at: number): vo
   d.defeated = false;
   d.revivals += 1;
   soul.lastRevivalAt = at;
+  soul.goldenClockMs = null;
   soul.demonHistory.push({ at, demonId, kind: "revived" });
 }
 
+function attack(soul: SoulState, demonId: string, d: HeartDemon, at: number, rules: RulesConfig): void {
+  d.idleMs = 0;
+  setHp(soul, demonId, d, d.hp - rules.soul.positiveDamage, at, rules);
+}
+
 /**
- * Passive growth over [from, to], a stretch with no rest and no day boundary
- * inside it (so the soul color, and with it the rate, is constant).
+ * Passive time over [from, to], a stretch with no rest and no day boundary
+ * inside it (so the soul color, and with it the growth rate, is constant):
+ * the Golden clock runs and demons heal after their grace period.
  */
-export function growDemons(soul: SoulState, from: number, to: number, rules: RulesConfig): void {
+export function advanceSoul(soul: SoulState, from: number, to: number, rules: RulesConfig): void {
   const p = rules.soul.passive;
   const r = rules.soul;
+  const dt = to - from;
+  if (soul.goldenClockMs !== null) soul.goldenClockMs += dt;
+
   const grace = p.graceDays * DAY;
   const hpPerDay = p.hpPerDay * p.colorMultiplier[soul.color];
-  const dt = to - from;
   for (const [demonId, d] of Object.entries(soul.demons)) {
     const before = d.idleMs;
     d.idleMs = before + dt;
@@ -197,7 +245,7 @@ function getDemon(soul: SoulState, demonId: string): HeartDemon {
   return d;
 }
 
-export function onDemonCreated(soul: SoulState, e: EventOf<"HeartDemonCreated">, rules: RulesConfig): void {
+export function onDemonCreated(soul: SoulState, e: EventOf<"HeartDemonCreated">, rules: RulesConfig, ctx: SoulContext): void {
   const r = rules.soul;
   if (soul.demons[e.demonId]) violate("duplicate_demon", `demon ${e.demonId} already exists`);
   if (soul.lastDemonCreatedAt !== null && e.at - soul.lastDemonCreatedAt < r.newDemonCooldownDays * DAY) {
@@ -221,8 +269,8 @@ export function onDemonCreated(soul: SoulState, e: EventOf<"HeartDemonCreated">,
   soul.lastDemonCreatedAt = e.at;
   soul.demonHistory.push({ at: e.at, demonId: e.demonId, kind: "created" });
 
-  // Identifying a demon lifts the soul out of Broken right away.
-  if (!hadDemons && soul.color === "broken") setColor(soul, "white", e.at, "first_demon");
+  // Identifying a demon lifts the soul out of Broken right away (after rest, if resting).
+  if (!hadDemons && soul.color === "broken" && !ctx.resting) setColor(soul, "white", e.at, "first_demon");
 }
 
 export function onDemonRenamed(soul: SoulState, e: EventOf<"HeartDemonRenamed">, rules: RulesConfig): void {
@@ -237,7 +285,7 @@ export function onDemonRenamed(soul: SoulState, e: EventOf<"HeartDemonRenamed">,
   soul.demonHistory.push({ at: e.at, demonId: e.demonId, kind: "renamed" });
 }
 
-export function onDemonDeleted(soul: SoulState, e: EventOf<"HeartDemonDeleted">, rules: RulesConfig): void {
+export function onDemonDeleted(soul: SoulState, e: EventOf<"HeartDemonDeleted">, rules: RulesConfig, ctx: SoulContext): void {
   const r = rules.soul;
   const d = getDemon(soul, e.demonId);
   if (d.defeated) violate("demon_defeated_locked", "a defeated demon can't be deleted until it revives");
@@ -258,25 +306,69 @@ export function onDemonDeleted(soul: SoulState, e: EventOf<"HeartDemonDeleted">,
     const feed = Math.max(0, r.deletionFeedToHp - top);
     if (feed > 0) for (const [id, o] of others) setHp(soul, id, o, o.hp + feed, e.at, rules);
   } else if (isGrowth(soul.color)) {
+    // The hold applies at once; the visible drop waits for the end of rest.
     soul.heldAtWhite = true;
-    setColor(soul, "white", e.at, "deletion");
+    if (!ctx.resting) setColor(soul, "white", e.at, "deletion");
   }
   // At White nothing happens now; with no demon left, the day's end turns the soul Broken.
+  syncGoldenClock(soul, rules);
 }
 
-export function onSoulTaskLogged(soul: SoulState, e: EventOf<"SoulTaskLogged">, rules: RulesConfig): void {
+/** Apply a soul task. Returns its polarity so the caller knows whether a drop roll is allowed. */
+export function onSoulTaskLogged(soul: SoulState, e: EventOf<"SoulTaskLogged">, rules: RulesConfig): "positive" | "negative" {
   for (const [demonId, d] of Object.entries(soul.demons)) {
     if (d.positiveTasks.some((t) => t.taskId === e.taskId)) {
-      d.idleMs = 0;
-      setHp(soul, demonId, d, d.hp - rules.soul.positiveDamage, e.at, rules);
-      return;
+      attack(soul, demonId, d, e.at, rules);
+      syncGoldenClock(soul, rules);
+      return "positive";
     }
     if (d.negativeTasks.some((t) => t.taskId === e.taskId)) {
+      if (e.drop !== undefined) violate("drop_on_negative_task", "only completed positive tasks roll for drops");
       setHp(soul, demonId, d, d.hp + rules.soul.negativeHeal, e.at, rules);
-      return;
+      return "negative";
     }
   }
   violate("unknown_task", `soul task ${e.taskId} is not linked to any demon`);
+}
+
+export function onQuestDefined(soul: SoulState, e: EventOf<"SoulQuestDefined">): void {
+  if (soul.quests[e.questId]) violate("duplicate_quest", `soul quest ${e.questId} already exists`);
+  if (new Set(e.demonIds).size !== e.demonIds.length) violate("duplicate_quest_demon", "a quest links each demon once");
+  for (const id of e.demonIds) getDemon(soul, id);
+  soul.quests[e.questId] = { name: e.name, demonIds: [...e.demonIds], completedAt: null };
+}
+
+/** One attack on every linked demon that still exists; a quest completes once. */
+export function onQuestCompleted(soul: SoulState, e: EventOf<"SoulQuestCompleted">, rules: RulesConfig): void {
+  const q = soul.quests[e.questId];
+  if (!q) violate("unknown_quest", `soul quest ${e.questId} does not exist`);
+  if (q.completedAt !== null) violate("quest_already_completed", "a soul quest expires when completed");
+  const targets = q.demonIds.flatMap((id) => {
+    const d = soul.demons[id];
+    return d ? [[id, d] as const] : [];
+  });
+  if (targets.length === 0) violate("quest_no_demons", "every demon linked to this quest was deleted");
+  for (const [id, d] of targets) attack(soul, id, d, e.at, rules);
+  q.completedAt = e.at;
+  syncGoldenClock(soul, rules);
+}
+
+// ---- Drops --------------------------------------------------------------------------
+
+/**
+ * Map a uniform number u in [0, 1) to a drop outcome at the given soul color.
+ * The server draws u from a secure RNG and stores the outcome in the event.
+ */
+export function soulDropOutcome(color: SoulColor, u: number, rules: RulesConfig): SoulDrop {
+  if (!(u >= 0 && u < 1)) throw new RangeError("u must be in [0, 1)");
+  const bp = Math.floor(u * 10_000);
+  const odds = rules.soul.drops.oddsBp[color];
+  let acc = 0;
+  for (const drop of SOUL_DROP_ORDER) {
+    acc += odds[drop] ?? 0;
+    if (bp < acc) return drop;
+  }
+  return "none";
 }
 
 // ---- Queries ------------------------------------------------------------------------

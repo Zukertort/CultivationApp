@@ -117,11 +117,37 @@ export const HeartDemonDeleted = z.object({
   demonId: id,
 });
 
+/**
+ * Outcome of the drop roll on a completed soul task or quest, rolled on the
+ * server with `soulDropOutcome(color, u)` and stored in the event. "item" is a
+ * common item (a potion until gear exists); losses take gold, Qi or an item.
+ */
+export const SoulDrop = z.enum(["none", "gold", "qi", "item", "legendary", "lose_gold", "lose_qi", "lose_item"]);
+
 /** A completed positive task or a logged negative task; the polarity comes from the demon's definition. */
 export const SoulTaskLogged = z.object({
   ...base,
   type: z.literal("SoulTaskLogged"),
   taskId: id,
+  /** Only on positive tasks. Omitted = no roll recorded. */
+  drop: SoulDrop.optional(),
+});
+
+/** A soul quest attacks several demons at once (one meditation session against several demons). */
+export const SoulQuestDefined = z.object({
+  ...base,
+  type: z.literal("SoulQuestDefined"),
+  questId: id,
+  name: z.string().min(1).max(80),
+  demonIds: z.array(id).min(2).max(20),
+});
+
+/** Completing a quest damages every linked demon once and makes one drop roll. A quest completes once. */
+export const SoulQuestCompleted = z.object({
+  ...base,
+  type: z.literal("SoulQuestCompleted"),
+  questId: id,
+  drop: SoulDrop.optional(),
 });
 
 // ---- Rest -------------------------------------------------------------------
@@ -162,6 +188,8 @@ export const GameEvent = z.discriminatedUnion("type", [
   HeartDemonRenamed,
   HeartDemonDeleted,
   SoulTaskLogged,
+  SoulQuestDefined,
+  SoulQuestCompleted,
   RestStarted,
   RestEnded,
   RouletteSpun,
@@ -174,6 +202,7 @@ export type BodyActivityKind = z.infer<typeof BodyActivityKind>;
 export type RoulettePrize = z.infer<typeof RoulettePrize>;
 export type Evidence = z.infer<typeof Evidence>;
 export type SoulTask = z.infer<typeof SoulTask>;
+export type SoulDrop = z.infer<typeof SoulDrop>;
 
 /** Validate untrusted input (sync payloads, local DB rows) into a typed event. */
 export function parseEvent(input: unknown): GameEvent {
