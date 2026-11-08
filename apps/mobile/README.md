@@ -50,7 +50,8 @@ emulator, `ANDROID_HOME` set to `%LOCALAPPDATA%\Android\Sdk`.
     plugged in, so the real delay could have been longer.
   - Battery "Unrestricted": on time (under 1 s), with the phone in light
     Doze and no deferral.
-  The shipped app will need to ask for Unrestricted (or accept late alerts).
+  The app will ask once for Unrestricted and accept either answer (design
+  ruling 17). Remeasure on a development build.
   Deep Doze, which starts after a longer idle, hasn't been measured yet.
 - Notification text never includes demon names (lock screens are visible).
 - Expo Go 58.0.5 on Android 16 / One UI 8.5 fails to create the `close-losses`
@@ -60,4 +61,5 @@ emulator, `ANDROID_HOME` set to `%LOCALAPPDATA%\Android\Sdk`.
 ## Not yet
 
 Sync with the server (drop rolls stay pending until then), rest, deletion and
-rename screens, quests, art (Rive), the daily to-do reminder.
+rename screens, quests, art (Rive), the daily to-do reminder, a development
+build, and the one-time Unrestricted battery request (ruling 17).

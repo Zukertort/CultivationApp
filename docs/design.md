@@ -398,3 +398,4 @@ Decisions made while implementing the rules engine. They are settled: future ses
 14. A soul quest links at least 2 demons and completes once; demons deleted after the quest was defined are skipped when it completes.
 15. Until gear exists, a gained "item" is a potion, and a lost item is a potion, never a legendary.
 16. Stored drop outcomes are never re-rolled. Under rebalanced rules, outcomes beyond what a task now earns are ignored and missing ones become pending; a SoulDropRolled with nothing pending is logged as an anomaly, never applied.
+17. On Android the app asks the cultivator once to set its battery usage to Unrestricted, explaining that alerts can arrive late otherwise (One UI held a test alarm for over 7 minutes under the default setting). Both "yes" and "no" are accepted; "no" means alerts may be late, and the app keeps working. Delays are measured again on a development build.
