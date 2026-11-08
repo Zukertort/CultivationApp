@@ -11,7 +11,10 @@ import {
   onQuestCompleted,
   onQuestDefined,
   onSoulTaskLogged,
-  type SoulContext,
+  earnRolls,
+  settleRolls,
+  onDropRolled as onSoulDropRolled,
+  type SoulPolarity,
   type SoulState,
 } from "./soul.js";
 import { DAY, WEEK, localDay, nextLocalMidnight } from "./time.js";
@@ -413,17 +416,32 @@ const onRouletteSpun: Handler<"RouletteSpun"> = (s, e, rules) => {
   }
 };
 
-function soulContext(s: CultivatorState): SoulContext {
-  return { resting: s.rest !== null };
+/** Earn a task event's drop rolls, settle any stored outcomes, and apply them. */
+function rollSoulDrops(
+  s: CultivatorState,
+  e: { id: string; at: number },
+  polarity: SoulPolarity,
+  wanted: number,
+  stored: readonly SoulDrop[] | undefined,
+  rules: RulesConfig,
+): void {
+  const earned = earnRolls(s.soul, localDay(e.at, s.tzOffsetMinutes), polarity, wanted, rules);
+  for (const drop of settleRolls(s.soul, e.id, e.at, polarity, earned, stored)) applySoulDrop(s, drop, rules);
 }
+
+const onDropRolled: Handler<"SoulDropRolled"> = (s, e, rules) => {
+  const drops = onSoulDropRolled(s.soul, e);
+  // Nothing pending: a duplicate roll, or one a rebalance no longer earns. Flagged, never applied.
+  if (drops === null) s.anomalies.push({ at: e.at, code: "orphan_drop_roll" });
+  else for (const drop of drops) applySoulDrop(s, drop, rules);
+};
 
 /**
  * Apply a server-rolled soul drop. Gains get the gold/Qi multipliers; losses
  * never take a balance below 0. "item" is a potion until gear exists, and a
  * lost item is a potion (never a legendary).
  */
-function applySoulDrop(s: CultivatorState, drop: SoulDrop | undefined, rules: RulesConfig): void {
-  if (drop === undefined) return;
+function applySoulDrop(s: CultivatorState, drop: SoulDrop, rules: RulesConfig): void {
   const d = rules.soul.drops;
   const inv = s.inventory;
   s.soul.drops[drop] = (s.soul.drops[drop] ?? 0) + 1;
@@ -463,18 +481,19 @@ const handlers: { [T in GameEvent["type"]]: Handler<T> } = {
   RestStarted: onRestStarted,
   RestEnded: onRestEnded,
   RouletteSpun: onRouletteSpun,
-  HeartDemonCreated: (s, e, rules) => onDemonCreated(s.soul, e, rules, soulContext(s)),
+  HeartDemonCreated: (s, e, rules) => onDemonCreated(s.soul, e, rules),
   HeartDemonRenamed: (s, e, rules) => onDemonRenamed(s.soul, e, rules),
-  HeartDemonDeleted: (s, e, rules) => onDemonDeleted(s.soul, e, rules, soulContext(s)),
+  HeartDemonDeleted: (s, e, rules) => onDemonDeleted(s.soul, e, rules),
   SoulTaskLogged: (s, e, rules) => {
-    onSoulTaskLogged(s.soul, e, rules);
-    applySoulDrop(s, e.drop, rules);
+    const polarity = onSoulTaskLogged(s.soul, e, rules);
+    rollSoulDrops(s, e, polarity, 1, e.drop === undefined ? undefined : [e.drop], rules);
   },
   SoulQuestDefined: (s, e) => onQuestDefined(s.soul, e),
   SoulQuestCompleted: (s, e, rules) => {
-    onQuestCompleted(s.soul, e, rules);
-    applySoulDrop(s, e.drop, rules);
+    const hit = onQuestCompleted(s.soul, e, rules);
+    rollSoulDrops(s, e, "positive", hit, e.drops, rules);
   },
+  SoulDropRolled: onDropRolled,
 };
 
 // ---- Public API ---------------------------------------------------------------------

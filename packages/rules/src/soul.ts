@@ -5,8 +5,9 @@
  * demons, negative tasks heal them, and after a grace period without a
  * positive task a demon heals on its own. The soul color is evaluated once per
  * local day, at its end, so a demon that crosses 70% during the day can still
- * be pushed back in time. Rest freezes demon growth, the soul color and the
- * Golden clock. See "Rulings" in docs/design.md.
+ * be pushed back in time. Rest freezes only time-driven changes (demon growth,
+ * the end-of-day color evaluation, the Golden clock); the cultivator's own
+ * actions still apply at once. See "Rulings" in docs/design.md.
  */
 import type { EventOf, SoulDrop, SoulTask } from "@cultivation/schema";
 import { GROWTH_COLORS, WEAKENING_COLORS, type RulesConfig, type SoulColor } from "./config.js";
@@ -77,14 +78,28 @@ export interface SoulState {
   heldAtWhite: boolean;
   /** How many of each drop outcome were recorded. */
   drops: Partial<Record<SoulDrop, number>>;
+  /** Drop rolls a task event earned but whose outcome isn't recorded yet, by event id. */
+  pendingRolls: Record<string, PendingRoll>;
+  /** Local day of the last earned roll, and rolls earned that day (daily cap). */
+  rollDay: number;
+  rollsToday: number;
   colorHistory: SoulColorChange[];
   demonHistory: DemonHistoryEntry[];
 }
 
-/** What the soul handlers need to know about the rest of the cultivator. */
-export interface SoulContext {
-  /** Rest freezes the soul color: no immediate color changes while resting. */
-  resting: boolean;
+export type SoulPolarity = "positive" | "negative";
+
+/**
+ * Rolls earned by a task event and not yet recorded. The server rolls them
+ * with `soulDropOutcome(color, polarity, u)` and appends a SoulDropRolled.
+ */
+export interface PendingRoll {
+  eventId: string;
+  at: number;
+  /** The soul color when the task was logged: the roll uses its odds. */
+  color: SoulColor;
+  polarity: SoulPolarity;
+  count: number;
 }
 
 export function initialSoul(): SoulState {
@@ -98,6 +113,9 @@ export function initialSoul(): SoulState {
     goldenClockMs: null,
     heldAtWhite: false,
     drops: {},
+    pendingRolls: {},
+    rollDay: -1,
+    rollsToday: 0,
     colorHistory: [],
     demonHistory: [],
   };
@@ -245,7 +263,7 @@ function getDemon(soul: SoulState, demonId: string): HeartDemon {
   return d;
 }
 
-export function onDemonCreated(soul: SoulState, e: EventOf<"HeartDemonCreated">, rules: RulesConfig, ctx: SoulContext): void {
+export function onDemonCreated(soul: SoulState, e: EventOf<"HeartDemonCreated">, rules: RulesConfig): void {
   const r = rules.soul;
   if (soul.demons[e.demonId]) violate("duplicate_demon", `demon ${e.demonId} already exists`);
   if (soul.lastDemonCreatedAt !== null && e.at - soul.lastDemonCreatedAt < r.newDemonCooldownDays * DAY) {
@@ -269,8 +287,8 @@ export function onDemonCreated(soul: SoulState, e: EventOf<"HeartDemonCreated">,
   soul.lastDemonCreatedAt = e.at;
   soul.demonHistory.push({ at: e.at, demonId: e.demonId, kind: "created" });
 
-  // Identifying a demon lifts the soul out of Broken right away (after rest, if resting).
-  if (!hadDemons && soul.color === "broken" && !ctx.resting) setColor(soul, "white", e.at, "first_demon");
+  // Identifying a demon lifts the soul out of Broken right away, even during rest (an action, not time).
+  if (!hadDemons && soul.color === "broken") setColor(soul, "white", e.at, "first_demon");
 }
 
 export function onDemonRenamed(soul: SoulState, e: EventOf<"HeartDemonRenamed">, rules: RulesConfig): void {
@@ -285,7 +303,7 @@ export function onDemonRenamed(soul: SoulState, e: EventOf<"HeartDemonRenamed">,
   soul.demonHistory.push({ at: e.at, demonId: e.demonId, kind: "renamed" });
 }
 
-export function onDemonDeleted(soul: SoulState, e: EventOf<"HeartDemonDeleted">, rules: RulesConfig, ctx: SoulContext): void {
+export function onDemonDeleted(soul: SoulState, e: EventOf<"HeartDemonDeleted">, rules: RulesConfig): void {
   const r = rules.soul;
   const d = getDemon(soul, e.demonId);
   if (d.defeated) violate("demon_defeated_locked", "a defeated demon can't be deleted until it revives");
@@ -306,16 +324,15 @@ export function onDemonDeleted(soul: SoulState, e: EventOf<"HeartDemonDeleted">,
     const feed = Math.max(0, r.deletionFeedToHp - top);
     if (feed > 0) for (const [id, o] of others) setHp(soul, id, o, o.hp + feed, e.at, rules);
   } else if (isGrowth(soul.color)) {
-    // The hold applies at once; the visible drop waits for the end of rest.
     soul.heldAtWhite = true;
-    if (!ctx.resting) setColor(soul, "white", e.at, "deletion");
+    setColor(soul, "white", e.at, "deletion");
   }
   // At White nothing happens now; with no demon left, the day's end turns the soul Broken.
   syncGoldenClock(soul, rules);
 }
 
-/** Apply a soul task. Returns its polarity so the caller knows whether a drop roll is allowed. */
-export function onSoulTaskLogged(soul: SoulState, e: EventOf<"SoulTaskLogged">, rules: RulesConfig): "positive" | "negative" {
+/** Apply a soul task's HP change. Returns its polarity, which decides the kind of drop roll. */
+export function onSoulTaskLogged(soul: SoulState, e: EventOf<"SoulTaskLogged">, rules: RulesConfig): SoulPolarity {
   for (const [demonId, d] of Object.entries(soul.demons)) {
     if (d.positiveTasks.some((t) => t.taskId === e.taskId)) {
       attack(soul, demonId, d, e.at, rules);
@@ -323,7 +340,6 @@ export function onSoulTaskLogged(soul: SoulState, e: EventOf<"SoulTaskLogged">, 
       return "positive";
     }
     if (d.negativeTasks.some((t) => t.taskId === e.taskId)) {
-      if (e.drop !== undefined) violate("drop_on_negative_task", "only completed positive tasks roll for drops");
       setHp(soul, demonId, d, d.hp + rules.soul.negativeHeal, e.at, rules);
       return "negative";
     }
@@ -338,8 +354,11 @@ export function onQuestDefined(soul: SoulState, e: EventOf<"SoulQuestDefined">):
   soul.quests[e.questId] = { name: e.name, demonIds: [...e.demonIds], completedAt: null };
 }
 
-/** One attack on every linked demon that still exists; a quest completes once. */
-export function onQuestCompleted(soul: SoulState, e: EventOf<"SoulQuestCompleted">, rules: RulesConfig): void {
+/**
+ * One attack on every linked demon that still exists; a quest completes once.
+ * Returns how many demons it hit (it earns one roll per demon, under the daily cap).
+ */
+export function onQuestCompleted(soul: SoulState, e: EventOf<"SoulQuestCompleted">, rules: RulesConfig): number {
   const q = soul.quests[e.questId];
   if (!q) violate("unknown_quest", `soul quest ${e.questId} does not exist`);
   if (q.completedAt !== null) violate("quest_already_completed", "a soul quest expires when completed");
@@ -351,24 +370,107 @@ export function onQuestCompleted(soul: SoulState, e: EventOf<"SoulQuestCompleted
   for (const [id, d] of targets) attack(soul, id, d, e.at, rules);
   q.completedAt = e.at;
   syncGoldenClock(soul, rules);
+  return targets.length;
 }
 
 // ---- Drops --------------------------------------------------------------------------
 
+const GAIN_DROPS: readonly SoulDrop[] = ["gold", "qi", "item", "legendary"];
+const LOSS_DROPS: readonly SoulDrop[] = ["lose_gold", "lose_qi", "lose_item"];
+
 /**
- * Map a uniform number u in [0, 1) to a drop outcome at the given soul color.
- * The server draws u from a secure RNG and stores the outcome in the event.
+ * Whether a task of this polarity rolls at this color: positive tasks roll for
+ * gains at growth colors, negative tasks roll for losses at weakening colors.
+ * Anything else (positive at a weakening color, anything at White) rolls nothing.
  */
-export function soulDropOutcome(color: SoulColor, u: number, rules: RulesConfig): SoulDrop {
+export function soulRolls(color: SoulColor, polarity: SoulPolarity): boolean {
+  return polarity === "positive" ? isGrowth(color) : isWeakening(color);
+}
+
+/** Whether an outcome can come from a roll of this polarity ("none" always can). */
+export function dropMatchesPolarity(drop: SoulDrop, polarity: SoulPolarity): boolean {
+  return drop === "none" || (polarity === "positive" ? GAIN_DROPS : LOSS_DROPS).includes(drop);
+}
+
+/**
+ * Map a uniform number u in [0, 1) to a drop outcome for a task of this
+ * polarity at this color. The server draws u from a secure RNG and stores the
+ * outcome, inline on the task event or in a SoulDropRolled appended on sync.
+ */
+export function soulDropOutcome(color: SoulColor, polarity: SoulPolarity, u: number, rules: RulesConfig): SoulDrop {
   if (!(u >= 0 && u < 1)) throw new RangeError("u must be in [0, 1)");
+  if (!soulRolls(color, polarity)) return "none";
   const bp = Math.floor(u * 10_000);
   const odds = rules.soul.drops.oddsBp[color];
   let acc = 0;
   for (const drop of SOUL_DROP_ORDER) {
+    if (!dropMatchesPolarity(drop, polarity)) continue;
     acc += odds[drop] ?? 0;
     if (bp < acc) return drop;
   }
   return "none";
+}
+
+/**
+ * Rolls earned by a task event: `wanted` (1 for a task, one per demon hit for
+ * a quest) if the color rolls for this polarity, limited by the daily cap.
+ */
+export function earnRolls(soul: SoulState, day: number, polarity: SoulPolarity, wanted: number, rules: RulesConfig): number {
+  if (!soulRolls(soul.color, polarity)) return 0;
+  if (day !== soul.rollDay) {
+    soul.rollDay = day;
+    soul.rollsToday = 0;
+  }
+  const granted = Math.max(0, Math.min(wanted, rules.soul.drops.maxRollsPerDay - soul.rollsToday));
+  soul.rollsToday += granted;
+  return granted;
+}
+
+/**
+ * Settle a task event's earned rolls against the outcomes stored on it.
+ * Outcomes beyond what the current rules earn are ignored (so a rebalance can
+ * lower the cap without breaking old logs); missing ones stay pending until a
+ * SoulDropRolled records them. Returns the outcomes to apply.
+ */
+export function settleRolls(
+  soul: SoulState,
+  eventId: string,
+  at: number,
+  polarity: SoulPolarity,
+  earned: number,
+  stored: readonly SoulDrop[] | undefined,
+): SoulDrop[] {
+  const outcomes = stored ?? [];
+  for (const d of outcomes) {
+    if (!dropMatchesPolarity(d, polarity)) violate("drop_wrong_polarity", `a ${polarity} task can't drop ${d}`);
+  }
+  const applied = outcomes.slice(0, earned);
+  if (earned > applied.length) {
+    soul.pendingRolls[eventId] = { eventId, at, color: soul.color, polarity, count: earned - applied.length };
+  }
+  return applied;
+}
+
+/**
+ * Record the outcomes for a task event's pending rolls. Returns the outcomes
+ * to apply, or null when nothing is pending for that event (a duplicate, or a
+ * rebalance that no longer earns the roll): the caller flags it as an anomaly.
+ */
+export function onDropRolled(soul: SoulState, e: EventOf<"SoulDropRolled">): SoulDrop[] | null {
+  const p = soul.pendingRolls[e.eventId];
+  if (!p) return null;
+  for (const d of e.drops) {
+    if (!dropMatchesPolarity(d, p.polarity)) violate("drop_wrong_polarity", `a ${p.polarity} task can't drop ${d}`);
+  }
+  const applied = e.drops.slice(0, p.count);
+  p.count -= applied.length;
+  if (p.count <= 0) delete soul.pendingRolls[e.eventId];
+  return applied;
+}
+
+/** Task events with rolls still to record, oldest first: what the server rolls on sync. */
+export function pendingSoulRolls(soul: SoulState): PendingRoll[] {
+  return Object.values(soul.pendingRolls).sort((a, b) => a.at - b.at);
 }
 
 // ---- Queries ------------------------------------------------------------------------

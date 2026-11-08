@@ -19,6 +19,7 @@ import {
   demonCounts,
   initialState,
   isWeakening,
+  pendingSoulRolls,
   soulDropOutcome,
   type SoulColor,
 } from "@cultivation/rules";
@@ -85,6 +86,7 @@ interface SoulRun {
   positives: number;
   negatives: number;
   quests: number;
+  rolls: number;
   /** Net gold and Qi from soul drops. */
   dropGold: number;
   dropQi: number;
@@ -105,12 +107,22 @@ function simulateSoul(p: Persona, weeks = WEEKS): SoulRun {
   let quests = 0;
   let dropGold = 0;
   let dropQi = 0;
+  let rolls = 0;
 
-  /** Apply an event carrying a drop rolled at the current color, and tally what it paid. */
+  /**
+   * Log a task as the app does offline (no outcome), then sync as the server
+   * does: append a SoulDropRolled for every roll it earned. Tallies what the
+   * drops paid or took.
+   */
   const withDrop = (type: "SoulTaskLogged" | "SoulQuestCompleted", at: number, rest: object) => {
+    apply(mk(type, at, rest));
     const gold = s.gold;
     const qi = s.qi;
-    apply(mk(type, at, { ...rest, drop: soulDropOutcome(s.soul.color, roll(), RULES_V1) }));
+    for (const p of pendingSoulRolls(s.soul)) {
+      const drops = Array.from({ length: p.count }, () => soulDropOutcome(p.color, p.polarity, roll(), RULES_V1));
+      apply(mk("SoulDropRolled", at, { eventId: p.eventId, drops }));
+      rolls += drops.length;
+    }
     dropGold += s.gold - gold;
     dropQi += s.qi - qi;
   };
@@ -162,7 +174,7 @@ function simulateSoul(p: Persona, weeks = WEEKS): SoulRun {
       s = advanceTo(s, dayStart + 22 * HOUR);
       if (!resting()) {
         const id = ids[(w + dow) % ids.length] as string;
-        apply(mk("SoulTaskLogged", dayStart + 22 * HOUR, { taskId: `${id}-` }));
+        withDrop("SoulTaskLogged", dayStart + 22 * HOUR, { taskId: `${id}-` });
         negatives += 1;
       }
     }
@@ -180,7 +192,7 @@ function simulateSoul(p: Persona, weeks = WEEKS): SoulRun {
   }
 
   const revivals = Object.values(s.soul.demons).reduce((n, dm) => n + dm.revivals, 0);
-  return { persona: p, firstReached, final: s.soul.color, revivals, weakenedDays, peakHp, positives, negatives, quests, dropGold, dropQi, rows };
+  return { persona: p, firstReached, final: s.soul.color, revivals, weakenedDays, peakHp, positives, negatives, quests, rolls, dropGold, dropQi, rows };
 }
 
 const fmt = (w: number | undefined) => (w === undefined ? "—" : w.toFixed(1));
@@ -202,7 +214,7 @@ export function runSoulScenarios(outDir: string): void {
   const weak: SoulColor[] = ["violet", "black", "broken"];
   console.log(`\nSoul: weakening and activity (${WEEKS} weeks)\n`);
   console.log(
-    ["persona", ...weak.map((c) => `1st ${c}`), "weakened days", "peak HP", "positive tasks", "negative tasks", "quests", "drop gold", "drop Qi"].join("\t"),
+    ["persona", ...weak.map((c) => `1st ${c}`), "weakened days", "peak HP", "positive tasks", "negative tasks", "quests", "drop rolls", "drop gold", "drop Qi"].join("\t"),
   );
   for (const r of runs) {
     console.log(
@@ -214,6 +226,7 @@ export function runSoulScenarios(outDir: string): void {
         r.positives,
         r.negatives,
         r.quests,
+        r.rolls,
         r.dropGold.toFixed(0),
         r.dropQi.toFixed(0),
       ].join("\t"),

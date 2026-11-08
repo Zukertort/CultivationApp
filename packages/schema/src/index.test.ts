@@ -66,6 +66,12 @@ describe("parseEvent", () => {
     expect(() => parseEvent({ ...e, drop: "wings" })).toThrow();
   });
 
+  it("accepts a SoulDropRolled with at least one outcome", () => {
+    const r = { id: "e2", userId: "u1", at: 0, type: "SoulDropRolled", eventId: "e1" };
+    expect(parseEvent({ ...r, drops: ["gold", "none"] }).type).toBe("SoulDropRolled");
+    expect(() => parseEvent({ ...r, drops: [] })).toThrow();
+  });
+
   it("requires a soul quest to link at least two demons", () => {
     const q = { id: "e1", userId: "u1", at: 0, type: "SoulQuestDefined", questId: "q1", name: "Meditate" };
     expect(() => parseEvent({ ...q, demonIds: ["d1"] })).toThrow();

@@ -60,12 +60,15 @@ export interface SoulRules {
   renameMinHp: number;
   drops: {
     /**
-     * Odds in basis points per soul color for the one drop roll per completed
-     * soul task or quest; the rest of 10000 is "none". The doc fixes each
-     * color's total; SIM: the split of "gain/loss (items, gold or Qi)".
+     * Odds in basis points per soul color; the rest of 10000 is "none".
+     * Growth colors hold gains (rolled by positive tasks), weakening colors
+     * hold losses (rolled by negative tasks). The doc fixes each color's
+     * total; SIM: the split of "gain/loss (items, gold or Qi)".
      */
     oddsBp: Record<SoulColor, Partial<Record<Exclude<SoulDrop, "none">, number>>>;
-    /** SIM: amounts. Gains get the gold/Qi multipliers; losses don't and never go below 0. */
+    /** Drop rolls earned per local day, across tasks and quests (a quest earns one per demon hit). */
+    maxRollsPerDay: number;
+    /** SIM: amounts. Gains get the gold/Qi multipliers; losses don't and never go below 0. Gold is about one routine's worth. */
     gold: number;
     qi: number;
     loseGold: number;
@@ -134,7 +137,7 @@ export interface RulesConfig {
 }
 
 export const RULES_V1: RulesConfig = Object.freeze({
-  version: "1.3.0",
+  version: "1.4.0",
   tiers: {
     turtle: { capacity: 30, weeklyLoss: 10, goldBonus: 0.01, coreQiBonus: 0, breakthroughLegendaryChance: 0 },
     panda: { capacity: 800, weeklyLoss: 200, goldBonus: 0.1, coreQiBonus: 0, breakthroughLegendaryChance: 0 },
@@ -215,7 +218,8 @@ export const RULES_V1: RulesConfig = Object.freeze({
         black: { lose_gold: 1000 },
         broken: { lose_gold: 2000, lose_item: 500 },
       },
-      gold: 20,
+      maxRollsPerDay: 3,
+      gold: 10,
       qi: 10,
       loseGold: 20,
       loseQi: 10,

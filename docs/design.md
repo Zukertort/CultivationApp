@@ -389,4 +389,12 @@ Decisions made while implementing the rules engine. They are settled: future ses
 5. "Defeated" in the color ladder counts demons defeated right now, so a revival lowers the count.
 6. Deleted demons count as neither created nor defeated.
 7. Deleting at a weakening color raises every remaining demon by the same amount until the strongest is at 80% HP.
-8. Rest (vacation or closed-door) freezes demon growth, the 3-day grace period, the soul color and the Golden clock. The color is next evaluated at the first local midnight after the rest ends; immediate color changes (first demon, deletion at a growth color) also wait until then.
+8. Rest (vacation or closed-door) freezes only time-driven changes: demon growth, the 3-day grace period, the end-of-day color evaluation and the Golden clock. The color is next evaluated at the first local midnight after the rest ends. The cultivator's own actions apply at once, even during rest (a first demon lifts Broken to White; a deletion at a growth color drops to White).
+9. Soul drop rolls follow the task's polarity: positive tasks roll for gains at growth colors (Green to Rainbow); negative tasks roll for losses at weakening colors (Violet, Black, Broken). Positive tasks at a weakening color, negative tasks at a growth color, and any task at White roll nothing.
+10. The server rolls drops. A task logged online carries its outcome; for a task or quest logged offline, the server appends a SoulDropRolled event on sync, so offline logging can't skip a roll. The roll uses the soul color at the time of the task.
+11. At most 3 drop rolls per local day, across tasks and quests. A soul quest rolls once per linked demon it hits, under that cap.
+12. Drop gold is about one routine's worth (10 gold before bonuses). The split of each color's chance between gold, Qi and items, and the drop amounts, are simulator numbers.
+13. Violet timing stays as is: with no practice, two relapses a week on a new demon reach Violet in about 1 week and Broken in about 2.
+14. A soul quest links at least 2 demons and completes once; demons deleted after the quest was defined are skipped when it completes.
+15. Until gear exists, a gained "item" is a potion, and a lost item is a potion, never a legendary.
+16. Stored drop outcomes are never re-rolled. Under rebalanced rules, outcomes beyond what a task now earns are ignored and missing ones become pending; a SoulDropRolled with nothing pending is logged as an anomaly, never applied.

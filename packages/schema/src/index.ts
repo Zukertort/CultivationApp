@@ -118,9 +118,10 @@ export const HeartDemonDeleted = z.object({
 });
 
 /**
- * Outcome of the drop roll on a completed soul task or quest, rolled on the
- * server with `soulDropOutcome(color, u)` and stored in the event. "item" is a
- * common item (a potion until gear exists); losses take gold, Qi or an item.
+ * Outcome of a soul drop roll, rolled on the server with
+ * `soulDropOutcome(color, polarity, u)`. Positive tasks roll for gains at
+ * growth colors; negative tasks roll for losses at weakening colors. "item" is
+ * a common item (a potion until gear exists).
  */
 export const SoulDrop = z.enum(["none", "gold", "qi", "item", "legendary", "lose_gold", "lose_qi", "lose_item"]);
 
@@ -129,7 +130,10 @@ export const SoulTaskLogged = z.object({
   ...base,
   type: z.literal("SoulTaskLogged"),
   taskId: id,
-  /** Only on positive tasks. Omitted = no roll recorded. */
+  /**
+   * The roll's outcome when the server rolled it at logging time. Omitted when
+   * logged offline: the server appends a SoulDropRolled on sync instead.
+   */
   drop: SoulDrop.optional(),
 });
 
@@ -142,12 +146,28 @@ export const SoulQuestDefined = z.object({
   demonIds: z.array(id).min(2).max(20),
 });
 
-/** Completing a quest damages every linked demon once and makes one drop roll. A quest completes once. */
+/**
+ * Completing a quest damages every linked demon once and rolls once per demon
+ * hit, under the daily roll cap. A quest completes once.
+ */
 export const SoulQuestCompleted = z.object({
   ...base,
   type: z.literal("SoulQuestCompleted"),
   questId: id,
-  drop: SoulDrop.optional(),
+  /** Outcomes when rolled at logging time; omitted when logged offline (see SoulDropRolled). */
+  drops: z.array(SoulDrop).max(20).optional(),
+});
+
+/**
+ * Appended by the server on sync for a task or quest event whose earned rolls
+ * have no recorded outcome, so logging offline can't skip a roll.
+ */
+export const SoulDropRolled = z.object({
+  ...base,
+  type: z.literal("SoulDropRolled"),
+  /** The SoulTaskLogged or SoulQuestCompleted event the rolls belong to. */
+  eventId: id,
+  drops: z.array(SoulDrop).min(1).max(20),
 });
 
 // ---- Rest -------------------------------------------------------------------
@@ -190,6 +210,7 @@ export const GameEvent = z.discriminatedUnion("type", [
   SoulTaskLogged,
   SoulQuestDefined,
   SoulQuestCompleted,
+  SoulDropRolled,
   RestStarted,
   RestEnded,
   RouletteSpun,

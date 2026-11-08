@@ -10,6 +10,7 @@ import {
   advanceSoul,
   demonAlerts,
   soulDropOutcome,
+  pendingSoulRolls,
   WEEK as WEEK_MS,
   initialSoul,
   onSoulTaskLogged,
@@ -407,10 +408,32 @@ describe("rest and the soul", () => {
     expect(s.soul.colorHistory.at(-1)?.at).toBe(T0 + 6 * DAY);
   });
 
-  it("holds even the immediate changes: a first demon identified during rest lifts Broken only after rest", () => {
+  it("applies the cultivator's own actions at once: a first demon identified during rest lifts Broken immediately", () => {
     const s = replay([created, rest(T0 + H, T0 + 3 * DAY), demon("a", T0 + 2 * H)]);
-    expect(s.soul.color).toBe("broken");
-    expect(advanceTo(s, T0 + 3 * DAY).soul.color).toBe("white");
+    expect(s.soul.color).toBe("white");
+  });
+
+  it("applies a deletion's drop to White at once, even during rest", () => {
+    let s = replay(
+      byTime([
+        created,
+        demon("a", T0),
+        ...times(10, T0 + H, (at) => pos("a", at)),
+        demon("b", T0 + 7 * DAY),
+        pos("a", T0 + 2 * DAY),
+        pos("a", T0 + 4 * DAY),
+        pos("a", T0 + 6 * DAY),
+        pos("a", T0 + 8 * DAY),
+        pos("a", T0 + 10 * DAY),
+        pos("a", T0 + 12 * DAY),
+      ]),
+      RULES_V1,
+      T0 + 14 * DAY,
+    );
+    expect(s.soul.color).toBe("green");
+    s = applyEvent(s, rest(T0 + 14 * DAY + H, T0 + 17 * DAY));
+    s = applyEvent(s, ev("HeartDemonDeleted", T0 + 14 * DAY + 2 * H, { demonId: "b" }));
+    expect(s.soul.color).toBe("white");
   });
 
   it("pauses the Golden clock during rest", () => {
@@ -435,7 +458,7 @@ describe("rest and the soul", () => {
 
 describe("soul quests", () => {
   const quest = (id: string, demonIds: string[], at = T0 + 7 * DAY + H) => ev("SoulQuestDefined", at, { questId: id, name: id, demonIds });
-  const complete = (id: string, at: number, drop?: string) => ev("SoulQuestCompleted", at, { questId: id, ...(drop ? { drop } : {}) } as never);
+  const complete = (id: string, at: number) => ev("SoulQuestCompleted", at, { questId: id } as never);
 
   it("attacks every linked demon once and resets their grace periods", () => {
     const s = replay([created, demon("a", T0), demon("b", T0 + 7 * DAY), quest("q", ["a", "b"]), complete("q", T0 + 7 * DAY + 2 * H)]);
@@ -468,15 +491,59 @@ describe("soul quests", () => {
 });
 
 describe("soul drops", () => {
-  it("maps u to outcomes by the current color's odds", () => {
-    expect(soulDropOutcome("white", 0, RULES_V1)).toBe("none");
-    expect(soulDropOutcome("rainbow", 0.39, RULES_V1)).toBe("gold");
-    expect(soulDropOutcome("rainbow", 0.5, RULES_V1)).toBe("legendary");
-    expect(soulDropOutcome("rainbow", 0.6, RULES_V1)).toBe("none");
-    expect(soulDropOutcome("broken", 0.1, RULES_V1)).toBe("lose_gold");
-    expect(soulDropOutcome("broken", 0.22, RULES_V1)).toBe("lose_item");
-    expect(soulDropOutcome("broken", 0.25, RULES_V1)).toBe("none");
-    expect(() => soulDropOutcome("white", 1, RULES_V1)).toThrow(RangeError);
+  /** Green from day 1: demon a beaten on day 0. */
+  const green = () => replay([created, demon("a", T0), ...times(10, T0 + H, (at) => pos("a", at))], RULES_V1, T0 + DAY);
+  /** Violet from day 1: demon a pushed to 80% on day 0. */
+  const violet = () => replay([created, demon("a", T0), ...times(3, T0 + H, (at) => neg("a", at))], RULES_V1, T0 + DAY);
+  const task = (taskId: string, at: number, drop?: string) => ev("SoulTaskLogged", at, { taskId, ...(drop ? { drop } : {}) } as never);
+  const rolled = (eventId: string, at: number, drops: string[]) => ev("SoulDropRolled", at, { eventId, drops } as never);
+  const pendingCount = (s: CultivatorState) => pendingSoulRolls(s.soul).reduce((n, p) => n + p.count, 0);
+
+  it("maps u to outcomes by color and polarity", () => {
+    expect(soulDropOutcome("white", "positive", 0, RULES_V1)).toBe("none");
+    expect(soulDropOutcome("rainbow", "positive", 0.39, RULES_V1)).toBe("gold");
+    expect(soulDropOutcome("rainbow", "positive", 0.5, RULES_V1)).toBe("legendary");
+    expect(soulDropOutcome("rainbow", "positive", 0.6, RULES_V1)).toBe("none");
+    expect(soulDropOutcome("broken", "negative", 0.1, RULES_V1)).toBe("lose_gold");
+    expect(soulDropOutcome("broken", "negative", 0.22, RULES_V1)).toBe("lose_item");
+    expect(soulDropOutcome("broken", "negative", 0.25, RULES_V1)).toBe("none");
+    // Positive tasks at a weakening color and negative tasks at a growth color roll nothing.
+    expect(soulDropOutcome("broken", "positive", 0, RULES_V1)).toBe("none");
+    expect(soulDropOutcome("rainbow", "negative", 0, RULES_V1)).toBe("none");
+    expect(() => soulDropOutcome("white", "positive", 1, RULES_V1)).toThrow(RangeError);
+  });
+
+  it("rolls gains on positive tasks at growth colors and losses on negative tasks at weakening colors only", () => {
+    const at = T0 + DAY + H;
+    expect(pendingCount(applyEvent(replay([created, demon("a", T0)]), task("a+", T0 + H)))).toBe(0); // White
+    expect(pendingCount(applyEvent(replay([created, demon("a", T0)]), task("a-", T0 + H)))).toBe(0);
+    const g = applyEvent(green(), task("a+", at));
+    expect(pendingSoulRolls(g.soul)).toMatchObject([{ color: "green", polarity: "positive", count: 1 }]);
+    expect(pendingCount(applyEvent(green(), task("a-", at)))).toBe(0);
+    expect(pendingCount(applyEvent(violet(), task("a+", at)))).toBe(0);
+    expect(pendingSoulRolls(applyEvent(violet(), task("a-", at)).soul)).toMatchObject([{ color: "violet", polarity: "negative", count: 1 }]);
+  });
+
+  it("caps drop rolls at 3 per local day", () => {
+    let s = green();
+    for (let i = 0; i < 4; i++) s = applyEvent(s, task("a+", T0 + DAY + H + i));
+    expect(pendingCount(s)).toBe(3);
+    s = applyEvent(s, task("a+", T0 + 2 * DAY + H));
+    expect(pendingCount(s)).toBe(4);
+  });
+
+  it("rolls a quest once per linked demon, under the daily cap", () => {
+    const quest = (id: string, at: number) => ev("SoulQuestDefined", at, { questId: id, name: id, demonIds: ["a", "b"] });
+    let s = applyEvent(green(), demon("b", T0 + 7 * DAY));
+    s = advanceTo(s, T0 + 8 * DAY);
+    s = applyEvent(s, quest("q1", T0 + 8 * DAY + H));
+    s = applyEvent(s, ev("SoulQuestCompleted", T0 + 8 * DAY + H, { questId: "q1" } as never));
+    expect(s.soul.pendingRolls[`e${seq}`]?.count).toBe(2);
+    s = applyEvent(s, task("a+", T0 + 9 * DAY + H));
+    s = applyEvent(s, task("a+", T0 + 9 * DAY + H + 1));
+    s = applyEvent(s, quest("q2", T0 + 9 * DAY + 2 * H));
+    s = applyEvent(s, ev("SoulQuestCompleted", T0 + 9 * DAY + 2 * H, { questId: "q2" } as never));
+    expect(s.soul.pendingRolls[`e${seq}`]?.count).toBe(1);
   });
 
   it("keeps each color's total chance from the doc", () => {
@@ -486,22 +553,45 @@ describe("soul drops", () => {
     expect(totals).toEqual({ rainbow: 6000, translucent: 1000, golden: 800, red: 600, blue: 400, green: 200, white: 0, violet: 500, black: 1000, broken: 2500 });
   });
 
-  it("applies the stored outcome, never taking balances below 0", () => {
-    const base = replay([created, demon("a", T0)]);
-    const drop = (d: string, s: CultivatorState = base) => applyEvent(s, ev("SoulTaskLogged", T0 + H, { taskId: "a+", drop: d } as never));
-    expect(drop("gold").gold).toBeCloseTo(20 * 1.01, 9); // Turtle gold bonus applies
-    expect(drop("qi").qi).toBeCloseTo(10, 9);
-    expect(drop("item").inventory.potions).toBe(1);
-    expect(drop("legendary").inventory.legendary).toBe(1);
-    expect(drop("lose_gold").gold).toBe(0);
-    expect(drop("lose_gold", { ...base, gold: 50 }).gold).toBe(30);
-    expect(drop("lose_item").inventory.potions).toBe(0);
-    expect(drop("none").soul.drops).toEqual({ none: 1 });
+  it("applies outcomes stored on the task, never taking balances below 0", () => {
+    const at = T0 + DAY + H;
+    const gain = (d: string) => applyEvent(green(), task("a+", at, d));
+    const loss = (d: string, s: CultivatorState = violet()) => applyEvent(s, task("a-", at, d));
+    expect(gain("gold").gold).toBeCloseTo(10 * 1.01, 9); // Turtle gold bonus applies
+    expect(gain("qi").qi).toBeCloseTo(10, 9);
+    expect(gain("item").inventory.potions).toBe(1);
+    expect(gain("legendary").inventory.legendary).toBe(1);
+    expect(gain("none").soul.drops).toEqual({ none: 1 });
+    expect(pendingCount(gain("none"))).toBe(0);
+    expect(loss("lose_gold").gold).toBe(0);
+    expect(loss("lose_gold", { ...violet(), gold: 50 }).gold).toBe(30);
+    expect(loss("lose_item").inventory.potions).toBe(0);
   });
 
-  it("rolls only on completed positive tasks", () => {
-    const s = replay([created, demon("a", T0)]);
-    expect(code(() => applyEvent(s, ev("SoulTaskLogged", T0 + H, { taskId: "a-", drop: "gold" } as never)))).toBe("drop_on_negative_task");
+  it("rejects an outcome of the wrong polarity", () => {
+    expect(code(() => applyEvent(green(), task("a+", T0 + DAY + H, "lose_gold")))).toBe("drop_wrong_polarity");
+    expect(code(() => applyEvent(violet(), task("a-", T0 + DAY + H, "gold")))).toBe("drop_wrong_polarity");
+  });
+
+  it("ignores stored outcomes the task didn't earn under the current rules", () => {
+    const s = applyEvent(replay([created, demon("a", T0)]), task("a+", T0 + H, "gold")); // White earns no roll
+    expect(s.gold).toBe(0);
+    expect(s.soul.drops).toEqual({});
+  });
+
+  it("records rolls appended on sync for tasks logged offline, once", () => {
+    let s = applyEvent(green(), task("a+", T0 + DAY + H));
+    const taskId = `e${seq}`;
+    s = applyEvent(s, rolled(taskId, T0 + DAY + 2 * H, ["gold"]));
+    expect(s.gold).toBeCloseTo(10.1, 9);
+    expect(pendingCount(s)).toBe(0);
+    // A second roll for the same task is flagged, never applied.
+    s = applyEvent(s, rolled(taskId, T0 + DAY + 3 * H, ["gold"]));
+    expect(s.gold).toBeCloseTo(10.1, 9);
+    expect(s.anomalies).toEqual([{ at: T0 + DAY + 3 * H, code: "orphan_drop_roll" }]);
+    expect(code(() => applyEvent(applyEvent(green(), task("a+", T0 + DAY + H)), rolled(`e${seq}`, T0 + DAY + 2 * H, ["lose_qi"])))).toBe(
+      "drop_wrong_polarity",
+    );
   });
 });
 
