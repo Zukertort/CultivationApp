@@ -6,7 +6,9 @@ Guidance for Claude Code working in this repository.
 
 A xianxia-themed life gamification app (a deeper Habitica). The full game
 design is the *Cultivation System — Design To-Do* doc; when code and doc
-disagree, ask before changing either.
+disagree, ask before changing either. 
+
+The design spec is docs/design.md.
 
 ## Non-negotiable architecture rules
 
