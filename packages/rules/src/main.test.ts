@@ -651,7 +651,7 @@ describe("procrastination tax (rulings 31-33, 40-44)", () => {
     const s = replay(evs, RULES_V1, T0 + 6 * DAY);
     expect(s.main.taxPaid.main.ticks).toBeCloseTo(2 * (23 / 24) + 4 * (22 / 24), 9);
     // The third restore within 30 days and each one after it are flagged; archiving itself costs nothing extra.
-    expect(s.main.flags.map((f) => [f.code, f.taskId, f.at])).toEqual([3, 4, 5].map((d) => ["archive_churn", "r", T0 + d * DAY + H]));
+    expect(s.main.flags.map((f) => [f.code, f.id, f.at])).toEqual([3, 4, 5].map((d) => ["archive_churn", "r", T0 + d * DAY + H]));
     const floor = replay(evs, withRules({ tax: { ...RULES_V1.main.tax, partialPeriods: "floor" } }), T0 + 6 * DAY);
     expect(floor.main.taxPaid.main.ticks).toBe(0); // the gap the old setting left open
   });

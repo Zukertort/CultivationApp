@@ -5,6 +5,8 @@ import { useStore } from "../lib/store";
 import { Button, C, Card, Meter, Row, SOUL_HEX, Screen, T, cap, relative } from "../lib/ui";
 
 const ALERT_LABEL: Record<PushKind, string> = {
+  tribulation_deadline: "A tribulation deadline is close",
+  rest_ending: "The rest ends",
   quest_deadline: "A quest deadline is close",
   soul_broken: "A demon passes 90%: the soul breaks",
   demon_near_revival: "A defeated demon nears revival",

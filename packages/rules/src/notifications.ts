@@ -7,21 +7,44 @@
 import { RULES_V1, type RulesConfig } from "./config.js";
 import { companionAlertAt, demonAlerts, type CultivatorState, type DemonAlertKind } from "./engine.js";
 import { questDeadlineAlerts } from "./main.js";
+import { tribulationDeadlineAlerts } from "./tribulation.js";
 import { DAY, localDay } from "./time.js";
 
-export type PushKind = "quest_deadline" | "soul_broken" | "demon_near_revival" | "demon_near_violet" | "companion_hungry";
+export type PushKind =
+  | "tribulation_deadline"
+  | "rest_ending"
+  | "quest_deadline"
+  | "soul_broken"
+  | "demon_near_revival"
+  | "demon_near_violet"
+  | "companion_hungry";
 
 export interface PushAlert {
   kind: PushKind;
   at: number;
   demonId?: string;
   questId?: string;
-  /** Hours left before a quest deadline. */
+  tribulationId?: string;
+  /** Hours left before a quest or tribulation deadline. */
   hoursLeft?: number;
 }
 
-/** Most urgent first, in the doc's order (tribulation deadlines and equipment come later). */
-const PRIORITY: readonly PushKind[] = ["quest_deadline", "soul_broken", "demon_near_revival", "demon_near_violet", "companion_hungry"];
+/** Most urgent first, in the doc's order (equipment comes with gear). The return date is never crowded out. */
+const PRIORITY: readonly PushKind[] = [
+  "tribulation_deadline",
+  "rest_ending",
+  "quest_deadline",
+  "soul_broken",
+  "demon_near_revival",
+  "demon_near_violet",
+  "companion_hungry",
+];
+
+/** What still pushes during a rest: tribulation deadlines keep running on vacation; closed-door rest mutes everything. */
+const DURING_REST: Record<"vacation" | "closed_door", readonly PushKind[]> = {
+  vacation: ["tribulation_deadline"],
+  closed_door: [],
+};
 
 const FROM_DEMON: Partial<Record<DemonAlertKind, PushKind>> = {
   broken: "soul_broken",
@@ -31,14 +54,20 @@ const FROM_DEMON: Partial<Record<DemonAlertKind, PushKind>> = {
 
 /**
  * Push alerts from `now` to the scheduling horizon, at most
- * `maxPerDay` per local day, keeping the most urgent of each day.
+ * `maxPerDay` per local day, keeping the most urgent of each day. During the
+ * current rest only tribulation deadlines push (on vacation), plus the
+ * return date when the rest ends.
  */
 export function pushAlertPlan(state: CultivatorState, now: number, rules: RulesConfig = RULES_V1): PushAlert[] {
   const n = rules.notifications;
   const until = now + n.horizonDays * DAY;
   const candidates: PushAlert[] = [];
 
+  for (const t of tribulationDeadlineAlerts(state, rules)) {
+    candidates.push({ kind: "tribulation_deadline", at: t.at, tribulationId: t.tribulationId, hoursLeft: t.hoursLeft });
+  }
   for (const q of questDeadlineAlerts(state, rules)) candidates.push({ kind: "quest_deadline", at: q.at, questId: q.questId, hoursLeft: q.hoursLeft });
+  if (state.rest) candidates.push({ kind: "rest_ending", at: state.rest.end });
   const hungry = companionAlertAt(state, n.companionHungryFraction, rules);
   if (hungry !== null) candidates.push({ kind: "companion_hungry", at: hungry });
   for (const a of demonAlerts(state, rules)) {
@@ -47,8 +76,10 @@ export function pushAlertPlan(state: CultivatorState, now: number, rules: RulesC
   }
 
   const byDay = new Map<number, PushAlert[]>();
+  const rest = state.rest;
   for (const c of candidates) {
     if (c.at < now || c.at > until) continue;
+    if (rest && c.at < rest.end && !DURING_REST[rest.kind].includes(c.kind)) continue;
     const day = localDay(c.at, state.tzOffsetMinutes);
     byDay.set(day, [...(byDay.get(day) ?? []), c]);
   }

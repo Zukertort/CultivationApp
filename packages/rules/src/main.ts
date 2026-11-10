@@ -100,11 +100,18 @@ export interface PendingQuestRoll {
   chance: number;
 }
 
-/** Integrity log entries (ruling 48): shown to the cultivator, never penalized. */
+/**
+ * Integrity log entries, shown to the cultivator and never penalized:
+ * repeated archive-and-restore (ruling 48), and tribulation edits, deletions
+ * and self-reported claims (ruling 71).
+ */
 export interface IntegrityFlag {
   at: number;
-  code: "archive_churn";
-  taskId: string;
+  code: "archive_churn" | "tribulation_edited" | "tribulation_deleted" | "tribulation_claimed";
+  /** The task or tribulation. */
+  id: string;
+  /** For tribulation edits, the price paid: "free", "early", "late" or "failed". */
+  detail?: string;
 }
 
 export interface PathClock {
@@ -306,7 +313,7 @@ interface RestLike {
 
 /** A deadline, pushed back by an ongoing closed-door rest (vacation keeps deadlines; ruling 30). */
 export function effectiveDeadline(due: Due, rest: RestLike | null, clock: number): number {
-  if (rest?.kind === "closed_door" && due.deadline > rest.start) {
+  if (rest?.kind === "closed_door" && due.deadline >= rest.start) {
     return due.deadline + Math.max(0, clock - Math.max(rest.start, due.definedAt));
   }
   return due.deadline;
@@ -703,7 +710,7 @@ export function onTaskRestored(s: CultivatorState, e: EventOf<"MainTaskRestored"
   if (st === "archived") {
     const c = rules.main.archiveChurn;
     t.restoredAt = [...t.restoredAt.filter((at) => at > e.at - c.windowDays * DAY), e.at];
-    if (t.restoredAt.length >= c.restores) s.main.flags.push({ at: e.at, code: "archive_churn", taskId: e.taskId });
+    if (t.restoredAt.length >= c.restores) s.main.flags.push({ at: e.at, code: "archive_churn", id: e.taskId });
   }
   const lineage = s.main.lineages[t.key]!;
   const old = t.recurring;
@@ -825,7 +832,7 @@ export function shiftDeadlinesAfterRest(s: CultivatorState, rest: RestLike, end:
   if (rest.kind !== "closed_door") return;
   const m = s.main;
   const shift = (due: Due) => {
-    if (due.deadline > rest.start) due.deadline += Math.max(0, end - Math.max(rest.start, due.definedAt));
+    if (due.deadline >= rest.start) due.deadline += Math.max(0, end - Math.max(rest.start, due.definedAt));
   };
   for (const t of Object.values(m.tasks)) if (t.due && t.status === "open") shift(t.due);
   for (const q of Object.values(m.quests)) if (q.completedAt === null) shift(q.due);

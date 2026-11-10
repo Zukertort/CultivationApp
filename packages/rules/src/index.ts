@@ -6,3 +6,4 @@ export * from "./time.js";
 export * from "./notifications.js";
 export * from "./economy.js";
 export * from "./main.js";
+export * from "./tribulation.js";
