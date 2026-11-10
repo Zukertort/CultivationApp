@@ -384,6 +384,8 @@ Items found while implementing; each waits for a decision or a later part.
 - [ ] Revoking a false tribulation claim
 - [ ] The LLM review on tribulation claims, and the verified vs self-reported badge
 - [ ] Linking a quest to a tribulation as its preparation
+- [ ] Integrity-log entry when closed-door rest starts within 72 hours of a tribulation deadline (visible, not penalized)
+- [ ] Part 3 must restrict tribulation item rolls to tribulations that count toward the current realm (ruling 68); the daily-24h-tribulation persona earns 4x the honest rolls under the 7-day cap alone
 
 ## Rulings
 
@@ -468,3 +470,4 @@ Decisions made while implementing the rules engine. They are settled: future ses
 69. A claim counts as Main activity; declaring, editing and rescheduling don't. A claim carries the oath "I solemnly swear I have passed this tribulation.", optional evidence references (file, link or photo) and an LLM review marker. There is no LLM yet, so the marker is "skipped".
 70. Closed-door rest pushes tribulation deadlines back like any deadline (up to 14 days at a time and 30 days a quarter), with no extra limit; the simulator measures the maximum delay. Vacation keeps them.
 71. Tribulation edits, deletions and claims are recorded in the integrity log.
+72. Accepted choices from Main part 2: a closed-door rest started at the exact deadline extends it, for tribulations and tasks alike, since that is the last moment a claim or completion is allowed; editing a failed tribulation costs 20 Qi; the free first hour applies only after declaring, not after a reschedule; a drop stored on a claim inside the 7-day cooldown is ignored.
