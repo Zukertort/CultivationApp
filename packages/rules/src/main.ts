@@ -2,11 +2,12 @@
  * Main path, part 1: tasks, quests, repetition decay, expiry and extensions,
  * the procrastination tax on all three paths, and Qi deviation.
  *
- * Settled rules live in docs/design.md, Rulings 18-47. Nothing here is
- * random, so no outcome needs a server roll; expiry, ticks, idle tax, debt,
- * deviation and quest bonuses are all derived from time and the event log.
+ * Settled rules live in docs/design.md, Rulings 18-53. The only random
+ * outcome is a completed quest's item roll, which the server rolls and stores
+ * in the event; expiry, ticks, idle tax, debt, deviation and quest bonuses are
+ * all derived from time and the event log.
  */
-import type { Difficulty, Effort, EventOf, Period, TaskSchedule } from "@cultivation/schema";
+import type { Difficulty, Effort, EventOf, MainQuestDrop, Period, TaskSchedule } from "@cultivation/schema";
 import { RULES_V1, type MainPath, type Realm, type RepetitionRules, type RulesConfig } from "./config.js";
 import type { CultivatorState } from "./engine.js";
 import { chargeTax, earnGold, earnQi, mainQiMultiplier, trainingGoldMultiplier } from "./economy.js";
@@ -52,6 +53,10 @@ export interface MainTask {
   completions: number;
   /** Qi paid before multipliers (decay and taper included): the quest bonus input. */
   paidBaseQi: number;
+  /** "Work on this task today" (ruling 49): the last local day used, and total uses. */
+  workedOn: { day: number; uses: number };
+  /** When this task was restored from archived, for the integrity flag (ruling 48). */
+  restoredAt: number[];
 }
 
 export interface MainQuest {
@@ -73,6 +78,22 @@ export interface Lineage {
   paidToday: number;
   /** The lineage's recurring task, if any; while it is archived or ended, the age pauses. */
   recurringTaskId: string | null;
+}
+
+/** A completed quest's item roll with no recorded outcome yet; the server rolls it on sync. */
+export interface PendingQuestRoll {
+  eventId: string;
+  at: number;
+  questId: string;
+  /** Item chance from the quest's effort when it completed. */
+  chance: number;
+}
+
+/** Integrity log entries (ruling 48): shown to the cultivator, never penalized. */
+export interface IntegrityFlag {
+  at: number;
+  code: "archive_churn";
+  taskId: string;
 }
 
 export interface PathClock {
@@ -97,6 +118,12 @@ export interface MainState {
   taxPaid: Record<MainPath, { qi: number; gold: number; ticks: number; idleDays: number }>;
   deviationsEntered: number;
   comebacks: number;
+  flags: IntegrityFlag[];
+  pendingRolls: Record<string, PendingQuestRoll>;
+  /** Local day of the last earned quest roll, and quest rolls earned that day (daily cap). */
+  rollDay: number;
+  rollsToday: number;
+  drops: Record<MainQuestDrop, number>;
   /** Main Qi and gold earned from tasks and quest bonuses, bonuses included, before any debt repayment. */
   earned: { qi: number; gold: number };
 }
@@ -117,6 +144,11 @@ export function initialMain(): MainState {
     taxPaid: { main: paid(), body: paid(), soul: paid() },
     deviationsEntered: 0,
     comebacks: 0,
+    flags: [],
+    pendingRolls: {},
+    rollDay: -1,
+    rollsToday: 0,
+    drops: { none: 0, item: 0 },
     earned: { qi: 0, gold: 0 },
   };
 }
@@ -162,29 +194,68 @@ export function decayMultiplier(ageMs: number, r: RepetitionRules): number {
   return Math.max(r.floor, 1 - r.weeklyLoss * steps);
 }
 
+/** Piecewise linear through [x, y] anchors, flat before the first and past the last. */
+function interpolate(anchors: readonly (readonly [number, number])[], x: number): number {
+  const first = anchors[0]!;
+  if (x <= first[0]) return first[1];
+  for (let i = 1; i < anchors.length; i++) {
+    const [x0, y0] = anchors[i - 1]!;
+    const [x1, y1] = anchors[i]!;
+    if (x <= x1) return y0 + ((x - x0) * (y1 - y0)) / (x1 - x0);
+  }
+  return anchors[anchors.length - 1]![1];
+}
+
+/** Days of work in a set of tasks: the sum of their effort weights over one day's weight. */
+export function workDays(efforts: readonly Effort[], rules: RulesConfig = RULES_V1): number {
+  return efforts.reduce((sum, e) => sum + rules.main.effortWeight[e], 0) / rules.main.dayWeight;
+}
+
+/** The quest bonus cap for this much work (ruling 51). */
+export function questBonusCap(days: number, rules: RulesConfig = RULES_V1): number {
+  return interpolate(rules.main.questBonusCap, days);
+}
+
+/** A completed quest's item chance for this much work (ruling 52). */
+export function questDropChance(days: number, rules: RulesConfig = RULES_V1): number {
+  return interpolate(rules.main.questDrops.chance, days);
+}
+
 /**
- * Total Qi a quest pays for its members' work (ruling 38): the members' own
- * Qi times min(curve(sum of points) / sum of the members' curve values, 1 +
- * cap). Splitting a member never raises it.
+ * Total Qi a quest pays for its members' work (rulings 38, 51): the members'
+ * own Qi times min(curve(sum of points) / sum of the members' curve values,
+ * 1 + the cap for the members' days of work). The total never exceeds one
+ * task of the combined points, so splitting a member never pays more.
  */
-export function questQiRatio(memberPoints: readonly number[], rules: RulesConfig = RULES_V1): number {
+export function questQiRatio(memberPoints: readonly number[], days: number, rules: RulesConfig = RULES_V1): number {
   const own = memberPoints.reduce((sum, w) => sum + qiForPoints(w, rules), 0);
   if (own <= 0) return 1;
   const whole = qiForPoints(
     memberPoints.reduce((sum, w) => sum + w, 0),
     rules,
   );
-  return Math.max(1, Math.min(whole / own, 1 + rules.main.questBonusCap));
+  return Math.max(1, Math.min(whole / own, 1 + questBonusCap(days, rules)));
+}
+
+/**
+ * Map a uniform number u in [0, 1) to a quest's item roll. The server draws u
+ * from a secure RNG and stores the outcome in the completing event (or in a
+ * MainQuestDropRolled on sync).
+ */
+export function questDropOutcome(chance: number, u: number): MainQuestDrop {
+  if (!(u >= 0 && u < 1)) throw new RangeError("u must be in [0, 1)");
+  return u < chance ? "item" : "none";
 }
 
 // ---- Periods ----------------------------------------------------------------
 
-/** Local day, ISO week (from Monday) or calendar month containing `at`. */
+/** Local day, ISO week (from Monday), calendar month or calendar year containing `at`. */
 export function periodKey(per: Period, at: number, tz: number): number {
   const day = localDay(at, tz);
   if (per === "day") return day;
   if (per === "week") return Math.floor((day + 3) / 7); // day 0 (1970-01-01) was a Thursday
   const d = new Date(day * DAY);
+  if (per === "year") return d.getUTCFullYear();
   return d.getUTCFullYear() * 12 + d.getUTCMonth();
 }
 
@@ -192,6 +263,7 @@ export function periodKey(per: Period, at: number, tz: number): number {
 export function periodDays(per: Period, key: number): number {
   if (per === "day") return 1;
   if (per === "week") return 7;
+  if (per === "year") return (Date.UTC(key + 1, 0, 1) - Date.UTC(key, 0, 1)) / DAY;
   const y = Math.floor(key / 12);
   const m = key % 12;
   return (Date.UTC(y, m + 1, 1) - Date.UTC(y, m, 1)) / DAY;
@@ -202,6 +274,7 @@ function periodEnd(per: Period, key: number, tz: number): number {
   let startDay: number;
   if (per === "day") startDay = key + 1;
   else if (per === "week") startDay = (key + 1) * 7 - 3;
+  else if (per === "year") startDay = Math.floor(Date.UTC(key + 1, 0, 1) / DAY);
   else startDay = Math.floor(Date.UTC(Math.floor((key + 1) / 12), (key + 1) % 12, 1) / DAY);
   return startDay * DAY - tz * MINUTE;
 }
@@ -231,9 +304,11 @@ function dueStatus(due: Due, rest: RestLike | null, at: number, rules: RulesConf
   return "gone";
 }
 
+/** A milestone's own deadline, else the quest's for a quest member. */
 function taskDue(m: MainState, t: MainTask): Due | null {
+  if (t.due) return t.due;
   if (t.questId !== null) return m.quests[t.questId]?.due ?? null;
-  return t.due;
+  return null;
 }
 
 function statusAt(s: CultivatorState, t: MainTask, at: number, rules: RulesConfig): ItemStatus {
@@ -341,6 +416,8 @@ function addTask(
     completedAt: null,
     completions: 0,
     paidBaseQi: 0,
+    workedOn: { day: -1, uses: 0 },
+    restoredAt: [],
   };
   s.main.tasks[e.taskId] = task;
   if (task.recurring) s.main.lineages[key]!.recurringTaskId = e.taskId;
@@ -363,6 +440,11 @@ export function onMainQuestDefined(s: CultivatorState, e: EventOf<"MainQuestDefi
     if (keys.has(key)) violate("name_in_use", "two tasks in one quest can't share a name");
     keys.add(key);
     checkName(s, key, t.difficulty, e.at, rules);
+    // A milestone's deadline is on or before the quest's (ruling 50).
+    if (t.deadline !== undefined) {
+      if (t.deadline <= e.at) violate("deadline_in_past", "the deadline must be in the future");
+      if (t.deadline > e.deadline) violate("milestone_after_quest", "a milestone's deadline is on or before the quest's");
+    }
   }
   s.main.quests[e.questId] = {
     name: e.name,
@@ -372,7 +454,9 @@ export function onMainQuestDefined(s: CultivatorState, e: EventOf<"MainQuestDefi
     completedAt: null,
     bonusQi: 0,
   };
-  for (const t of e.tasks) addTask(s, { ...t, at: e.at }, null, e.questId);
+  for (const t of e.tasks) {
+    addTask(s, { ...t, at: e.at }, t.deadline === undefined ? null : { kind: "once", deadline: t.deadline }, e.questId);
+  }
 }
 
 export function onTaskCompleted(s: CultivatorState, e: EventOf<"MainTaskCompleted">, rules: RulesConfig): void {
@@ -428,20 +512,29 @@ export function onTaskCompleted(s: CultivatorState, e: EventOf<"MainTaskComplete
       progressComeback(s, e.at, rules);
     }
   }
-  if (t.questId !== null) settleQuest(s, t.questId, e.at, rules);
+  if (t.questId !== null) settleQuest(s, t.questId, e, rules);
 }
 
-/** When every member is completed or cancelled, the quest completes; the bonus needs no cancellation. */
-function settleQuest(s: CultivatorState, questId: string, at: number, rules: RulesConfig): void {
+/**
+ * When every member is completed or cancelled, the quest completes. With no
+ * member cancelled, it pays the bonus and earns one item roll, under the
+ * daily roll cap (ruling 52).
+ */
+function settleQuest(s: CultivatorState, questId: string, e: { id: string; at: number; questDrop?: MainQuestDrop | undefined }, rules: RulesConfig): void {
   const m = s.main;
   const q = m.quests[questId]!;
   if (q.completedAt !== null) return;
   const members = q.taskIds.map((id) => m.tasks[id]!);
   if (members.some((t) => t.status !== "completed" && t.status !== "cancelled")) return;
-  q.completedAt = at;
+  q.completedAt = e.at;
   if (q.forfeited) return;
+  const days = workDays(
+    members.map((t) => t.effort),
+    rules,
+  );
   const ratio = questQiRatio(
     members.map((t) => workPoints(t.difficulty, t.effort, rules)),
+    days,
     rules,
   );
   const paid = members.reduce((sum, t) => sum + t.paidBaseQi, 0);
@@ -449,6 +542,41 @@ function settleQuest(s: CultivatorState, questId: string, at: number, rules: Rul
   const qi = q.bonusQi * mainQiMultiplier(s, rules);
   earnQi(s, qi);
   m.earned.qi += qi;
+
+  const day = localDay(e.at, s.tzOffsetMinutes);
+  if (m.rollDay !== day) {
+    m.rollDay = day;
+    m.rollsToday = 0;
+  }
+  if (m.rollsToday >= rules.main.questDrops.maxRollsPerDay) return;
+  m.rollsToday += 1;
+  // An outcome stored without an earned roll (e.g. after a rebalance) is ignored, as for soul drops.
+  if (e.questDrop !== undefined) applyQuestDrop(s, e.questDrop);
+  else m.pendingRolls[e.id] = { eventId: e.id, at: e.at, questId, chance: questDropChance(days, rules) };
+}
+
+/** An item is a potion until gear exists. */
+function applyQuestDrop(s: CultivatorState, drop: MainQuestDrop): void {
+  s.main.drops[drop] += 1;
+  if (drop === "item") s.inventory.potions += 1;
+}
+
+/**
+ * Record a pending quest roll's outcome. Returns false when nothing is
+ * pending for that event (a duplicate, or a rebalance that no longer earns
+ * the roll): the caller flags it as an anomaly.
+ */
+export function onQuestDropRolled(s: CultivatorState, e: EventOf<"MainQuestDropRolled">): boolean {
+  const p = s.main.pendingRolls[e.eventId];
+  if (!p) return false;
+  delete s.main.pendingRolls[e.eventId];
+  applyQuestDrop(s, e.drop);
+  return true;
+}
+
+/** Quest-completing events whose item roll is still to record, oldest first: what the server rolls on sync. */
+export function pendingQuestRolls(state: CultivatorState): PendingQuestRoll[] {
+  return Object.values(state.main.pendingRolls).sort((a, b) => a.at - b.at);
 }
 
 function progressComeback(s: CultivatorState, at: number, rules: RulesConfig): void {
@@ -479,7 +607,7 @@ export function onTaskCancelled(s: CultivatorState, e: EventOf<"MainTaskCancelle
   t.status = "cancelled";
   if (t.questId !== null) {
     s.main.quests[t.questId]!.forfeited = true;
-    settleQuest(s, t.questId, e.at, rules);
+    settleQuest(s, t.questId, e, rules);
   }
 }
 
@@ -499,6 +627,13 @@ export function onTaskRestored(s: CultivatorState, e: EventOf<"MainTaskRestored"
   if (st !== "archived" && st !== "ended") violate("not_archived", "only an archived or ended task can be restored");
   checkSchedule(e.schedule, e.at, rules);
   checkName(s, t.key, t.difficulty, e.at, rules, e.taskId);
+  // Repeated archive-and-restore is flagged in the integrity log; there is no archive tax (ruling 48).
+  // Reaching an end date isn't a delete, so restoring an ended task never counts.
+  if (st === "archived") {
+    const c = rules.main.archiveChurn;
+    t.restoredAt = [...t.restoredAt.filter((at) => at > e.at - c.windowDays * DAY), e.at];
+    if (t.restoredAt.length >= c.restores) s.main.flags.push({ at: e.at, code: "archive_churn", taskId: e.taskId });
+  }
   const lineage = s.main.lineages[t.key]!;
   const old = t.recurring;
   t.status = "open";
@@ -525,10 +660,14 @@ export function onItemExtended(s: CultivatorState, e: EventOf<"MainItemExtended"
     const t = m.tasks[e.itemId];
     if (!t) violate("unknown_task", `task ${e.itemId} does not exist`);
     if (t.recurring) violate("no_extension_for_recurring", "recurring tasks never expire");
-    if (t.questId !== null) violate("extend_the_quest", "extend the quest; its unfinished tasks follow");
+    if (t.questId !== null && !t.due) violate("extend_the_quest", "extend the quest; its unfinished tasks follow");
     if (t.status !== "open") violate(`task_${t.status}`, `the task is ${t.status}`);
     due = t.due!;
     points = workPoints(t.difficulty, t.effort, rules);
+    // A milestone's extension stays on or before its quest's deadline (ruling 50).
+    if (t.questId !== null && e.until > effectiveDeadline(m.quests[t.questId]!.due, s.rest, e.at)) {
+      violate("milestone_after_quest", "a milestone's deadline is on or before the quest's; extend the quest first");
+    }
   } else {
     const q = m.quests[e.itemId];
     if (!q) violate("unknown_quest", `quest ${e.itemId} does not exist`);
@@ -551,6 +690,34 @@ export function onItemExtended(s: CultivatorState, e: EventOf<"MainItemExtended"
   s.gold -= price;
   due.deadline = e.until;
   due.extended = true;
+}
+
+/**
+ * "Work on this task today" (ruling 49): once per task per local day, for
+ * one-time tasks of day or project effort (up to a total cap by effort) and
+ * recurring tasks per week or longer. Main activity; pays nothing.
+ */
+export function onTaskWorkedOn(s: CultivatorState, e: EventOf<"MainTaskWorkedOn">, rules: RulesConfig): void {
+  const t = s.main.tasks[e.taskId];
+  if (!t) violate("unknown_task", `task ${e.taskId} does not exist`);
+  const st = statusAt(s, t, e.at, rules);
+  if (st !== "open") violate(`task_${st}`, `the task is ${st}`);
+  const w = rules.main.workOn;
+  const cap = w.capByEffort[t.effort];
+  if (t.recurring) {
+    if (!(w.recurringPeriods as readonly Period[]).includes(t.recurring.per)) {
+      violate("work_on_not_allowed", "only recurring tasks per week or longer can be worked on without completing");
+    }
+  } else if (cap === undefined) {
+    violate("work_on_not_allowed", "only day- or project-sized tasks can be worked on without completing");
+  }
+  const day = localDay(e.at, s.tzOffsetMinutes);
+  if (t.workedOn.day === day) violate("already_worked_today", "a task can be worked on once a day");
+  if (!t.recurring && t.workedOn.uses >= cap!) {
+    violate("work_on_cap", "this task has used all its work days; complete it or split it into milestones");
+  }
+  t.workedOn = { day, uses: t.workedOn.uses + 1 };
+  markActivity(s.main, "main", e.at);
 }
 
 /** Closed-door rest pushes open deadlines back by the time spent inside (ruling 30). */

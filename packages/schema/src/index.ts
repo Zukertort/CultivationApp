@@ -191,10 +191,11 @@ export const InterviewAnswered = z.object({
 export const Difficulty = z.enum(["trivial", "easy", "mid", "hard", "deadly"]);
 /** Self-rated and locked at creation: quick (<30 min), session (~1-2 h), day, project (several days). */
 export const Effort = z.enum(["quick", "session", "day", "project"]);
-export const Period = z.enum(["day", "week", "month"]);
+/** Local day, ISO week (from Monday), calendar month or calendar year. */
+export const Period = z.enum(["day", "week", "month", "year"]);
 
 /** Most completions a recurring task can ask for in a period (at most 2 a day). */
-export const MAX_PER_PERIOD = { day: 2, week: 14, month: 62 } as const;
+export const MAX_PER_PERIOD = { day: 2, week: 14, month: 62, year: 732 } as const;
 
 const OnceSchedule = z.object({
   kind: z.literal("once"),
@@ -234,19 +235,52 @@ export const MainTaskDefined = z.object({
   schedule: TaskSchedule,
 });
 
-/** A quest bundles 2-10 new one-time tasks that share its deadline. */
+/**
+ * A quest bundles 2-10 new one-time tasks. A member without a deadline shares
+ * the quest's; one with its own deadline (on or before the quest's) is a
+ * milestone (ruling 50).
+ */
 export const MainQuestDefined = z.object({
   ...base,
   type: z.literal("MainQuestDefined"),
   questId: id,
   name: z.string().min(1).max(120),
   deadline: epochMs,
-  tasks: z.array(z.object(mainTaskFields)).min(2).max(10),
+  tasks: z.array(z.object({ ...mainTaskFields, deadline: epochMs.optional() })).min(2).max(10),
 });
+
+/** Outcome of a completed quest's item roll, rolled on the server with `questDropOutcome(chance, u)`. "item" is a potion until gear exists. */
+export const MainQuestDrop = z.enum(["none", "item"]);
 
 export const MainTaskCompleted = z.object({
   ...base,
   type: z.literal("MainTaskCompleted"),
+  taskId: id,
+  /**
+   * When this completion completes a quest: the item roll's outcome, if the
+   * server rolled it at logging time. Omitted when logged offline: the server
+   * appends a MainQuestDropRolled on sync instead.
+   */
+  questDrop: MainQuestDrop.optional(),
+});
+
+/** Appended by the server on sync for a quest-completing event whose earned roll has no recorded outcome. */
+export const MainQuestDropRolled = z.object({
+  ...base,
+  type: z.literal("MainQuestDropRolled"),
+  /** The MainTaskCompleted event that completed the quest. */
+  eventId: id,
+  drop: MainQuestDrop,
+});
+
+/**
+ * "Work on this task today" (ruling 49): for one-time tasks of day or project
+ * effort and recurring tasks per week or longer. Counts as Main activity for
+ * the idle tax and pays nothing.
+ */
+export const MainTaskWorkedOn = z.object({
+  ...base,
+  type: z.literal("MainTaskWorkedOn"),
   taskId: id,
 });
 
@@ -334,6 +368,8 @@ export const GameEvent = z.discriminatedUnion("type", [
   MainTaskArchived,
   MainTaskRestored,
   MainItemExtended,
+  MainTaskWorkedOn,
+  MainQuestDropRolled,
 ]);
 
 export type GameEvent = z.infer<typeof GameEvent>;
@@ -348,6 +384,7 @@ export type Difficulty = z.infer<typeof Difficulty>;
 export type Effort = z.infer<typeof Effort>;
 export type Period = z.infer<typeof Period>;
 export type TaskSchedule = z.infer<typeof TaskSchedule>;
+export type MainQuestDrop = z.infer<typeof MainQuestDrop>;
 
 /** Validate untrusted input (sync payloads, local DB rows) into a typed event. */
 export function parseEvent(input: unknown): GameEvent {

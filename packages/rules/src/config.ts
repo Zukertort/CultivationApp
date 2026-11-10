@@ -60,8 +60,30 @@ export interface MainRules {
   /** Simple tasks pay well in the first two realms and taper above (Qi only). */
   simpleDifficulties: readonly Difficulty[];
   simpleTaper: Record<Realm, number>;
-  /** A completed quest pays min(curve(sum of points), (1 + cap) x members' own Qi). */
-  questBonusCap: number;
+  /**
+   * A completed quest pays min(curve(sum of points), (1 + cap) x members' own
+   * Qi). The cap grows with the members' total effort in days of work (each
+   * effort weight / dayWeight), piecewise linear through these [days, cap]
+   * anchors and flat past the last (ruling 51).
+   */
+  questBonusCap: readonly (readonly [number, number])[];
+  /** Effort weight of one day of work: converts effort weights to days. */
+  dayWeight: number;
+  /**
+   * Item drops from completed quests (ruling 52): the chance by the members'
+   * total effort in days, through these [days, chance] anchors (flat past the
+   * last); server-rolled; at most maxRollsPerDay per local day. An item is a
+   * potion until gear exists.
+   */
+  questDrops: { chance: readonly (readonly [number, number])[]; maxRollsPerDay: number };
+  /**
+   * "Work on this task today" (ruling 49): once per task per local day, counts
+   * as Main activity, pays nothing. Total uses per one-time task by effort;
+   * efforts missing here can't use it.
+   */
+  workOn: { capByEffort: Partial<Record<Effort, number>>; recurringPeriods: readonly ("week" | "month" | "year")[] };
+  /** Restores of one task within windowDays that flag it in the integrity log (ruling 48). */
+  archiveChurn: { restores: number; windowDays: number };
   repetition: RepetitionRules;
   /** Paying completions per task name per local day (ruling 39). */
   maxPaidPerNamePerDay: number;
@@ -80,8 +102,9 @@ export interface MainRules {
     /** Days without activity before the idle tax starts. */
     graceDays: Record<MainPath, number>;
     /**
-     * How occurrences owed in a partly active period round (ruling 42 says
-     * "floor"). "fractional" charges the exact share instead.
+     * How occurrences owed in a partly active period count: "fractional"
+     * charges the exact share (ruling 48); "floor" rounds down, which let
+     * nightly archive-and-restore dodge a daily task.
      */
     partialPeriods: "floor" | "fractional";
   };
@@ -215,7 +238,7 @@ export interface RulesConfig {
 }
 
 export const RULES_V1: RulesConfig = Object.freeze({
-  version: "1.6.0",
+  version: "1.7.0",
   tiers: {
     turtle: { capacity: 30, weeklyLoss: 10, goldBonus: 0.01, coreQiBonus: 0, breakthroughLegendaryChance: 0 },
     panda: { capacity: 800, weeklyLoss: 200, goldBonus: 0.1, coreQiBonus: 0, breakthroughLegendaryChance: 0 },
@@ -330,7 +353,26 @@ export const RULES_V1: RulesConfig = Object.freeze({
       sovereign: 0.1,
       immortal: 0.1,
     },
-    questBonusCap: 0.5,
+    // Bands (ruling 51): about a day 2-5%, a week 10-20%, a year 30-50%; SIM: the midpoints.
+    questBonusCap: [
+      [0, 0],
+      [1, 0.035],
+      [7, 0.15],
+      [365, 0.4],
+    ],
+    dayWeight: 4,
+    // SIM: below any tribulation drop, scaled by the same effort bands.
+    questDrops: {
+      chance: [
+        [0, 0],
+        [1, 0.02],
+        [7, 0.08],
+        [365, 0.25],
+      ],
+      maxRollsPerDay: 2,
+    },
+    workOn: { capByEffort: { day: 3, project: 30 }, recurringPeriods: ["week", "month", "year"] },
+    archiveChurn: { restores: 3, windowDays: 30 },
     repetition: { fullValueWeeks: 4, weeklyLoss: 0.15, floor: 0.25 },
     maxPaidPerNamePerDay: 2,
     maxDeadlineDays: 365,
@@ -339,7 +381,7 @@ export const RULES_V1: RulesConfig = Object.freeze({
       main: { qi: 5, gold: 5 },
       sideFraction: 0.2,
       graceDays: { main: 3, body: 7, soul: 7 },
-      partialPeriods: "floor",
+      partialPeriods: "fractional",
     },
     debtCap: { qi: 50, gold: 50 },
     comeback: { tasks: 3, minDifficulty: "easy", windowDays: 3 },

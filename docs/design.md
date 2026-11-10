@@ -212,7 +212,7 @@ Qi pays for breakthroughs and gold buys gear and rest; repeated tasks pay less e
 - [ ] Armor reduces Qi losses (e.g., 10 fewer lost); weapons add to Qi gains (e.g., +10); potions boost gold and Qi gains; legendary items boost more
 - [ ] Items are locked to the current realm; on breakthrough, equipped gear levels up with the cultivator
 - [ ] Potions that raise the chance of gear turning legendary when it levels up at a breakthrough
-- [ ] Rare drops on quest completion to keep a variable-reward element
+- [x] Rare drops on quest completion to keep a variable-reward element *(Main part 1: one server-rolled item roll per completed quest, scaled by its effort; an item is a potion until gear exists. See Ruling 52.)*
 - [ ] Economy simulator: a year of synthetic behavior to check inflation, pacing and the numbers flagged across this doc
 
 **Gaps**
@@ -342,7 +342,7 @@ The oath sets the tone; pre-commitment and visible logs do the actual work.
 - [ ] &#91;v1\] The Qi Condensation interview is the onboarding: interests for Main, Body and Soul (see Main)
 - [ ] &#91;v1\] First companion: a Turtle at 50% food
 - [ ] &#91;v1\] The soul starts Broken until the first heart demon and its counter tasks are identified
-- [ ] Integrity log: every override, criteria edit, demon deletion or rename, and self-reported claim on one screen
+- [ ] Integrity log: every override, criteria edit, demon deletion or rename, and self-reported claim on one screen *(Main part 1 records repeated archive-and-restore as `archive_churn` flags; the screen waits for the app.)*
 
 ## Data and architecture requirements
 
@@ -422,13 +422,19 @@ Decisions made while implementing the rules engine. They are settled: future ses
 35. Bonuses: the fitness tier's Qi bonus applies only to Main tasks and quests; the pose Qi bonus applies to all Qi gains; the tier gold bonus applies only to Main and Body gold, never to soul drops, the roulette or anything else.
 36. The server checks each event's timestamp against when it was received; the rules engine trusts `at`.
 37. Repetition decay never resets at a level-up or a realm breakthrough. Only a new named version starts fresh.
-38. Payouts use work points: difficulty points (trivial 1, easy 2, mid 4, hard 8, deadly 16) times an effort weight (quick 0.25, session 1, day 4, project 16). Qi follows a convex curve of the points through 1, 3, 8, 20 and 50 Qi at 1, 2, 4, 8 and 16 points, so one task always pays at least as much as the same work in pieces. Gold is linear in the points. A completed quest's total Qi is the lower of the curve at the members' combined points and 1.5 times the members' own Qi; the completion bonus is the difference. This replaces the +10% per task bonus, which rewarded splitting.
+38. Payouts use work points: difficulty points (trivial 1, easy 2, mid 4, hard 8, deadly 16) times an effort weight (quick 0.25, session 1, day 4, project 16). Qi follows a convex curve of the points through 1, 3, 8, 20 and 50 Qi at 1, 2, 4, 8 and 16 points, so one task always pays at least as much as the same work in pieces. Gold is linear in the points. A completed quest's total Qi is the lower of the curve at the members' combined points and 1.5 times the members' own Qi; the completion bonus is the difference. This replaces the +10% per task bonus, which rewarded splitting. *(The 1.5 cap is replaced by ruling 51.)*
 39. "At most 2 a day" applies to weekly and monthly tasks too, and to one-time tasks sharing a name: a name pays at most 2 completions per local day. A completion over either cap neither pays nor counts as an occurrence. Periods are the local day, the ISO week (from Monday) and the calendar month.
 40. A missed occurrence costs Main's daily tax times (days in the period / the task's count), so missing a task's whole schedule costs about one idle day per day for each task.
 41. Only active recurring tasks replace Main's idle rule; one-time tasks don't. A day with an active recurring task is never charged idle tax as well.
-42. In a partly active period (created, archived, ended or resting during it), the occurrences owed are the count times the active share of the period, rounded down. Archiving just before a period ends still owes the share already due.
+42. In a partly active period (created, archived, ended or resting during it), the occurrences owed are the count times the active share of the period, rounded down. Archiving just before a period ends still owes the share already due. *(Rounding amended by ruling 48: the exact share is owed.)*
 43. Only recurring tasks are archived and restored; deleting a one-time task cancels it (it pays nothing, and its name keeps its history). A name has at most one open task. A recurring task past its end date counts as archived. Cancelling a quest member forfeits the quest's bonus.
 44. The InterviewAnswered event, emitted when the Qi Condensation interview is answered (the early level), starts the tax clocks of all three paths at once. Answering again changes only the interests.
-45. Quest members are one-time tasks that share the quest's deadline; a recurring task can't join a quest.
+45. Quest members are one-time tasks that share the quest's deadline; a recurring task can't join a quest. *(Amended by ruling 50: a member may have its own earlier deadline.)*
 46. Restoring is an explicit event: the restored task keeps its difficulty, effort and decay history and takes the new schedule. Defining a task with an archived task's name is rejected, so the log always shows the restore.
 47. Every number from Main part 1 is provisional and will be revisited after dogfooding.
+48. Partial periods charge the exact share of the occurrences owed, not a rounded-down count, so archiving a task overnight still owes the hours it was active. Archiving costs nothing beyond that. Restoring the same task 3 or more times within 30 days is flagged in the integrity log. Completing a one-time task, or a recurring task reaching its end date, is never a delete.
+49. "Work on this task today" counts as Main activity for the idle tax and pays nothing. It is allowed once per task per local day, on one-time tasks rated day or project effort and on recurring tasks whose period is a week or longer. A one-time task allows at most 3 uses (day effort) or 30 (project effort); after that it must be completed or split into milestones. The app suggests a milestone quest when someone creates a project-sized task.
+50. A quest member may have its own deadline, on or before the quest's, so a quest can hold milestones. A milestone expires on its own and can buy its own extension, never past the quest's deadline; a member without a deadline follows the quest's. Recurring tasks can also run per calendar year.
+51. A quest's bonus cap scales with its members' total effort in days of work (quick 1/16, session 1/4, day 1, project 4), not with its deadline: about 3.5% for a day of work, 15% for a week and 40% for a year, linear in between and flat beyond. When creating a quest, the app shows: "Quests are only for related tasks (related by time or topic)."
+52. The realm taper applies to Qi only, and quests pay no gold bonus. A completed quest without a cancelled member earns one item roll: rolled on the server and stored in the event, at a chance scaled by the same effort bands (about 2% for a day of work, 8% for a week, 25% for a year), always below a tribulation's, and at most 2 quest rolls per local day. Until gear exists, an item is a potion.
+53. Finished one-time tasks will be dropped from the replayed state in a later change; the name's decay history keeps what matters.

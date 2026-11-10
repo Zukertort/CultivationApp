@@ -10,14 +10,19 @@ import {
   goldForPoints,
   mainQuestStatus,
   mainTaskStatus,
+  pendingQuestRolls,
   periodProgress,
   pushAlertPlan,
   qiForPoints,
+  questBonusCap,
   questDeadlineAlerts,
+  questDropChance,
+  questDropOutcome,
   questQiRatio,
   replay,
   staleTasks,
   taxForecast,
+  workDays,
   workPoints,
   type CultivatorState,
   type RulesConfig,
@@ -137,7 +142,7 @@ describe("splitting never pays more (ruling 27)", () => {
   });
 
   it("never raises a quest's total by splitting a member, and never beats one task of the combined work", () => {
-    const total = (members: number[]) => members.reduce((sum, w) => sum + qiForPoints(w), 0) * questQiRatio(members);
+    const total = (members: number[], days = 365) => members.reduce((sum, w) => sum + qiForPoints(w), 0) * questQiRatio(members, days);
     for (const x of grid) {
       for (const y of grid) {
         const members = [x, y];
@@ -162,7 +167,7 @@ describe("splitting never pays more (ruling 27)", () => {
       ["t1", "trivial", "session"],
       ["t2", "trivial", "session"],
     ]);
-    expect(whole).toBeCloseTo(57.5, 9);
+    expect(whole).toBeCloseTo(53 * (1 + 0.035 / 2), 9); // half a day of work: the cap, not the curve, binds
     expect(split).toBeLessThanOrEqual(whole + 1e-9);
   });
 
@@ -178,7 +183,7 @@ describe("splitting never pays more (ruling 27)", () => {
     expect(sessions).toBe(80);
   });
 
-  it("pays a quest of two mids the same as one hard task, not more", () => {
+  it("pays a same-day quest of two mids a small bonus, below one hard task", () => {
     const hard = replay([created, once("h", T0, T0 + DAY, "hard"), complete("h", T0 + H)]).qi;
     const asQuest = replay([
       created,
@@ -190,7 +195,87 @@ describe("splitting never pays more (ruling 27)", () => {
       complete("b", T0 + 2 * H),
     ]).qi;
     expect(hard).toBe(20);
-    expect(asQuest).toBeCloseTo(20, 9);
+    expect(asQuest).toBeCloseTo(16 * 1.0175, 9); // 2 sessions = half a day: cap 1.75%
+  });
+});
+
+describe("quest bonus and item drops by effort (rulings 51-52)", () => {
+  it("scales the bonus cap with the members' days of work, not the deadline", () => {
+    expect(workDays(["session", "session"])).toBe(0.5);
+    expect(workDays(["project", "project"])).toBe(8);
+    expect(questBonusCap(1)).toBeCloseTo(0.035, 9);
+    expect(questBonusCap(7)).toBeCloseTo(0.15, 9);
+    expect(questBonusCap(365)).toBeCloseTo(0.4, 9);
+    expect(questBonusCap(4)).toBeCloseTo(0.035 + (3 / 6) * 0.115, 9);
+    expect(questBonusCap(1000)).toBeCloseTo(0.4, 9);
+    // The same two tasks pay the same bonus with a near or a far deadline.
+    const pay = (deadline: number) =>
+      replay([
+        created,
+        quest("q", T0, deadline, [
+          ["a", "mid", "day"],
+          ["b", "mid", "day"],
+        ]),
+        complete("a", T0 + H),
+        complete("b", T0 + 2 * H),
+      ]).main.quests.q!.bonusQi;
+    expect(pay(T0 + 2 * DAY)).toBeCloseTo(pay(T0 + 300 * DAY), 9);
+    expect(pay(T0 + 2 * DAY)).toBeCloseTo(100 * (0.035 + (1 / 6) * 0.115), 9); // 2 days of work; the curve alone would give +10%
+  });
+
+  it("caps a daily bundle of unrelated sessions at a few percent", () => {
+    const tasks: [string, Difficulty, Effort][] = [
+      ["read", "mid", "session"],
+      ["write", "mid", "session"],
+      ["solve", "mid", "session"],
+    ];
+    const s = replay([created, quest("q", T0, T0 + DAY, tasks), ...tasks.map(([id], i) => complete(id, T0 + (i + 1) * H))]);
+    expect(s.qi).toBeCloseTo(24 * (1 + 0.035 * 0.75), 9);
+  });
+
+  it("maps the server's roll to an item at the effort band's chance", () => {
+    expect(questDropChance(0.5)).toBeCloseTo(0.01, 9);
+    expect(questDropChance(7)).toBeCloseTo(0.08, 9);
+    expect(questDropOutcome(0.08, 0.079)).toBe("item");
+    expect(questDropOutcome(0.08, 0.08)).toBe("none");
+    expect(() => questDropOutcome(0.08, 1)).toThrow(RangeError);
+  });
+
+  const q2 = (id: string, at: number): GameEvent[] => [
+    quest(id, at, at + DAY, [
+      [`${id}a`, "mid", "session"],
+      [`${id}b`, "easy", "session"],
+    ]),
+    complete(`${id}a`, at + H),
+  ];
+
+  it("applies a stored drop as a potion, and leaves an offline completion pending until the server rolls it", () => {
+    const s = replay([created, ...q2("q", T0)]);
+    const online = apply(s, ev("MainTaskCompleted", T0 + 2 * H, { taskId: "qb", questDrop: "item" }));
+    expect(online.inventory.potions).toBe(1);
+    expect(pendingQuestRolls(online)).toEqual([]);
+    const offline = apply(s, ev("MainTaskCompleted", T0 + 2 * H, { taskId: "qb" }));
+    const [pending] = pendingQuestRolls(offline);
+    expect(pending).toMatchObject({ questId: "q", chance: questDropChance(0.5) });
+    const rolled = apply(offline, ev("MainQuestDropRolled", T0 + 3 * H, { eventId: pending!.eventId, drop: "item" }));
+    expect(rolled.inventory.potions).toBe(1);
+    expect(pendingQuestRolls(rolled)).toEqual([]);
+    // A second roll for the same event is flagged, never applied.
+    const dup = apply(rolled, ev("MainQuestDropRolled", T0 + 4 * H, { eventId: pending!.eventId, drop: "item" }));
+    expect(dup.inventory.potions).toBe(1);
+    expect(dup.anomalies.map((a) => a.code)).toEqual(["orphan_quest_drop_roll"]);
+  });
+
+  it("rolls at most 2 quests a day, and never a forfeited quest", () => {
+    const evs: GameEvent[] = [created];
+    for (const [id, h] of [["x", 2], ["y", 5], ["z", 8]] as const) {
+      evs.push(...q2(id, T0 + h * H), ev("MainTaskCompleted", T0 + (h + 2) * H, { taskId: `${id}b`, questDrop: "item" }));
+    }
+    const s = replay(evs);
+    expect(s.inventory.potions).toBe(2);
+    expect(s.main.drops).toEqual({ none: 0, item: 2 });
+    const forfeited = replay([created, ...q2("f", T0), ev("MainTaskCancelled", T0 + 2 * H, { taskId: "fb" })]);
+    expect(pendingQuestRolls(forfeited)).toEqual([]);
   });
 });
 
@@ -418,8 +503,9 @@ describe("quests (rulings 26, 45)", () => {
     const s = replay([created, quest("q", T0, T0 + DAY, twoTasks), complete("a", T0 + H)]);
     expect(s.qi).toBe(8);
     const done = apply(s, complete("b", T0 + 2 * H));
-    expect(done.qi).toBeCloseTo(14, 9); // curve(4 + 2 points) = 14 > 8 + 3
-    expect(done.main.quests.q!.bonusQi).toBeCloseTo(3, 9);
+    // Half a day of work caps the bonus at 1.75% (the curve alone would give 14 for 8 + 3).
+    expect(done.qi).toBeCloseTo(11 * 1.0175, 9);
+    expect(done.main.quests.q!.bonusQi).toBeCloseTo(11 * 0.0175, 9);
   });
 
   it("forfeits the bonus when a member is cancelled", () => {
@@ -522,9 +608,11 @@ describe("procrastination tax (rulings 31-33, 40-44)", () => {
     expect(s.main.taxPaid.main.idleDays).toBe(1);
   });
 
-  it("prorates partial periods, rounding down", () => {
-    const s = replay([created, interview(), recurring("r", T0 + 3 * DAY, 3, "week")], RULES_V1, T0 + 7 * DAY);
-    expect(s.main.taxPaid.main.ticks).toBe(1); // 4 of 7 days active: 3 x 4/7 = 1.7, rounded down
+  it("prorates partial periods exactly (ruling 48), or rounding down under the old floor setting", () => {
+    const evs = [created, interview(), recurring("r", T0 + 3 * DAY, 3, "week")];
+    expect(replay(evs, RULES_V1, T0 + 7 * DAY).main.taxPaid.main.ticks).toBeCloseTo(3 * (4 / 7), 9);
+    const floor = withRules({ tax: { ...RULES_V1.main.tax, partialPeriods: "floor" } });
+    expect(replay(evs, floor, T0 + 7 * DAY).main.taxPaid.main.ticks).toBe(1);
   });
 
   it("still charges what was owed when a task is archived before its period ends", () => {
@@ -533,20 +621,22 @@ describe("procrastination tax (rulings 31-33, 40-44)", () => {
       RULES_V1,
       T0 + 7 * DAY,
     );
-    expect(s.main.taxPaid.main.ticks).toBe(2); // 3 x 6.5/7 = 2.8, rounded down
+    expect(s.main.taxPaid.main.ticks).toBeCloseTo(3 * (6.5 / 7), 9);
   });
 
-  it("lets nightly archive-and-restore dodge a daily task under floor rounding, but not under fractional", () => {
+  it("charges nightly archive-and-restore its exact share, and flags the churn in the integrity log (ruling 48)", () => {
     const schedule = { kind: "recurring" as const, count: 1, per: "day" as const };
     const evs: GameEvent[] = [created, interview(), recurring("r", T0, 1, "day")];
     for (let d = 0; d < 5; d++) {
       evs.push(ev("MainTaskArchived", T0 + d * DAY + 23 * H, { taskId: "r" }));
       evs.push(ev("MainTaskRestored", T0 + (d + 1) * DAY + H, { taskId: "r", schedule }));
     }
-    const floor = replay(evs, RULES_V1, T0 + 6 * DAY);
-    expect(floor.main.taxPaid.main.ticks).toBe(0); // the open gap reported with part 1
-    const fractional = replay(evs, withRules({ tax: { ...RULES_V1.main.tax, partialPeriods: "fractional" } }), T0 + 6 * DAY);
-    expect(fractional.main.taxPaid.main.ticks).toBeCloseTo(2 * (23 / 24) + 4 * (22 / 24), 9);
+    const s = replay(evs, RULES_V1, T0 + 6 * DAY);
+    expect(s.main.taxPaid.main.ticks).toBeCloseTo(2 * (23 / 24) + 4 * (22 / 24), 9);
+    // The third restore within 30 days and each one after it are flagged; archiving itself costs nothing extra.
+    expect(s.main.flags.map((f) => [f.code, f.taskId, f.at])).toEqual([3, 4, 5].map((d) => ["archive_churn", "r", T0 + d * DAY + H]));
+    const floor = replay(evs, withRules({ tax: { ...RULES_V1.main.tax, partialPeriods: "floor" } }), T0 + 6 * DAY);
+    expect(floor.main.taxPaid.main.ticks).toBe(0); // the gap the old setting left open
   });
 
   it("never taxes a rest day and doesn't count rest toward the grace", () => {
@@ -628,5 +718,105 @@ describe("projections", () => {
     expect(questDeadlineAlerts(s).map((a) => a.hoursLeft)).toEqual([72, 48, 24, 1]);
     const plan = pushAlertPlan(s, T0);
     expect(plan.filter((a) => a.kind === "quest_deadline").map((a) => a.at)).toEqual([T0 + DAY, T0 + 2 * DAY, T0 + 3 * DAY, T0 + 4 * DAY - H]);
+  });
+});
+
+describe("work on a task today (ruling 49)", () => {
+  const work = (taskId: string, at: number) => ev("MainTaskWorkedOn", at, { taskId });
+
+  it("counts as Main activity without paying, so a multi-day project isn't taxed while worked on", () => {
+    const evs: GameEvent[] = [created, interview(), once("p", T0, T0 + 20 * DAY, "hard", "project")];
+    const idle = replay(evs, RULES_V1, T0 + 10 * DAY);
+    expect(idle.main.taxPaid.main.idleDays).toBe(7);
+    const worked = replay([...evs, work("p", T0 + 3 * DAY), work("p", T0 + 6 * DAY), work("p", T0 + 9 * DAY)], RULES_V1, T0 + 10 * DAY);
+    expect(worked.main.taxPaid.main.idleDays).toBe(0);
+    expect(worked.qi).toBe(0);
+    expect(worked.gold).toBe(0);
+  });
+
+  it("allows it once per task per local day, and only for day or project effort or recurring tasks per week or longer", () => {
+    const s = replay([
+      created,
+      once("d", T0, T0 + 5 * DAY, "mid", "day"),
+      once("s", T0, T0 + 5 * DAY, "mid", "session"),
+      recurring("daily", T0, 1, "day"),
+      recurring("weekly", T0, 1, "week", { effort: "quick" }),
+      recurring("yearly", T0, 4, "year"),
+    ]);
+    const once1 = apply(s, work("d", T0 + H));
+    expect(code(() => applyEvent(once1, work("d", T0 + 20 * H)))).toBe("already_worked_today");
+    expect(code(() => applyEvent(once1, work("d", T0 + DAY + H)))).toBeUndefined();
+    expect(code(() => applyEvent(s, work("s", T0 + H)))).toBe("work_on_not_allowed");
+    expect(code(() => applyEvent(s, work("daily", T0 + H)))).toBe("work_on_not_allowed");
+    expect(code(() => applyEvent(s, work("weekly", T0 + H)))).toBeUndefined();
+    expect(code(() => applyEvent(s, work("yearly", T0 + H)))).toBeUndefined();
+  });
+
+  it("caps total uses by effort (day 3, project 30); after that, complete or split", () => {
+    let s = replay([created, once("d", T0, T0 + 30 * DAY, "mid", "day")]);
+    for (let d = 0; d < 3; d++) s = apply(s, work("d", T0 + d * DAY + H));
+    expect(code(() => applyEvent(s, work("d", T0 + 3 * DAY + H)))).toBe("work_on_cap");
+    expect(code(() => applyEvent(s, complete("d", T0 + 3 * DAY + H)))).toBeUndefined();
+    let p = replay([created, once("p", T0, T0 + 60 * DAY, "mid", "project")]);
+    for (let d = 0; d < 30; d++) p = apply(p, work("p", T0 + d * DAY + H));
+    expect(code(() => applyEvent(p, work("p", T0 + 30 * DAY + H)))).toBe("work_on_cap");
+  });
+
+  it("rejects an expired, completed or archived task", () => {
+    const s = replay([created, once("d", T0, T0 + DAY, "mid", "day"), recurring("w", T0, 1, "week"), ev("MainTaskArchived", T0 + H, { taskId: "w" })]);
+    expect(code(() => applyEvent(s, work("d", T0 + 2 * DAY)))).toBe("task_expired");
+    expect(code(() => applyEvent(s, work("w", T0 + 2 * H)))).toBe("task_archived");
+    expect(code(() => applyEvent(apply(s, complete("d", T0 + 2 * H)), work("d", T0 + 3 * H)))).toBe("task_completed");
+  });
+});
+
+describe("milestones and the year period (ruling 50)", () => {
+  const milestones = (deadlines: (number | undefined)[]) =>
+    ev("MainQuestDefined", T0, {
+      questId: "q",
+      name: "Thesis",
+      deadline: T0 + 90 * DAY,
+      tasks: deadlines.map((deadline, i) => ({ taskId: `m${i}`, name: `Milestone ${i}`, difficulty: "hard" as const, effort: "project" as const, ...(deadline === undefined ? {} : { deadline }) })),
+    });
+
+  it("gives a member its own deadline, on or before the quest's", () => {
+    const s = replay([created, milestones([T0 + 30 * DAY, T0 + 60 * DAY, undefined])]);
+    expect(code(() => applyEvent(s, complete("m0", T0 + 31 * DAY)))).toBe("task_expired");
+    expect(code(() => applyEvent(s, complete("m1", T0 + 31 * DAY)))).toBeUndefined();
+    expect(code(() => applyEvent(s, complete("m2", T0 + 89 * DAY)))).toBeUndefined();
+    expect(code(() => applyEvent(replay([created]), milestones([T0 + 91 * DAY, undefined])))).toBe("milestone_after_quest");
+    expect(code(() => applyEvent(replay([created]), milestones([T0, undefined])))).toBe("deadline_in_past");
+  });
+
+  it("extends an expired milestone on its own, but not past the quest's deadline", () => {
+    const s = withGold(advanceTo(replay([created, milestones([T0 + 30 * DAY, undefined])]), T0 + 31 * DAY), 500);
+    const extend = (until: number) => ev("MainItemExtended", T0 + 31 * DAY, { item: "task", itemId: "m0", until });
+    expect(code(() => applyEvent(s, extend(T0 + 50 * DAY)))).toBeUndefined();
+    const short = withGold(advanceTo(replay([created, ev("MainQuestDefined", T0, { questId: "q", name: "Q", deadline: T0 + 40 * DAY, tasks: [
+      { taskId: "m0", name: "A", difficulty: "hard", effort: "project", deadline: T0 + 30 * DAY },
+      { taskId: "m1", name: "B", difficulty: "hard", effort: "project" },
+    ] })]), T0 + 31 * DAY), 500);
+    expect(code(() => applyEvent(short, extend(T0 + 41 * DAY)))).toBe("milestone_after_quest");
+    expect(code(() => applyEvent(s, ev("MainItemExtended", T0 + 31 * DAY, { item: "task", itemId: "m1", until: T0 + 100 * DAY })))).toBe("extend_the_quest");
+  });
+
+  it("shifts a milestone's deadline with closed-door rest, like any one-time deadline", () => {
+    const s = replay([created, milestones([T0 + 30 * DAY, undefined]), ev("RestStarted", T0 + DAY, { kind: "closed_door", until: T0 + 4 * DAY })], RULES_V1, T0 + 5 * DAY);
+    expect(s.main.tasks.m0!.due!.deadline).toBe(T0 + 33 * DAY);
+    expect(s.main.quests.q!.due.deadline).toBe(T0 + 93 * DAY);
+  });
+
+  it("runs a yearly recurring task on the calendar year, ticking what was missed", () => {
+    // Defined on 2 Nov 2026: 60 of 365 days remain, so 12 per year owes 12 x 60/365 by New Year.
+    const s = replay([created, interview(), recurring("y", T0, 12, "year"), complete("y", T0 + DAY)], RULES_V1, Date.UTC(2027, 0, 1, 3) + H);
+    expect(s.main.taxPaid.main.ticks).toBeCloseTo(12 * (60 / 365) - 1, 9);
+    expect(periodProgress(s, "y")).toMatchObject({ done: 0, count: 12, per: "year", endsAt: Date.UTC(2028, 0, 1, 3) });
+  });
+
+  it("never flags restoring a task that reached its end date", () => {
+    const schedule = { kind: "recurring" as const, count: 1, per: "week" as const, endsAt: T0 + 7 * DAY };
+    const evs: GameEvent[] = [created, recurring("r", T0, 1, "week", { endsAt: T0 + DAY })];
+    for (let d = 1; d <= 4; d++) evs.push(ev("MainTaskRestored", T0 + d * DAY + H, { taskId: "r", schedule: { ...schedule, endsAt: T0 + (d + 1) * DAY } }));
+    expect(replay(evs).main.flags).toEqual([]);
   });
 });

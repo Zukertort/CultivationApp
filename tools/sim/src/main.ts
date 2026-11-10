@@ -1,6 +1,6 @@
 /**
- * Main path simulator (part 1): tasks, quests, repetition decay and the
- * procrastination tax. Runs synthetic cultivators through the real rules
+ * Main path simulator (part 1): tasks, quests, repetition decay, quest item
+ * drops and the procrastination tax. Runs synthetic cultivators through the real rules
  * engine and reports what Main pays per month, what the tax takes, and
  * whether splitting or bundling work ever pays more than doing it whole.
  *
@@ -13,7 +13,19 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { OATH_TEXT, type Difficulty, type Effort, type GameEvent } from "@cultivation/schema";
-import { DAY, RULES_V1, advanceTo, applyEvent, initialState, type CultivatorState, type RulesConfig } from "@cultivation/rules";
+import {
+  DAY,
+  RULES_V1,
+  advanceTo,
+  applyEvent,
+  initialState,
+  pendingQuestRolls,
+  questBonusCap,
+  questDropOutcome,
+  workDays,
+  type CultivatorState,
+  type RulesConfig,
+} from "@cultivation/rules";
 
 const T0 = Date.UTC(2026, 10, 2, 3); // Monday 00:00 in Buenos Aires
 const HOUR = 60 * 60 * 1000;
@@ -22,7 +34,20 @@ const MONTHS = WEEKS / (52 / 12);
 
 let seq = 0;
 
+/** Seeded PRNG (mulberry32) standing in for the server's secure RNG, so runs are reproducible. */
+function rng(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
 class Runner {
+  private roll = rng(7);
   s: CultivatorState;
   rows: string[] = [];
   deviationWeeks = 0;
@@ -39,6 +64,11 @@ class Runner {
     const events = this.queue.sort((a, b) => a.at - b.at);
     this.queue = [];
     for (const e of events) this.s = applyEvent(this.s, e, this.rules);
+    // Completions are logged offline; the server rolls each completed quest's item when the day syncs.
+    for (const p of pendingQuestRolls(this.s)) {
+      const drop = questDropOutcome(p.chance, this.roll());
+      this.s = applyEvent(this.s, { id: `main${++seq}`, userId: "sim", at: this.s.clock, type: "MainQuestDropRolled", eventId: p.eventId, drop }, this.rules);
+    }
   }
   at(day: number, hour: number): number {
     return T0 + day * DAY + hour * HOUR;
@@ -61,6 +91,9 @@ class Runner {
   }
   done(taskId: string, day: number, hour: number): void {
     this.ev("MainTaskCompleted", this.at(day, hour), { taskId });
+  }
+  work(taskId: string, day: number, hour: number): void {
+    this.ev("MainTaskWorkedOn", this.at(day, hour), { taskId });
   }
 }
 
@@ -93,7 +126,43 @@ function studier(difficulty: Difficulty, names: string[], stagnant = false) {
 }
 
 
-const fractional: RulesConfig = { ...RULES_V1, main: { ...RULES_V1.main, tax: { ...RULES_V1.main.tax, partialPeriods: "fractional" } } };
+const floorRounding: RulesConfig = { ...RULES_V1, main: { ...RULES_V1.main, tax: { ...RULES_V1.main.tax, partialPeriods: "floor" } } };
+
+/** A hard, day-sized project each week, done on Saturday; optionally "worked on" on Tuesday and Thursday. */
+function weeklyProject(workOn: boolean) {
+  return (r: Runner, d: number) => {
+    const w = Math.floor(d / 7);
+    if (d % 7 === 0) r.once(`p${w}`, `Project ${w}`, d, 8, "hard", "day", 6.6);
+    if (workOn && (d % 7 === 1 || d % 7 === 3)) r.work(`p${w}`, d, 18);
+    if (d % 7 === 5) r.done(`p${w}`, d, 15);
+  };
+}
+
+/**
+ * A year goal as one quest of 10 hard, project-sized milestones, one due
+ * every 5 weeks; each is worked on Monday, Wednesday and Friday and done in its fifth week.
+ */
+function yearGoal(r: Runner, d: number) {
+  if (d === 0) {
+    const start = r.at(0, 8);
+    r.ev("MainQuestDefined", start, {
+      questId: "goal",
+      name: "Year goal",
+      deadline: start + 360 * DAY,
+      tasks: Array.from({ length: 10 }, (_, i) => ({
+        taskId: `ms${i}`,
+        name: `Milestone ${i}`,
+        difficulty: "hard",
+        effort: "project",
+        deadline: start + (i + 1) * 35 * DAY,
+      })),
+    });
+  }
+  const i = Math.floor(d / 35);
+  if (i >= 10) return;
+  if (d % 35 === 33) r.done(`ms${i}`, d, 15);
+  else if (d % 7 === 0 || d % 7 === 2 || d % 7 === 4) r.work(`ms${i}`, d, 18);
+}
 
 /** Archives the daily task at 23:00 and restores it at 01:00; never completes it. */
 function dodger(r: Runner, day: number) {
@@ -129,12 +198,14 @@ const PERSONAS: Persona[] = [
       names.forEach((n, i) => r.done(`${n}${d}`, d, 17 + i));
     },
   },
+  { label: "weekly project, hard, a day's work", plan: weeklyProject(false) },
+  { label: "weekly project, worked on Tue and Thu", plan: weeklyProject(true) },
+  { label: "year goal: 10 milestones as a quest", plan: yearGoal },
   {
-    label: "weekly project, hard, a day's work",
+    label: "fake project: far deadline, only 'works on' it",
     plan: (r, d) => {
-      const w = Math.floor(d / 7);
-      if (d % 7 === 0) r.once(`p${w}`, `Project ${w}`, d, 8, "hard", "day", 6.6);
-      if (d % 7 === 5) r.done(`p${w}`, d, 15);
+      if (d === 0) r.once("fake", "Fake project", 0, 8, "hard", "project", 364);
+      if (d % 3 === 0 && d / 3 < 30) r.work("fake", d, 18); // 30 uses, the project cap
     },
   },
   {
@@ -158,8 +229,8 @@ const PERSONAS: Persona[] = [
       if (d === 0) r.daily("chore", "Chore", 0, "mid");
     },
   },
-  { label: "archive dodger (floor rounding)", plan: dodger },
-  { label: "archive dodger (fractional)", plan: dodger, rules: fractional },
+  { label: "archive dodger (old floor rounding)", plan: dodger, rules: floorRounding },
+  { label: "archive dodger (fractional, ruling 48)", plan: dodger },
   {
     label: "quitter: 8 weeks on, 8 off, comes back",
     away: (d) => d >= 56 && d < 112,
@@ -228,7 +299,7 @@ export function runMainScenarios(outDir: string): void {
 
   console.log(`\nMain: earnings and tax per persona (${WEEKS} weeks; per month = /${n(MONTHS, 1)})\n`);
   console.log(
-    ["persona", "Main Qi/mo", "Main gold/mo", "tax Qi main", "tax Qi body", "tax Qi soul", "ticks", "idle days", "1st deviation wk", "weeks in deviation", "comebacks", "end debt Qi"].join("\t"),
+    ["persona", "Main Qi/mo", "Main gold/mo", "tax Qi main", "tax Qi body", "tax Qi soul", "ticks", "idle days", "1st deviation wk", "weeks in deviation", "comebacks", "end debt Qi", "quest potions", "quest rolls", "churn flags"].join("\t"),
   );
   for (const r of runs) {
     const m = r.final.main;
@@ -246,6 +317,9 @@ export function runMainScenarios(outDir: string): void {
         r.deviationWeeks,
         m.comebacks,
         n(m.debt.qi),
+        m.drops.item,
+        m.drops.item + m.drops.none,
+        m.flags.length,
       ].join("\t"),
     );
   }
@@ -258,5 +332,19 @@ export function runMainScenarios(outDir: string): void {
   }
   const sep = qi("3 mid tasks a day, separately");
   console.log(`3 mid tasks as a quest vs separately\t${(qi("3 mid tasks a day, as a quest") / sep).toFixed(2)}`);
+
+  // What a quest's bonus actually pays, against its cap from the members' days of work (ruling 51).
+  console.log(`\nMain: the last completed quest's bonus vs its cap\n`);
+  for (const r of runs) {
+    const m = r.final.main;
+    const q = Object.values(m.quests)
+      .filter((x) => x.completedAt !== null && !x.forfeited)
+      .at(-1);
+    if (!q) continue;
+    const members = q.taskIds.map((id) => m.tasks[id]!);
+    const paid = members.reduce((sum, t) => sum + t.paidBaseQi, 0);
+    const days = workDays(members.map((t) => t.effort));
+    console.log(`${r.persona.label}\t${n(days, 2)} days of work\tbonus ${n((100 * q.bonusQi) / paid, 1)}%\tcap ${n(100 * questBonusCap(days), 1)}%`);
+  }
 }
 

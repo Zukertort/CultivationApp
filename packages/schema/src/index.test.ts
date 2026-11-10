@@ -105,6 +105,18 @@ describe("parseEvent", () => {
     expect(() => parseEvent({ ...q, tasks: Array.from({ length: 11 }, (_, i) => ({ ...member, taskId: "t" + i })) })).toThrow();
   });
 
+  it("accepts milestones with their own deadline, yearly tasks, work-on and quest drops", () => {
+    const member = { taskId: "t", name: "Read", difficulty: "easy", effort: "project" };
+    const q = { id: "e1", userId: "u1", at: 0, type: "MainQuestDefined", questId: "q1", name: "Thesis", deadline: 1000 };
+    expect(parseEvent({ ...q, tasks: [{ ...member, deadline: 500 }, { ...member, taskId: "t2" }] }).type).toBe("MainQuestDefined");
+    expect(parseEvent({ ...task, schedule: { kind: "recurring", count: 12, per: "year" } }).type).toBe("MainTaskDefined");
+    expect(() => parseEvent({ ...task, schedule: { kind: "recurring", count: 733, per: "year" } })).toThrow();
+    expect(parseEvent({ id: "e1", userId: "u1", at: 0, type: "MainTaskWorkedOn", taskId: "t1" }).type).toBe("MainTaskWorkedOn");
+    expect(parseEvent({ id: "e1", userId: "u1", at: 0, type: "MainTaskCompleted", taskId: "t1", questDrop: "item" }).type).toBe("MainTaskCompleted");
+    expect(() => parseEvent({ id: "e1", userId: "u1", at: 0, type: "MainTaskCompleted", taskId: "t1", questDrop: "legendary" })).toThrow();
+    expect(parseEvent({ id: "e2", userId: "u1", at: 0, type: "MainQuestDropRolled", eventId: "e1", drop: "none" }).type).toBe("MainQuestDropRolled");
+  });
+
   it("accepts the interview with undecided interests", () => {
     const e = { id: "e1", userId: "u1", at: 0, type: "InterviewAnswered", interests: { main: "Mathematics", body: "", soul: "" } };
     expect(parseEvent(e).type).toBe("InterviewAnswered");

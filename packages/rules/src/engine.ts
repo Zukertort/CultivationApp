@@ -28,11 +28,13 @@ import {
   onInterviewAnswered,
   onItemExtended,
   onMainQuestDefined,
+  onQuestDropRolled,
   onTaskArchived,
   onTaskCancelled,
   onTaskCompleted,
   onTaskDefined,
   onTaskRestored,
+  onTaskWorkedOn,
   shiftDeadlinesAfterRest,
   type MainState,
 } from "./main.js";
@@ -518,6 +520,11 @@ const handlers: { [T in GameEvent["type"]]: Handler<T> } = {
   MainTaskArchived: (s, e) => onTaskArchived(s, e),
   MainTaskRestored: onTaskRestored,
   MainItemExtended: onItemExtended,
+  MainTaskWorkedOn: onTaskWorkedOn,
+  MainQuestDropRolled: (s, e) => {
+    // Nothing pending: a duplicate roll, or one a rebalance no longer earns. Flagged, never applied.
+    if (!onQuestDropRolled(s, e)) s.anomalies.push({ at: e.at, code: "orphan_quest_drop_roll" });
+  },
 };
 
 // ---- Public API ---------------------------------------------------------------------
