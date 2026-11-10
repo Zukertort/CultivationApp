@@ -18,6 +18,26 @@ import {
   type SoulState,
 } from "./soul.js";
 import { DAY, WEEK, localDay, nextLocalMidnight } from "./time.js";
+import { addPotion, earnGold, earnQi, goldMultiplier, losePotion, potionKind, qiMultiplier, trainingGoldMultiplier } from "./economy.js";
+import {
+  advanceMain,
+  decayMultiplier,
+  initialMain,
+  mainMidnight,
+  markActivity,
+  onInterviewAnswered,
+  onItemExtended,
+  onMainQuestDefined,
+  onQuestDropRolled,
+  onTaskArchived,
+  onTaskCancelled,
+  onTaskCompleted,
+  onTaskDefined,
+  onTaskRestored,
+  onTaskWorkedOn,
+  shiftDeadlinesAfterRest,
+  type MainState,
+} from "./main.js";
 
 // ---- State --------------------------------------------------------------------
 
@@ -49,6 +69,8 @@ export interface CultivatorState {
     food: number;
     /** First paying completion of each activity version (repetition decay). */
     firstCompletedAt: Record<string, number>;
+    /** Decay age of each activity version: time since its first paying completion, rest excluded (ruling 19). */
+    ageMs: Record<string, number>;
     /** Local day key and routines counted that day (daily cap). */
     routineDay: number;
     routinesToday: number;
@@ -62,8 +84,13 @@ export interface CultivatorState {
   rest: RestPeriod | null;
   closedDoorLog: RestPeriod[];
   goldenTickets: number;
-  inventory: { potions: number; legendary: number; scales: number; wings: boolean };
+  /**
+   * Potions by kind (ruling 58); a drunk gain potion is active until
+   * `gainPotionUntil`. `legendary` counts legendary items.
+   */
+  inventory: { gainPotions: number; legendaryPotions: number; gainPotionUntil: number | null; legendary: number; scales: number; wings: boolean };
   soul: SoulState;
+  main: MainState;
   /** Things that should be impossible (e.g. a second set of wings); flagged, never silently fixed. */
   anomalies: { at: number; code: string }[];
 }
@@ -81,6 +108,7 @@ export function initialState(rules: RulesConfig = RULES_V1): CultivatorState {
       tier: "turtle",
       food: rules.tiers.turtle.capacity * rules.tierStartFraction,
       firstCompletedAt: {},
+      ageMs: {},
       routineDay: -1,
       routinesToday: 0,
     },
@@ -92,8 +120,9 @@ export function initialState(rules: RulesConfig = RULES_V1): CultivatorState {
     rest: null,
     closedDoorLog: [],
     goldenTickets: 0,
-    inventory: { potions: 0, legendary: 0, scales: 0, wings: false },
+    inventory: { gainPotions: 0, legendaryPotions: 0, gainPotionUntil: null, legendary: 0, scales: 0, wings: false },
     soul: initialSoul(),
+    main: initialMain(),
     anomalies: [],
   };
 }
@@ -101,43 +130,13 @@ export function initialState(rules: RulesConfig = RULES_V1): CultivatorState {
 // ---- Helpers --------------------------------------------------------------------
 
 /**
- * Value multiplier for an activity version that was first completed `ageMs`
- * ago: full value for `fullValueWeeks`, then one step of `weeklyLoss` at the
- * start of each further week, down to `floor`.
+ * Body value multiplier for an activity version whose decay age (active time
+ * since its first paying completion, rest excluded) is `ageMs`: full value
+ * for `fullValueWeeks`, then one step of `weeklyLoss` at the start of each
+ * further week, down to `floor`.
  */
 export function repetitionMultiplier(ageMs: number, rules: RulesConfig = RULES_V1): number {
-  const r = rules.repetition;
-  const fullMs = r.fullValueWeeks * WEEK;
-  if (ageMs < fullMs) return 1;
-  const steps = Math.floor((ageMs - fullMs) / WEEK) + 1;
-  return Math.max(r.floor, 1 - r.weeklyLoss * steps);
-}
-
-export function goldMultiplier(state: CultivatorState, rules: RulesConfig = RULES_V1): number {
-  // Additive pool first, then scales and wings multiply the total.
-  const pool = 1 + rules.tiers[state.companion.tier].goldBonus;
-  const inv = state.inventory;
-  const scales = (1 + rules.scales.goldBonusEach) ** inv.scales;
-  const wings = inv.wings ? 1 + rules.wings.goldBonus : 1;
-  return pool * scales * wings;
-}
-
-export function qiMultiplier(state: CultivatorState, rules: RulesConfig = RULES_V1): number {
-  const inv = state.inventory;
-  const scales = (1 + rules.scales.qiBonusEach) ** inv.scales;
-  const wings = inv.wings ? 1 + rules.wings.qiBonus : 1;
-  return scales * wings;
-}
-
-export function masteredCount(state: CultivatorState): number {
-  return state.masteries.length;
-}
-
-export function pose(state: CultivatorState, rules: RulesConfig = RULES_V1): string {
-  const n = masteredCount(state);
-  let current = rules.poses[0]?.name ?? "standing";
-  for (const p of rules.poses) if (n >= p.minMastered) current = p.name;
-  return current;
+  return decayMultiplier(ageMs, rules.repetition);
 }
 
 export function haloVisible(state: CultivatorState, now: number, rules: RulesConfig = RULES_V1): boolean {
@@ -242,16 +241,30 @@ function advanceMut(s: CultivatorState, to: number, rules: RulesConfig): void {
     let stop = Math.min(to, dayEnd);
     if (s.rest) {
       stop = Math.min(stop, s.rest.end);
+      s.main.day.rested = true;
     } else {
       advanceCompanion(s, cur, stop, rules);
+      advanceBodyAge(s, cur, stop);
       advanceSoul(s.soul, cur, stop, rules);
+      advanceMain(s, cur, stop);
     }
     cur = stop;
-    if (s.rest && cur >= s.rest.end) s.rest = null;
+    if (s.rest && cur >= s.rest.end) {
+      shiftDeadlinesAfterRest(s, s.rest, s.rest.end);
+      s.rest = null;
+    }
+    // Periods close and tax is charged at every midnight (a day with rest is never taxed).
+    if (cur === dayEnd) mainMidnight(s, cur, rules);
     // Rest freezes the soul color; a midnight that ends the rest is evaluated.
     if (cur === dayEnd && !s.rest) endOfDay(s.soul, cur, rules);
   }
   s.clock = to;
+}
+
+/** Body decay ages over [from, to], a stretch with no rest. */
+function advanceBodyAge(s: CultivatorState, from: number, to: number): void {
+  const ages = s.companion.ageMs;
+  for (const id of Object.keys(s.companion.firstCompletedAt)) ages[id] = (ages[id] ?? 0) + (to - from);
 }
 
 /** Food loss over [from, to], a stretch with no rest. */
@@ -299,6 +312,8 @@ const onActivityLogged: Handler<"BodyActivityLogged"> = (s, e, rules) => {
   const activity = s.activities[e.activityId];
   if (!activity) violate("unknown_activity", `activity ${e.activityId} is not defined`);
   const c = s.companion;
+  // Any logged activity counts against the Body tax, even one over the routine cap (ruling 31).
+  markActivity(s.main, "body", e.at);
 
   if (activity.kind === "routine") {
     const day = localDay(e.at, s.tzOffsetMinutes);
@@ -311,11 +326,14 @@ const onActivityLogged: Handler<"BodyActivityLogged"> = (s, e, rules) => {
     c.routinesToday += 1;
   }
 
-  const first = (c.firstCompletedAt[e.activityId] ??= e.at);
-  const rep = repetitionMultiplier(e.at - first, rules);
+  if (c.firstCompletedAt[e.activityId] === undefined) {
+    c.firstCompletedAt[e.activityId] = e.at;
+    c.ageMs[e.activityId] = 0;
+  }
+  const rep = repetitionMultiplier(c.ageMs[e.activityId] ?? 0, rules);
 
   // Gold uses the multiplier of the tier the activity was done in.
-  s.gold += rules.gold[activity.kind] * rep * goldMultiplier(s, rules);
+  earnGold(s, rules.gold[activity.kind] * rep * trainingGoldMultiplier(s, rules));
 
   c.food += rules.treats[activity.kind] * rep;
   while (c.tier !== "lion" && c.food >= rules.tiers[c.tier].capacity) {
@@ -381,6 +399,7 @@ const onRestStarted: Handler<"RestStarted"> = (s, e, rules) => {
 
 const onRestEnded: Handler<"RestEnded"> = (s, e) => {
   if (!s.rest) violate("not_resting", "no active rest period");
+  shiftDeadlinesAfterRest(s, s.rest, e.at);
   if (s.rest.kind === "closed_door") {
     const log = s.closedDoorLog.at(-1);
     if (log) log.end = e.at;
@@ -394,13 +413,16 @@ const onRouletteSpun: Handler<"RouletteSpun"> = (s, e, rules) => {
   const inv = s.inventory;
   switch (e.prize) {
     case "gold":
-      s.gold += rules.roulette.goldPrize * goldMultiplier(s, rules);
+      earnGold(s, rules.roulette.goldPrize * goldMultiplier(s, rules));
       break;
     case "qi":
-      s.qi += rules.roulette.qiPrize * qiMultiplier(s, rules);
+      earnQi(s, rules.roulette.qiPrize * qiMultiplier(s, rules));
       break;
-    case "potion":
-      inv.potions += 1;
+    case "gain_potion":
+      addPotion(s, "gain");
+      break;
+    case "legendary_potion":
+      addPotion(s, "legendary");
       break;
     case "legendary":
       inv.legendary += 1;
@@ -436,10 +458,19 @@ const onDropRolled: Handler<"SoulDropRolled"> = (s, e, rules) => {
   else for (const drop of drops) applySoulDrop(s, drop, rules);
 };
 
+/** Drink a gain potion (ruling 58): +10% gold and Qi for 24 hours, one active at a time. */
+const onPotionUsed: Handler<"PotionUsed"> = (s, e, rules) => {
+  const inv = s.inventory;
+  if (inv.gainPotions < 1) violate("no_potion", "no gain potion to drink");
+  if (inv.gainPotionUntil !== null && e.at < inv.gainPotionUntil) violate("potion_active", "a gain potion is already active");
+  inv.gainPotions -= 1;
+  inv.gainPotionUntil = e.at + rules.potions.gain.hours * 60 * 60 * 1000;
+};
+
 /**
  * Apply a server-rolled soul drop. Gains get the gold/Qi multipliers; losses
- * never take a balance below 0. "item" is a potion until gear exists, and a
- * lost item is a potion (never a legendary).
+ * never take a balance below 0. Until gear exists an item is a potion, and a
+ * lost item is a potion (a gain potion first; never a legendary item).
  */
 function applySoulDrop(s: CultivatorState, drop: SoulDrop, rules: RulesConfig): void {
   const d = rules.soul.drops;
@@ -449,13 +480,16 @@ function applySoulDrop(s: CultivatorState, drop: SoulDrop, rules: RulesConfig): 
     case "none":
       break;
     case "gold":
-      s.gold += d.gold * goldMultiplier(s, rules);
+      earnGold(s, d.gold * goldMultiplier(s, rules));
       break;
     case "qi":
-      s.qi += d.qi * qiMultiplier(s, rules);
+      earnQi(s, d.qi * qiMultiplier(s, rules));
       break;
-    case "item":
-      inv.potions += 1;
+    case "gain_potion":
+      addPotion(s, "gain");
+      break;
+    case "legendary_potion":
+      addPotion(s, "legendary");
       break;
     case "legendary":
       inv.legendary += 1;
@@ -467,7 +501,7 @@ function applySoulDrop(s: CultivatorState, drop: SoulDrop, rules: RulesConfig): 
       s.qi = Math.max(0, s.qi - d.loseQi);
       break;
     case "lose_item":
-      inv.potions = Math.max(0, inv.potions - 1);
+      losePotion(s);
       break;
   }
 }
@@ -481,19 +515,36 @@ const handlers: { [T in GameEvent["type"]]: Handler<T> } = {
   RestStarted: onRestStarted,
   RestEnded: onRestEnded,
   RouletteSpun: onRouletteSpun,
+  PotionUsed: onPotionUsed,
   HeartDemonCreated: (s, e, rules) => onDemonCreated(s.soul, e, rules),
   HeartDemonRenamed: (s, e, rules) => onDemonRenamed(s.soul, e, rules),
   HeartDemonDeleted: (s, e, rules) => onDemonDeleted(s.soul, e, rules),
   SoulTaskLogged: (s, e, rules) => {
     const polarity = onSoulTaskLogged(s.soul, e, rules);
+    // Practice counts against the Soul tax; a relapse doesn't (ruling 31).
+    if (polarity === "positive") markActivity(s.main, "soul", e.at);
     rollSoulDrops(s, e, polarity, 1, e.drop === undefined ? undefined : [e.drop], rules);
   },
   SoulQuestDefined: (s, e) => onQuestDefined(s.soul, e),
   SoulQuestCompleted: (s, e, rules) => {
     const hit = onQuestCompleted(s.soul, e, rules);
+    markActivity(s.main, "soul", e.at);
     rollSoulDrops(s, e, "positive", hit, e.drops, rules);
   },
   SoulDropRolled: onDropRolled,
+  InterviewAnswered: (s, e) => onInterviewAnswered(s, e),
+  MainTaskDefined: onTaskDefined,
+  MainQuestDefined: onMainQuestDefined,
+  MainTaskCompleted: onTaskCompleted,
+  MainTaskCancelled: onTaskCancelled,
+  MainTaskArchived: (s, e) => onTaskArchived(s, e),
+  MainTaskRestored: onTaskRestored,
+  MainItemExtended: onItemExtended,
+  MainTaskWorkedOn: onTaskWorkedOn,
+  MainQuestDropRolled: (s, e) => {
+    // Nothing pending: a duplicate roll, or one a rebalance no longer earns. Flagged, never applied.
+    if (!onQuestDropRolled(s, e)) s.anomalies.push({ at: e.at, code: "orphan_quest_drop_roll" });
+  },
 };
 
 // ---- Public API ---------------------------------------------------------------------
@@ -542,11 +593,15 @@ export function rouletteOutcome(u: number, rules: RulesConfig = RULES_V1): Roule
   if (!(u >= 0 && u < 1)) throw new RangeError("u must be in [0, 1)");
   const bp = Math.floor(u * 10_000);
   const odds = rules.roulette.oddsBp;
-  const order: RoulettePrize[] = ["gold", "qi", "potion", "legendary", "scale"];
+  const order = ["gold", "qi", "potion", "legendary", "scale"] as const;
   let acc = 0;
-  for (const prize of order) {
-    acc += odds[prize];
-    if (bp < acc) return prize;
+  for (const band of order) {
+    if (bp < acc + odds[band]) {
+      if (band !== "potion") return band;
+      // Where the roll landed inside the potion band picks the kind (ruling 58).
+      return potionKind((u * 10_000 - acc) / odds.potion, rules) === "gain" ? "gain_potion" : "legendary_potion";
+    }
+    acc += odds[band];
   }
   return "gold";
 }

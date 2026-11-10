@@ -10,15 +10,16 @@
  * actions still apply at once. See "Rulings" in docs/design.md.
  */
 import type { EventOf, SoulDrop, SoulTask } from "@cultivation/schema";
-import { GROWTH_COLORS, WEAKENING_COLORS, type RulesConfig, type SoulColor } from "./config.js";
+import { GROWTH_COLORS, WEAKENING_COLORS, type RulesConfig, type SoulColor, type SoulDropBand } from "./config.js";
+import { potionKind } from "./economy.js";
 import { violate } from "./errors.js";
 import { DAY } from "./time.js";
 
 /** Float tolerance for HP thresholds (passive growth produces fractions). */
 const HP_EPS = 1e-9;
 
-/** Fixed order in which drop odds are laid out on [0, 1). */
-export const SOUL_DROP_ORDER: readonly Exclude<SoulDrop, "none">[] = ["gold", "qi", "item", "legendary", "lose_gold", "lose_qi", "lose_item"];
+/** Fixed order in which drop bands are laid out on [0, 1). */
+export const SOUL_DROP_ORDER: readonly SoulDropBand[] = ["gold", "qi", "item", "legendary", "lose_gold", "lose_qi", "lose_item"];
 
 export interface HeartDemon {
   name: string;
@@ -375,7 +376,8 @@ export function onQuestCompleted(soul: SoulState, e: EventOf<"SoulQuestCompleted
 
 // ---- Drops --------------------------------------------------------------------------
 
-const GAIN_DROPS: readonly SoulDrop[] = ["gold", "qi", "item", "legendary"];
+const GAIN_DROPS: readonly SoulDrop[] = ["gold", "qi", "gain_potion", "legendary_potion", "legendary"];
+const GAIN_BANDS: readonly SoulDropBand[] = ["gold", "qi", "item", "legendary"];
 const LOSS_DROPS: readonly SoulDrop[] = ["lose_gold", "lose_qi", "lose_item"];
 
 /**
@@ -403,10 +405,15 @@ export function soulDropOutcome(color: SoulColor, polarity: SoulPolarity, u: num
   const bp = Math.floor(u * 10_000);
   const odds = rules.soul.drops.oddsBp[color];
   let acc = 0;
-  for (const drop of SOUL_DROP_ORDER) {
-    if (!dropMatchesPolarity(drop, polarity)) continue;
-    acc += odds[drop] ?? 0;
-    if (bp < acc) return drop;
+  for (const band of SOUL_DROP_ORDER) {
+    if (GAIN_BANDS.includes(band) !== (polarity === "positive")) continue;
+    const width = odds[band] ?? 0;
+    if (bp < acc + width) {
+      if (band !== "item") return band;
+      // Until gear exists the item band is a potion; where the roll landed in it picks the kind (ruling 58).
+      return potionKind((u * 10_000 - acc) / width, rules) === "gain" ? "gain_potion" : "legendary_potion";
+    }
+    acc += width;
   }
   return "none";
 }

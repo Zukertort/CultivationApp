@@ -557,15 +557,18 @@ describe("soul drops", () => {
     const at = T0 + DAY + H;
     const gain = (d: string) => applyEvent(green(), task("a+", at, d));
     const loss = (d: string, s: CultivatorState = violet()) => applyEvent(s, task("a-", at, d));
-    expect(gain("gold").gold).toBeCloseTo(10 * 1.01, 9); // Turtle gold bonus applies
+    expect(gain("gold").gold).toBeCloseTo(10, 9); // the tier gold bonus never applies to soul drops (ruling 35)
     expect(gain("qi").qi).toBeCloseTo(10, 9);
-    expect(gain("item").inventory.potions).toBe(1);
+    expect(gain("gain_potion").inventory.gainPotions).toBe(1);
+    expect(gain("legendary_potion").inventory.legendaryPotions).toBe(1);
     expect(gain("legendary").inventory.legendary).toBe(1);
     expect(gain("none").soul.drops).toEqual({ none: 1 });
     expect(pendingCount(gain("none"))).toBe(0);
     expect(loss("lose_gold").gold).toBe(0);
     expect(loss("lose_gold", { ...violet(), gold: 50 }).gold).toBe(30);
-    expect(loss("lose_item").inventory.potions).toBe(0);
+    expect(loss("lose_item").inventory).toMatchObject({ gainPotions: 0, legendaryPotions: 0 });
+    const stocked = { ...violet(), inventory: { ...violet().inventory, gainPotions: 1, legendaryPotions: 1 } };
+    expect(loss("lose_item", stocked).inventory).toMatchObject({ gainPotions: 0, legendaryPotions: 1 }); // a gain potion goes first
   });
 
   it("rejects an outcome of the wrong polarity", () => {
@@ -583,11 +586,11 @@ describe("soul drops", () => {
     let s = applyEvent(green(), task("a+", T0 + DAY + H));
     const taskId = `e${seq}`;
     s = applyEvent(s, rolled(taskId, T0 + DAY + 2 * H, ["gold"]));
-    expect(s.gold).toBeCloseTo(10.1, 9);
+    expect(s.gold).toBeCloseTo(10, 9);
     expect(pendingCount(s)).toBe(0);
     // A second roll for the same task is flagged, never applied.
     s = applyEvent(s, rolled(taskId, T0 + DAY + 3 * H, ["gold"]));
-    expect(s.gold).toBeCloseTo(10.1, 9);
+    expect(s.gold).toBeCloseTo(10, 9);
     expect(s.anomalies).toEqual([{ at: T0 + DAY + 3 * H, code: "orphan_drop_roll" }]);
     expect(code(() => applyEvent(applyEvent(green(), task("a+", T0 + DAY + H)), rolled(`e${seq}`, T0 + DAY + 2 * H, ["lose_qi"])))).toBe(
       "drop_wrong_polarity",
@@ -654,3 +657,15 @@ function soulWith(demons: { hp: number; defeated?: boolean; idleMs?: number }[],
   });
   return soul;
 }
+
+describe("soul potion drops (ruling 58)", () => {
+  it("splits the item band 50/50 between gain and legendary potions", () => {
+    // Golden: gold 0-300, qi 300-600, item 600-800 basis points.
+    expect(soulDropOutcome("golden", "positive", 0.0601, RULES_V1)).toBe("gain_potion");
+    expect(soulDropOutcome("golden", "positive", 0.0699, RULES_V1)).toBe("gain_potion");
+    expect(soulDropOutcome("golden", "positive", 0.07, RULES_V1)).toBe("legendary_potion");
+    expect(soulDropOutcome("golden", "positive", 0.0799, RULES_V1)).toBe("legendary_potion");
+    expect(soulDropOutcome("golden", "positive", 0.08, RULES_V1)).toBe("none");
+    expect(soulDropOutcome("violet", "negative", 0.045, RULES_V1)).toBe("lose_item");
+  });
+});

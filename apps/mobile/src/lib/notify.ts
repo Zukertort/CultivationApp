@@ -66,6 +66,8 @@ export async function setupNotifications(): Promise<PermissionState> {
  */
 export function alertText(a: PushAlert, companionTier: string): { title: string; body: string } {
   switch (a.kind) {
+    case "quest_deadline":
+      return { title: "A quest deadline is close", body: a.hoursLeft === 1 ? "One hour left on a quest. Finish it or it expires." : `${a.hoursLeft ?? ""} hours left on a quest.` };
     case "soul_broken":
       return { title: "My soul is about to break", body: "A heart demon is close to 90%. I should face it today." };
     case "demon_near_revival":

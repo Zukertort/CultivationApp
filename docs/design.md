@@ -195,29 +195,29 @@ Something must pay out every few minutes, every few weeks and every few years; t
 
 Qi pays for breakthroughs and gold buys gear and rest; repeated tasks pay less each time, so only harder, more complex quests keep Qi flowing, which is the anti-stagnation mechanic.
 
-- [ ] &#91;v1\] Qi is the breakthrough currency; each realm and level sets a Qi threshold
-- [ ] &#91;v1\] Tasks and quests created by the user; a quest bundles several tasks to raise complexity
-- [ ] &#91;v1\] Quests and tasks expire at their deadline or when completed
-- [ ] &#91;v1\] One paid extension per expired task or quest, for gold, no longer than its original duration; unpaid, it disappears
-- [ ] &#91;v1\] Difficulty self-rating per task, relative to current abilities: trivial, easy, mid, hard, deadly
-- [ ] &#91;v1\] Qi scales with difficulty and complexity; simple tasks pay well in the first two realms and taper off above
-- [ ] &#91;v1\] Repetition decay: the first two repeats within a level pay full Qi; each later repeat loses 15% of the base, down to a 25% floor
-- [ ] &#91;v1\] Raising a task's difficulty requires a new named version (Math exercise → Math exercise II)
-- [ ] Avatar warning on heavy repetition: "I've completed 'Math exercise' too many times; I need to make it harder to keep growing"
-- [ ] &#91;v1\] Gold scales with difficulty, number of tasks and duration
-- [ ] &#91;v1\] Procrastination tax on every path (Main, Body, Soul) after a set number of days without activity there; a class's cross-credit counts as activity on the paths it covers; the tax hits Qi and gold only, never realm progress, and debt is capped; the Body and Soul taxes are 1/5 of the Main tax
-- [ ] &#91;v1\] Bonus stacking: every percentage bonus (fitness tier, pose, soul color, class with its Spirit Realm multiplier, items, potions) adds into one pool; scales and wings multiply the total
+- [ ] &#91;v1\] Qi is the breakthrough currency; each realm and level sets a Qi threshold *(Earning Qi was built in Main part 1. The thresholds come with realms in part 3.)*
+- [x] &#91;v1\] Tasks and quests created by the user; a quest bundles several tasks to raise complexity
+- [x] &#91;v1\] Quests and tasks expire at their deadline or when completed
+- [x] &#91;v1\] One paid extension per expired task or quest, for gold, no longer than its original duration; unpaid, it disappears
+- [x] &#91;v1\] Difficulty self-rating per task, relative to current abilities: trivial, easy, mid, hard, deadly
+- [x] &#91;v1\] Qi scales with difficulty and complexity; simple tasks pay well in the first two realms and taper off above *(The taper is applied by realm; until part 3 adds realms, every cultivator is in Qi Condensation.)*
+- [x] &#91;v1\] Repetition decay: the first two repeats within a level pay full Qi; each later repeat loses 15% of the base, down to a 25% floor *(Built age-based instead, like Body, with no reset at levels; see Rulings 18, 19 and 37.)*
+- [x] &#91;v1\] Raising a task's difficulty requires a new named version (Math exercise → Math exercise II)
+- [ ] Avatar warning on heavy repetition: "I've completed 'Math exercise' too many times; I need to make it harder to keep growing" *(The rules engine lists stale tasks with `staleTasks`; the avatar message waits for the app.)*
+- [x] &#91;v1\] Gold scales with difficulty, number of tasks and duration
+- [ ] &#91;v1\] Procrastination tax on every path (Main, Body, Soul) after a set number of days without activity there; a class's cross-credit counts as activity on the paths it covers; the tax hits Qi and gold only, never realm progress, and debt is capped; the Body and Soul taxes are 1/5 of the Main tax *(Built in Main part 1 except class cross-credit, which comes with classes in part 4.)*
+- [ ] &#91;v1\] Bonus stacking: every percentage bonus (fitness tier, pose, soul color, class with its Spirit Realm multiplier, items, potions) adds into one pool; scales and wings multiply the total *(Part 1 added the pose Qi bonus and the tier's core Qi bonus, and limited the tier gold bonus to Body and Main gold. Gain potions joined the pool with ruling 58. Classes, soul color and items come in part 4.)*
 - [ ] Legendary chances add when several apply to the same event (e.g., Lion 2% + halo ticket 10% + Unique class 2% = 14%); one legendary pool per realm
 - [ ] Gold shop: vacations, wearables, armor, weapons, potions, class changes, repairs, extensions
-- [ ] Armor reduces Qi losses (e.g., 10 fewer lost); weapons add to Qi gains (e.g., +10); potions boost gold and Qi gains; legendary items boost more
+- [ ] Armor reduces Qi losses (e.g., 10 fewer lost); weapons add to Qi gains (e.g., +10); potions boost gold and Qi gains; legendary items boost more *(Gain potions work since ruling 58: +10% gold and Qi for 24 hours. Armor, weapons and legendary items come with gear.)*
 - [ ] Items are locked to the current realm; on breakthrough, equipped gear levels up with the cultivator
-- [ ] Potions that raise the chance of gear turning legendary when it levels up at a breakthrough
-- [ ] Rare drops on quest completion to keep a variable-reward element
+- [ ] Potions that raise the chance of gear turning legendary when it levels up at a breakthrough *(Legendary potions drop and are stored since ruling 58; their effect comes with gear.)*
+- [x] Rare drops on quest completion to keep a variable-reward element *(Main part 1: one server-rolled item roll per completed quest, scaled by its effort; an item is a potion until gear exists. See Ruling 52.)*
 - [ ] Economy simulator: a year of synthetic behavior to check inflation, pacing and the numbers flagged across this doc
 
 **Gaps**
 
-- [ ] Numbers for the simulator: the Main tax's grace period and amount, extension prices, vacation lengths and prices, and the Qi cost of editing tribulations or changing discipline
+- [ ] Numbers for the simulator: the Main tax's grace period and amount, extension prices, vacation lengths and prices, and the Qi cost of editing tribulations or changing discipline *(The Main tax and extension prices have been in the config since Main part 1, provisional per ruling 47. Vacation prices were already set; tribulation and discipline costs come in parts 2 and 3.)*
 
 ## Breakthroughs and tribulations
 
@@ -244,7 +244,7 @@ The comeback after a bad week must cost less than quitting the app, or users lea
 - [ ] &#91;v1\] Vacations: rest periods bought with gold; the avatar travels to visit the Nine Marvels; tribulation deadlines keep their dates, and the request screen says so
 - [ ] &#91;v1\] Closed-door cultivation: a free "feeling ill / burnout" button; the avatar enters a cave; up to 14 days at a time and 30 days per quarter; tribulation deadlines extend by the days spent inside, and the request screen says so
 - [ ] &#91;v1\] While resting (vacation or closed-door): no tax, the companion sleeps (no food loss) and the soul is frozen (no demon growth)
-- [ ] &#91;v1\] Qi deviation: entered when procrastination-tax debt hits its cap; a short comeback quest clears both the state and the debt
+- [x] &#91;v1\] Qi deviation: entered when procrastination-tax debt hits its cap; a short comeback quest clears both the state and the debt
 
 **Gaps**
 
@@ -320,7 +320,7 @@ None open; alchemy and techniques are dropped.
 Few and meaningful; guilt-trip spam is how Duolingo's notifications became a meme.
 
 - [ ] &#91;v1\] Push notifications only for losses that are close, at most 3 a day, most urgent first:
-  - Tribulation and core quest deadlines at 72, 48, 24 and 1 hour left
+  - Tribulation and core quest deadlines at 72, 48, 24 and 1 hour left *(quest deadlines have been in the push plan since Main part 1; tribulations come in part 2)*
   - The soul turning Broken (a demon above 90% HP)
   - A defeated demon within 5% of reviving, or any demon within 5% of 70% HP
   - The companion within 5% of empty
@@ -342,7 +342,7 @@ The oath sets the tone; pre-commitment and visible logs do the actual work.
 - [ ] &#91;v1\] The Qi Condensation interview is the onboarding: interests for Main, Body and Soul (see Main)
 - [ ] &#91;v1\] First companion: a Turtle at 50% food
 - [ ] &#91;v1\] The soul starts Broken until the first heart demon and its counter tasks are identified
-- [ ] Integrity log: every override, criteria edit, demon deletion or rename, and self-reported claim on one screen
+- [ ] Integrity log: every override, criteria edit, demon deletion or rename, and self-reported claim on one screen *(Main part 1 records repeated archive-and-restore as `archive_churn` flags; the screen waits for the app.)*
 
 ## Data and architecture requirements
 
@@ -396,6 +396,55 @@ Decisions made while implementing the rules engine. They are settled: future ses
 12. Drop gold is about one routine's worth (10 gold before bonuses). The split of each color's chance between gold, Qi and items, and the drop amounts, are simulator numbers.
 13. Violet timing stays as is: with no practice, two relapses a week on a new demon reach Violet in about 1 week and Broken in about 2.
 14. A soul quest links at least 2 demons and completes once; demons deleted after the quest was defined are skipped when it completes.
-15. Until gear exists, a gained "item" is a potion, and a lost item is a potion, never a legendary.
+15. Until gear exists, a gained "item" is a potion, and a lost item is a potion, never a legendary. *(Ruling 58 splits potions into two kinds; a lost item takes a gain potion first.)*
 16. Stored drop outcomes are never re-rolled. Under rebalanced rules, outcomes beyond what a task now earns are ignored and missing ones become pending; a SoulDropRolled with nothing pending is logged as an anomaly, never applied.
 17. On Android the app asks the cultivator once to set its battery usage to Unrestricted, explaining that alerts can arrive late otherwise (One UI held a test alarm for over 7 minutes under the default setting). Both "yes" and "no" are accepted; "no" means alerts may be late, and the app keeps working. Delays are measured again on a development build.
+
+**Main path, part 1: tasks, quests and the tax (Nov 10, 2026)**
+
+18. Main repetition decay is age-based, the same rule as Body: it penalizes stagnation, not consistency. A task pays full value for a set time after its first completion, then loses a share each week down to a floor. Main has its own numbers in the config (simulator values), starting from Body's.
+19. Decay age counts only active time: not while resting (on Main and Body) and not while the task is archived.
+20. A task is either one-time or recurring, picked with a "One time only" checkbox at creation. A one-time task has a deadline, expires, and can get the one paid extension. A recurring task has a frequency (N per day, week or month, at most 2 per day) and an optional end date; it never expires and gets no extension. Quests have a deadline only, never a frequency.
+21. A recurring task's frequency is its payout cap: completions beyond it in a period are logged but pay nothing.
+22. Repetition is tracked by task name, so "Math exercise II" starts fresh. Changing a task's difficulty requires a new named version. Resetting decay with a new version at the same rating is accepted: this is a role game, and cheating means lying to yourself. A "Do again" shortcut is fine.
+23. Deleting a task archives it, and archived tasks can be restored with their history. Creating a task with an archived task's name restores that task instead, so deleting and recreating never resets decay.
+24. Difficulty is self-rated relative to current abilities, with no cap on "deadly"; honesty is the cultivator's responsibility. The simulator keeps a "rates everything deadly" persona to measure the effect.
+25. Effort is self-rated and locked at creation. Gold scales with difficulty, effort and the number of tasks, never with the deadline's length.
+26. More complex quests give more Qi, through a bonus paid when the quest's last task is completed. The numbers are simulator values.
+27. Splitting a task into honestly rated pieces must never pay more than one task, or one quest, of the combined difficulty. A "splitter" simulator persona and the tests check it. *(Ruling 60: a quest may pay slightly more than one task of the same work.)*
+28. Simple tasks pay well in the first two realms and taper off above; the taper values are simulator numbers.
+29. One extension per one-time task or quest, paid in gold, no longer than the original duration, bought within 3 days after the deadline. Unpaid, the item disappears. Extending a quest extends its unfinished tasks. Tasks can't be edited after creation, and deadlines are at most 1 year out.
+30. Tasks and quests follow the tribulation rule during rest: vacation keeps their deadlines; closed-door cultivation extends them by the days spent inside, because the cultivator may be ill. This is an exception to ruling 8.
+31. Procrastination-tax activity: on Main, completing a task; on Body, logging an activity (even one over the routine cap); on Soul, a positive task or quest. Defining things never counts. Each path's tax clock starts when the path is chosen in the Qi Condensation interview, so a path the cultivator never starts is still taxed.
+32. Main tax: each missed occurrence of a recurring task is one tax tick. With no active tasks, the idle rule applies after 3 days without Main activity. Body and Soul use the idle rule after 7 days, and their tax is 1/5 of Main's. Rest days are never taxed and don't count toward the grace.
+33. The tax hits Qi and gold, never realm progress. It is deducted from the balances; what they can't cover becomes debt (balances never go below 0), and future gains repay the debt first. Debt is capped, and Qi deviation starts at the cap. The amounts are simulator values.
+34. A comeback quest clears Qi deviation and forgives the remaining debt: complete 3 Main tasks rated easy or harder within 3 days of entering deviation; if the window passes, a new 3-day window starts.
+35. Bonuses: the fitness tier's Qi bonus applies only to Main tasks and quests; the pose Qi bonus applies to all Qi gains; the tier gold bonus applies only to Main and Body gold, never to soul drops, the roulette or anything else.
+36. The server checks each event's timestamp against when it was received; the rules engine trusts `at`.
+37. Repetition decay never resets at a level-up or a realm breakthrough. Only a new named version starts fresh.
+38. Payouts use work points: difficulty points (trivial 1, easy 2, mid 4, hard 8, deadly 16) times an effort weight (quick 0.25, session 1, day 4, project 16). Qi follows a convex curve of the points through 1, 3, 8, 20 and 50 Qi at 1, 2, 4, 8 and 16 points, so one task always pays at least as much as the same work in pieces. Gold is linear in the points. A completed quest's total Qi is the lower of the curve at the members' combined points and 1.5 times the members' own Qi; the completion bonus is the difference. This replaces the +10% per task bonus, which rewarded splitting. *(The 1.5 cap is replaced by ruling 51.)*
+39. "At most 2 a day" applies to weekly and monthly tasks too, and to one-time tasks sharing a name: a name pays at most 2 completions per local day. A completion over either cap neither pays nor counts as an occurrence. Periods are the local day, the ISO week (from Monday) and the calendar month.
+40. A missed occurrence costs Main's daily tax times (days in the period / the task's count), so missing a task's whole schedule costs about one idle day per day for each task.
+41. Only active recurring tasks replace Main's idle rule; one-time tasks don't. A day with an active recurring task is never charged idle tax as well.
+42. In a partly active period (created, archived, ended or resting during it), the occurrences owed are the count times the active share of the period, rounded down. Archiving just before a period ends still owes the share already due. *(Rounding amended by ruling 48: the exact share is owed.)*
+43. Only recurring tasks are archived and restored; deleting a one-time task cancels it (it pays nothing, and its name keeps its history). A name has at most one open task. A recurring task past its end date counts as archived. Cancelling a quest member forfeits the quest's bonus. *(Rulings 60-61: bonus stages already paid are kept; a cancelled member forfeits the item roll.)*
+44. The InterviewAnswered event, emitted when the Qi Condensation interview is answered (the early level), starts the tax clocks of all three paths at once. Answering again changes only the interests.
+45. Quest members are one-time tasks that share the quest's deadline; a recurring task can't join a quest. *(Amended by ruling 50: a member may have its own earlier deadline.)*
+46. Restoring is an explicit event: the restored task keeps its difficulty, effort and decay history and takes the new schedule. Defining a task with an archived task's name is rejected, so the log always shows the restore.
+47. Every number from Main part 1 is provisional and will be revisited after dogfooding.
+48. Partial periods charge the exact share of the occurrences owed, not a rounded-down count, so archiving a task overnight still owes the hours it was active. Archiving costs nothing beyond that. Restoring the same task 3 or more times within 30 days is flagged in the integrity log. Completing a one-time task, or a recurring task reaching its end date, is never a delete.
+49. "Work on this task today" counts as Main activity for the idle tax and pays nothing. It is allowed once per task per local day, on one-time tasks rated day or project effort and on recurring tasks whose period is a week or longer. A one-time task allows at most 3 uses (day effort) or 30 (project effort); after that it must be completed or split into milestones. *(Ruling 56 adds a condition for it to count.)* The app suggests a milestone quest when someone creates a project-sized task.
+50. A quest member may have its own deadline, on or before the quest's, so a quest can hold milestones. A milestone expires on its own and can buy its own extension, never past the quest's deadline; a member without a deadline follows the quest's. Recurring tasks can also run per calendar year.
+51. A quest's bonus cap scales with its members' total effort in days of work (quick 1/16, session 1/4, day 1, project 4), not with its deadline: about 3.5% for a day of work, 15% for a week and 40% for a year, linear in between and flat beyond. *(Ruling 54: the cap is paid directly.)* When creating a quest, the app shows: "Quests are only for related tasks (related by time or topic)."
+52. The realm taper applies to Qi only, and quests pay no gold bonus. A completed quest without a cancelled member earns one item roll: rolled on the server and stored in the event, at a chance scaled by the same effort bands (about 2% for a day of work, 8% for a week, 25% for a year), always below a tribulation's, and at most 2 quest rolls per local day. Until gear exists, an item is a potion. *(Ruling 58: either kind, 50/50.)*
+53. Finished one-time tasks will be dropped from the replayed state in a later change; the name's decay history keeps what matters.
+54. A completed quest's bonus is the cap for its members' days of work times their own Qi, without the curve limit from ruling 38, so the bands are what quests pay. A quest holds up to 52 members (weekly milestones for a year); the year band is reached by more members, not by a bigger effort unit.
+55. A new version of a recurring task, created the same day the old one is archived or replacing it while open, takes over the old version's count for that day or week, so leveling up never owes tax.
+56. "Work on this task today" counts as Main activity only if a Main task was completed in the last 14 days (rest excluded). Otherwise it is logged but neither counts nor uses up the task's cap. *(The 14-day rule is replaced by ruling 59.)* Work-on stays once per task per day; recurring tasks get no lifetime cap, since their missed occurrences are already taxed.
+57. The cultivation streak is cosmetic: the number of days without Main idle. It breaks on the idle tax's condition (Main idle past its grace), also on days when an active recurring task replaces the idle tax with ticks; rest pauses it; it gives no rewards.
+58. Potions are only obtained, never crafted. Every potion drop (a soul or quest item, a roulette potion) is 50/50 a gain potion or a legendary potion, rolled by the server within the same roll. A gain potion, drunk with a PotionUsed event, adds +10% to the additive gold and Qi pool for 24 hours, one active at a time. A legendary potion is stored for now; with gear it will add +5% legendary chance at the next breakthrough, one per breakthrough. All potion numbers are simulator values.
+59. "Work on this task today" postpones Main's idle tax instead of cancelling it; the 14-day rule from ruling 56 is removed. A day when Main would owe idle tax but for work-on, that day's tax is put on the task last worked on. Completing the task cancels its postponed tax; cancelling it, or letting it fail (expired past its extension window), charges all of it. The comeback quest forgives debt from idle tax and missed occurrences, but not debt from postponed tax; gains repay that part of the debt first.
+60. A quest may pay slightly more than one task of the same work (e.g. 4 hard days as a quest 481 Qi, one hard project 470). The bonus is paid in stages: each completed member pays its share at once, with the cap for the effort completed so far, not the planned effort; once every member is done, the total equals the cap for the whole quest. Stages already paid are kept if a member is later cancelled or fails.
+61. Milestones stay quest members, not tribulations. A member that expires past its extension window fails and no longer blocks the quest: the quest completes when every other member is completed, cancelled or failed. The item roll still requires that no member was cancelled or failed. A quest whose members all failed or were cancelled is gone.
+62. Part 3 sets the realm Qi thresholds against honest personas, not the hard-project-every-week one.
+63. Accepted choices from Main part 1: a new version takes over the count only when the period type matches; any Main completion counts as a completion; the streak also breaks on days a recurring task replaces the idle tax with ticks; a gain potion boosts every gold and Qi gain, soul drops and the roulette included; a lost item takes a gain potion first; one server roll decides both a drop and its potion kind.

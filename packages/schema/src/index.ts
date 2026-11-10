@@ -120,10 +120,11 @@ export const HeartDemonDeleted = z.object({
 /**
  * Outcome of a soul drop roll, rolled on the server with
  * `soulDropOutcome(color, polarity, u)`. Positive tasks roll for gains at
- * growth colors; negative tasks roll for losses at weakening colors. "item" is
- * a common item (a potion until gear exists).
+ * growth colors; negative tasks roll for losses at weakening colors. Until
+ * gear exists, a common item is a potion of either kind (ruling 58);
+ * "lose_item" loses a potion.
  */
-export const SoulDrop = z.enum(["none", "gold", "qi", "item", "legendary", "lose_gold", "lose_qi", "lose_item"]);
+export const SoulDrop = z.enum(["none", "gold", "qi", "gain_potion", "legendary_potion", "legendary", "lose_gold", "lose_qi", "lose_item"]);
 
 /** A completed positive task or a logged negative task; the polarity comes from the demon's definition. */
 export const SoulTaskLogged = z.object({
@@ -170,6 +171,158 @@ export const SoulDropRolled = z.object({
   drops: z.array(SoulDrop).min(1).max(20),
 });
 
+// ---- Main: interview, tasks and quests --------------------------------------
+
+/**
+ * The Qi Condensation interview, answered at the early level. It starts the
+ * procrastination-tax clocks of all three paths at once (ruling 44). An
+ * interest may be empty while the cultivator is still undecided.
+ */
+export const InterviewAnswered = z.object({
+  ...base,
+  type: z.literal("InterviewAnswered"),
+  interests: z.object({
+    main: z.string().max(500),
+    body: z.string().max(500),
+    soul: z.string().max(500),
+  }),
+});
+
+/** Self-rated relative to the cultivator's current abilities. */
+export const Difficulty = z.enum(["trivial", "easy", "mid", "hard", "deadly"]);
+/** Self-rated and locked at creation: quick (<30 min), session (~1-2 h), day, project (several days). */
+export const Effort = z.enum(["quick", "session", "day", "project"]);
+/** Local day, ISO week (from Monday), calendar month or calendar year. */
+export const Period = z.enum(["day", "week", "month", "year"]);
+
+/** Most completions a recurring task can ask for in a period (at most 2 a day). */
+export const MAX_PER_PERIOD = { day: 2, week: 14, month: 62, year: 732 } as const;
+
+const OnceSchedule = z.object({
+  kind: z.literal("once"),
+  deadline: epochMs,
+});
+
+const RecurringSchedule = z
+  .object({
+    kind: z.literal("recurring"),
+    /** Completions per period; also the payout cap. */
+    count: z.number().int().min(1),
+    per: Period,
+    /** Optional end date; after it the task counts as archived. */
+    endsAt: epochMs.optional(),
+  })
+  .superRefine((s, ctx) => {
+    if (s.count > MAX_PER_PERIOD[s.per]) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: `at most ${MAX_PER_PERIOD[s.per]} per ${s.per}` });
+    }
+  });
+
+/** One-time (deadline, expires, one paid extension) or recurring (frequency, never expires). */
+export const TaskSchedule = z.union([OnceSchedule, RecurringSchedule]);
+
+const mainTaskFields = {
+  taskId: id,
+  /** Repetition is tracked by name: "Math exercise II" starts fresh. */
+  name: z.string().min(1).max(120),
+  difficulty: Difficulty,
+  effort: Effort,
+};
+
+export const MainTaskDefined = z.object({
+  ...base,
+  type: z.literal("MainTaskDefined"),
+  ...mainTaskFields,
+  schedule: TaskSchedule,
+  /**
+   * A new version of this recurring task (e.g. "Math exercise II" replacing
+   * "Math exercise"). The old task is archived if still open, and the new one
+   * takes over its count for the current period (ruling 55).
+   */
+  replaces: id.optional(),
+});
+
+/**
+ * A quest bundles 2-52 new one-time tasks (52: weekly milestones for a year;
+ * ruling 54). A member without a deadline shares the quest's; one with its
+ * own deadline (on or before the quest's) is a milestone (ruling 50).
+ */
+export const MainQuestDefined = z.object({
+  ...base,
+  type: z.literal("MainQuestDefined"),
+  questId: id,
+  name: z.string().min(1).max(120),
+  deadline: epochMs,
+  tasks: z.array(z.object({ ...mainTaskFields, deadline: epochMs.optional() })).min(2).max(52),
+});
+
+/** Outcome of a completed quest's item roll, rolled on the server with `questDropOutcome(chance, u)`. Until gear exists, an item is a potion. */
+export const MainQuestDrop = z.enum(["none", "gain_potion", "legendary_potion"]);
+
+export const MainTaskCompleted = z.object({
+  ...base,
+  type: z.literal("MainTaskCompleted"),
+  taskId: id,
+  /**
+   * When this completion completes a quest: the item roll's outcome, if the
+   * server rolled it at logging time. Omitted when logged offline: the server
+   * appends a MainQuestDropRolled on sync instead.
+   */
+  questDrop: MainQuestDrop.optional(),
+});
+
+/** Appended by the server on sync for a quest-completing event whose earned roll has no recorded outcome. */
+export const MainQuestDropRolled = z.object({
+  ...base,
+  type: z.literal("MainQuestDropRolled"),
+  /** The MainTaskCompleted event that completed the quest. */
+  eventId: id,
+  drop: MainQuestDrop,
+});
+
+/**
+ * "Work on this task today" (ruling 49): for one-time tasks of day or project
+ * effort and recurring tasks per week or longer. Counts as Main activity for
+ * the idle tax and pays nothing.
+ */
+export const MainTaskWorkedOn = z.object({
+  ...base,
+  type: z.literal("MainTaskWorkedOn"),
+  taskId: id,
+});
+
+/** Deleting a one-time task cancels it: it pays nothing, and its name keeps its history. */
+export const MainTaskCancelled = z.object({
+  ...base,
+  type: z.literal("MainTaskCancelled"),
+  taskId: id,
+});
+
+/** Deleting a recurring task archives it; its decay age pauses until it is restored. */
+export const MainTaskArchived = z.object({
+  ...base,
+  type: z.literal("MainTaskArchived"),
+  taskId: id,
+});
+
+/** Restores an archived (or ended) task with its history, under a new schedule. */
+export const MainTaskRestored = z.object({
+  ...base,
+  type: z.literal("MainTaskRestored"),
+  taskId: id,
+  schedule: TaskSchedule,
+});
+
+/** The one paid extension of an expired one-time task or quest. */
+export const MainItemExtended = z.object({
+  ...base,
+  type: z.literal("MainItemExtended"),
+  item: z.enum(["task", "quest"]),
+  itemId: id,
+  /** The new deadline. */
+  until: epochMs,
+});
+
 // ---- Rest -------------------------------------------------------------------
 
 export const RestStarted = z.object({
@@ -187,7 +340,18 @@ export const RestEnded = z.object({
 
 // ---- Golden ticket roulette -------------------------------------------------
 
-export const RoulettePrize = z.enum(["gold", "qi", "potion", "legendary", "scale"]);
+export const RoulettePrize = z.enum(["gold", "qi", "gain_potion", "legendary_potion", "legendary", "scale"]);
+
+/**
+ * Drinks a stored potion (ruling 58). Only gain potions are drunk for now: +10%
+ * gold and Qi for 24 hours, one active at a time. Legendary potions are
+ * stored until gear exists.
+ */
+export const PotionUsed = z.object({
+  ...base,
+  type: z.literal("PotionUsed"),
+  potion: z.enum(["gain"]),
+});
 
 /** Rolled on the server with `rouletteOutcome(u)` and stored here. */
 export const RouletteSpun = z.object({
@@ -214,6 +378,17 @@ export const GameEvent = z.discriminatedUnion("type", [
   RestStarted,
   RestEnded,
   RouletteSpun,
+  PotionUsed,
+  InterviewAnswered,
+  MainTaskDefined,
+  MainQuestDefined,
+  MainTaskCompleted,
+  MainTaskCancelled,
+  MainTaskArchived,
+  MainTaskRestored,
+  MainItemExtended,
+  MainTaskWorkedOn,
+  MainQuestDropRolled,
 ]);
 
 export type GameEvent = z.infer<typeof GameEvent>;
@@ -224,6 +399,11 @@ export type RoulettePrize = z.infer<typeof RoulettePrize>;
 export type Evidence = z.infer<typeof Evidence>;
 export type SoulTask = z.infer<typeof SoulTask>;
 export type SoulDrop = z.infer<typeof SoulDrop>;
+export type Difficulty = z.infer<typeof Difficulty>;
+export type Effort = z.infer<typeof Effort>;
+export type Period = z.infer<typeof Period>;
+export type TaskSchedule = z.infer<typeof TaskSchedule>;
+export type MainQuestDrop = z.infer<typeof MainQuestDrop>;
 
 /** Validate untrusted input (sync payloads, local DB rows) into a typed event. */
 export function parseEvent(input: unknown): GameEvent {
