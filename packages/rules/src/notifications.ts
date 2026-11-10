@@ -6,18 +6,22 @@
  */
 import { RULES_V1, type RulesConfig } from "./config.js";
 import { companionAlertAt, demonAlerts, type CultivatorState, type DemonAlertKind } from "./engine.js";
+import { questDeadlineAlerts } from "./main.js";
 import { DAY, localDay } from "./time.js";
 
-export type PushKind = "soul_broken" | "demon_near_revival" | "demon_near_violet" | "companion_hungry";
+export type PushKind = "quest_deadline" | "soul_broken" | "demon_near_revival" | "demon_near_violet" | "companion_hungry";
 
 export interface PushAlert {
   kind: PushKind;
   at: number;
   demonId?: string;
+  questId?: string;
+  /** Hours left before a quest deadline. */
+  hoursLeft?: number;
 }
 
 /** Most urgent first, in the doc's order (tribulation deadlines and equipment come later). */
-const PRIORITY: readonly PushKind[] = ["soul_broken", "demon_near_revival", "demon_near_violet", "companion_hungry"];
+const PRIORITY: readonly PushKind[] = ["quest_deadline", "soul_broken", "demon_near_revival", "demon_near_violet", "companion_hungry"];
 
 const FROM_DEMON: Partial<Record<DemonAlertKind, PushKind>> = {
   broken: "soul_broken",
@@ -34,6 +38,7 @@ export function pushAlertPlan(state: CultivatorState, now: number, rules: RulesC
   const until = now + n.horizonDays * DAY;
   const candidates: PushAlert[] = [];
 
+  for (const q of questDeadlineAlerts(state, rules)) candidates.push({ kind: "quest_deadline", at: q.at, questId: q.questId, hoursLeft: q.hoursLeft });
   const hungry = companionAlertAt(state, n.companionHungryFraction, rules);
   if (hungry !== null) candidates.push({ kind: "companion_hungry", at: hungry });
   for (const a of demonAlerts(state, rules)) {

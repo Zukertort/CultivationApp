@@ -195,18 +195,18 @@ Something must pay out every few minutes, every few weeks and every few years; t
 
 Qi pays for breakthroughs and gold buys gear and rest; repeated tasks pay less each time, so only harder, more complex quests keep Qi flowing, which is the anti-stagnation mechanic.
 
-- [ ] &#91;v1\] Qi is the breakthrough currency; each realm and level sets a Qi threshold
-- [ ] &#91;v1\] Tasks and quests created by the user; a quest bundles several tasks to raise complexity
-- [ ] &#91;v1\] Quests and tasks expire at their deadline or when completed
-- [ ] &#91;v1\] One paid extension per expired task or quest, for gold, no longer than its original duration; unpaid, it disappears
-- [ ] &#91;v1\] Difficulty self-rating per task, relative to current abilities: trivial, easy, mid, hard, deadly
-- [ ] &#91;v1\] Qi scales with difficulty and complexity; simple tasks pay well in the first two realms and taper off above
-- [ ] &#91;v1\] Repetition decay: the first two repeats within a level pay full Qi; each later repeat loses 15% of the base, down to a 25% floor
-- [ ] &#91;v1\] Raising a task's difficulty requires a new named version (Math exercise → Math exercise II)
-- [ ] Avatar warning on heavy repetition: "I've completed 'Math exercise' too many times; I need to make it harder to keep growing"
-- [ ] &#91;v1\] Gold scales with difficulty, number of tasks and duration
-- [ ] &#91;v1\] Procrastination tax on every path (Main, Body, Soul) after a set number of days without activity there; a class's cross-credit counts as activity on the paths it covers; the tax hits Qi and gold only, never realm progress, and debt is capped; the Body and Soul taxes are 1/5 of the Main tax
-- [ ] &#91;v1\] Bonus stacking: every percentage bonus (fitness tier, pose, soul color, class with its Spirit Realm multiplier, items, potions) adds into one pool; scales and wings multiply the total
+- [ ] &#91;v1\] Qi is the breakthrough currency; each realm and level sets a Qi threshold *(Earning Qi was built in Main part 1. The thresholds come with realms in part 3.)*
+- [x] &#91;v1\] Tasks and quests created by the user; a quest bundles several tasks to raise complexity
+- [x] &#91;v1\] Quests and tasks expire at their deadline or when completed
+- [x] &#91;v1\] One paid extension per expired task or quest, for gold, no longer than its original duration; unpaid, it disappears
+- [x] &#91;v1\] Difficulty self-rating per task, relative to current abilities: trivial, easy, mid, hard, deadly
+- [x] &#91;v1\] Qi scales with difficulty and complexity; simple tasks pay well in the first two realms and taper off above *(The taper is applied by realm; until part 3 adds realms, every cultivator is in Qi Condensation.)*
+- [x] &#91;v1\] Repetition decay: the first two repeats within a level pay full Qi; each later repeat loses 15% of the base, down to a 25% floor *(Built age-based instead, like Body, with no reset at levels; see Rulings 18, 19 and 37.)*
+- [x] &#91;v1\] Raising a task's difficulty requires a new named version (Math exercise → Math exercise II)
+- [ ] Avatar warning on heavy repetition: "I've completed 'Math exercise' too many times; I need to make it harder to keep growing" *(The rules engine lists stale tasks with `staleTasks`; the avatar message waits for the app.)*
+- [x] &#91;v1\] Gold scales with difficulty, number of tasks and duration
+- [ ] &#91;v1\] Procrastination tax on every path (Main, Body, Soul) after a set number of days without activity there; a class's cross-credit counts as activity on the paths it covers; the tax hits Qi and gold only, never realm progress, and debt is capped; the Body and Soul taxes are 1/5 of the Main tax *(Built in Main part 1 except class cross-credit, which comes with classes in part 4.)*
+- [ ] &#91;v1\] Bonus stacking: every percentage bonus (fitness tier, pose, soul color, class with its Spirit Realm multiplier, items, potions) adds into one pool; scales and wings multiply the total *(Part 1 added the pose Qi bonus and the tier's core Qi bonus, and limited the tier gold bonus to Body and Main gold. Classes, soul color, items and potions come in part 4.)*
 - [ ] Legendary chances add when several apply to the same event (e.g., Lion 2% + halo ticket 10% + Unique class 2% = 14%); one legendary pool per realm
 - [ ] Gold shop: vacations, wearables, armor, weapons, potions, class changes, repairs, extensions
 - [ ] Armor reduces Qi losses (e.g., 10 fewer lost); weapons add to Qi gains (e.g., +10); potions boost gold and Qi gains; legendary items boost more
@@ -217,7 +217,7 @@ Qi pays for breakthroughs and gold buys gear and rest; repeated tasks pay less e
 
 **Gaps**
 
-- [ ] Numbers for the simulator: the Main tax's grace period and amount, extension prices, vacation lengths and prices, and the Qi cost of editing tribulations or changing discipline
+- [ ] Numbers for the simulator: the Main tax's grace period and amount, extension prices, vacation lengths and prices, and the Qi cost of editing tribulations or changing discipline *(The Main tax and extension prices have been in the config since Main part 1, provisional per ruling 47. Vacation prices were already set; tribulation and discipline costs come in parts 2 and 3.)*
 
 ## Breakthroughs and tribulations
 
@@ -244,7 +244,7 @@ The comeback after a bad week must cost less than quitting the app, or users lea
 - [ ] &#91;v1\] Vacations: rest periods bought with gold; the avatar travels to visit the Nine Marvels; tribulation deadlines keep their dates, and the request screen says so
 - [ ] &#91;v1\] Closed-door cultivation: a free "feeling ill / burnout" button; the avatar enters a cave; up to 14 days at a time and 30 days per quarter; tribulation deadlines extend by the days spent inside, and the request screen says so
 - [ ] &#91;v1\] While resting (vacation or closed-door): no tax, the companion sleeps (no food loss) and the soul is frozen (no demon growth)
-- [ ] &#91;v1\] Qi deviation: entered when procrastination-tax debt hits its cap; a short comeback quest clears both the state and the debt
+- [x] &#91;v1\] Qi deviation: entered when procrastination-tax debt hits its cap; a short comeback quest clears both the state and the debt
 
 **Gaps**
 
@@ -320,7 +320,7 @@ None open; alchemy and techniques are dropped.
 Few and meaningful; guilt-trip spam is how Duolingo's notifications became a meme.
 
 - [ ] &#91;v1\] Push notifications only for losses that are close, at most 3 a day, most urgent first:
-  - Tribulation and core quest deadlines at 72, 48, 24 and 1 hour left
+  - Tribulation and core quest deadlines at 72, 48, 24 and 1 hour left *(quest deadlines have been in the push plan since Main part 1; tribulations come in part 2)*
   - The soul turning Broken (a demon above 90% HP)
   - A defeated demon within 5% of reviving, or any demon within 5% of 70% HP
   - The companion within 5% of empty
@@ -421,3 +421,14 @@ Decisions made while implementing the rules engine. They are settled: future ses
 34. A comeback quest clears Qi deviation and forgives the remaining debt: complete 3 Main tasks rated easy or harder within 3 days of entering deviation; if the window passes, a new 3-day window starts.
 35. Bonuses: the fitness tier's Qi bonus applies only to Main tasks and quests; the pose Qi bonus applies to all Qi gains; the tier gold bonus applies only to Main and Body gold, never to soul drops, the roulette or anything else.
 36. The server checks each event's timestamp against when it was received; the rules engine trusts `at`.
+37. Repetition decay never resets at a level-up or a realm breakthrough. Only a new named version starts fresh.
+38. Payouts use work points: difficulty points (trivial 1, easy 2, mid 4, hard 8, deadly 16) times an effort weight (quick 0.25, session 1, day 4, project 16). Qi follows a convex curve of the points through 1, 3, 8, 20 and 50 Qi at 1, 2, 4, 8 and 16 points, so one task always pays at least as much as the same work in pieces. Gold is linear in the points. A completed quest's total Qi is the lower of the curve at the members' combined points and 1.5 times the members' own Qi; the completion bonus is the difference. This replaces the +10% per task bonus, which rewarded splitting.
+39. "At most 2 a day" applies to weekly and monthly tasks too, and to one-time tasks sharing a name: a name pays at most 2 completions per local day. A completion over either cap neither pays nor counts as an occurrence. Periods are the local day, the ISO week (from Monday) and the calendar month.
+40. A missed occurrence costs Main's daily tax times (days in the period / the task's count), so missing a task's whole schedule costs about one idle day per day for each task.
+41. Only active recurring tasks replace Main's idle rule; one-time tasks don't. A day with an active recurring task is never charged idle tax as well.
+42. In a partly active period (created, archived, ended or resting during it), the occurrences owed are the count times the active share of the period, rounded down. Archiving just before a period ends still owes the share already due.
+43. Only recurring tasks are archived and restored; deleting a one-time task cancels it (it pays nothing, and its name keeps its history). A name has at most one open task. A recurring task past its end date counts as archived. Cancelling a quest member forfeits the quest's bonus.
+44. The InterviewAnswered event, emitted when the Qi Condensation interview is answered (the early level), starts the tax clocks of all three paths at once. Answering again changes only the interests.
+45. Quest members are one-time tasks that share the quest's deadline; a recurring task can't join a quest.
+46. Restoring is an explicit event: the restored task keeps its difficulty, effort and decay history and takes the new schedule. Defining a task with an archived task's name is rejected, so the log always shows the restore.
+47. Every number from Main part 1 is provisional and will be revisited after dogfooding.

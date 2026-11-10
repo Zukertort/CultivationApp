@@ -5,7 +5,7 @@
  * Numbers marked SIM are placeholders the design doc leaves to the economy
  * simulator.
  */
-import type { SoulDrop } from "@cultivation/schema";
+import type { Difficulty, Effort, SoulDrop } from "@cultivation/schema";
 
 export const TIERS = ["turtle", "panda", "horse", "tiger", "lion"] as const;
 export type Tier = (typeof TIERS)[number];
@@ -15,6 +15,81 @@ export const SOUL_COLORS = ["broken", "black", "violet", "white", "green", "blue
 export type SoulColor = (typeof SOUL_COLORS)[number];
 export const WEAKENING_COLORS: readonly SoulColor[] = ["broken", "black", "violet"];
 export const GROWTH_COLORS: readonly SoulColor[] = ["green", "blue", "red", "golden", "translucent", "rainbow"];
+
+/** Main realms in order. Step 1 holds the first four; Spirit Realm starts Step 2. */
+export const REALMS = [
+  "qi_condensation",
+  "foundation_establishment",
+  "core_formation",
+  "nascent_soul",
+  "spirit_realm",
+  "void_god",
+  "golden_god",
+  "true_god",
+  "sovereign",
+  "immortal",
+] as const;
+export type Realm = (typeof REALMS)[number];
+
+export type MainPath = "main" | "body" | "soul";
+
+/** Age-based repetition decay (Body and Main, rulings 18-19). */
+export interface RepetitionRules {
+  /** Weeks of full value after a version's first completion (active time only). */
+  fullValueWeeks: number;
+  /** Value lost per week beyond that, as a fraction of base. */
+  weeklyLoss: number;
+  /** Floor, as a fraction of base. */
+  floor: number;
+}
+
+/** Main path: tasks, quests and the procrastination tax. Every number here is a SIM value (ruling 47). */
+export interface MainRules {
+  /** Work points: difficulty points x effort weight (ruling 38). Each difficulty level is twice the work of the one below. */
+  difficultyPoints: Record<Difficulty, number>;
+  effortWeight: Record<Effort, number>;
+  /**
+   * Qi curve: [work points, Qi] anchors, starting at [0, 0], with slopes that
+   * never decrease (convex), so one task always pays at least as much as the
+   * same work split into pieces. Extrapolated past the last anchor with the
+   * last slope.
+   */
+  qiCurve: readonly (readonly [number, number])[];
+  /** Gold per work point, before decay and bonuses. Linear, so splitting never changes gold. */
+  goldPerPoint: number;
+  /** Simple tasks pay well in the first two realms and taper above (Qi only). */
+  simpleDifficulties: readonly Difficulty[];
+  simpleTaper: Record<Realm, number>;
+  /** A completed quest pays min(curve(sum of points), (1 + cap) x members' own Qi). */
+  questBonusCap: number;
+  repetition: RepetitionRules;
+  /** Paying completions per task name per local day (ruling 39). */
+  maxPaidPerNamePerDay: number;
+  maxDeadlineDays: number;
+  extension: {
+    /** Days after the deadline when the one extension can still be bought. */
+    windowDays: number;
+    /** Price: the item's base gold (unfinished tasks for a quest), at least this. */
+    minPrice: number;
+  };
+  tax: {
+    /** Main's tax for one idle day; a missed occurrence costs this x (period days / count). */
+    main: { qi: number; gold: number };
+    /** Body and Soul pay this fraction of Main's tax (1/5). */
+    sideFraction: number;
+    /** Days without activity before the idle tax starts. */
+    graceDays: Record<MainPath, number>;
+    /**
+     * How occurrences owed in a partly active period round (ruling 42 says
+     * "floor"). "fractional" charges the exact share instead.
+     */
+    partialPeriods: "floor" | "fractional";
+  };
+  debtCap: { qi: number; gold: number };
+  comeback: { tasks: number; minDifficulty: Difficulty; windowDays: number };
+  /** Push notification lead times before a quest deadline, in hours. */
+  questDeadlineAlertHours: readonly number[];
+}
 
 export interface SoulRules {
   /** All HP values are percentages of a demon's maximum (0-100). */
@@ -83,7 +158,7 @@ export interface TierRules {
   capacity: number;
   /** Treats lost per week while not resting. */
   weeklyLoss: number;
-  /** Additive gold bonus on exercises and routines (0.35 = +35%). */
+  /** Additive gold bonus on Body and Main gold only (0.35 = +35%; ruling 35). */
   goldBonus: number;
   /** Additive Qi bonus on core tasks and quests (applied by the Main path). */
   coreQiBonus: number;
@@ -107,15 +182,9 @@ export interface RulesConfig {
    * completion, however often it is done, then decays week by week until the
    * cultivator levels it up ("BJJ" -> "BJJ II").
    */
-  repetition: {
-    /** Weeks of full value after a version's first completion. */
-    fullValueWeeks: number;
-    /** Value lost per week beyond that, as a fraction of base. */
-    weeklyLoss: number;
-    /** Floor, as a fraction of base. */
-    floor: number;
-  };
-  poses: { name: string; minMastered: number }[];
+  repetition: RepetitionRules;
+  /** Poses from Skill; the Qi bonus applies to every Qi gain (ruling 35). */
+  poses: { name: string; minMastered: number; qiBonus: number }[];
   halo: { visibleDays: number; ticketDays: number };
   rest: {
     /** SIM: vacation price per day. */
@@ -134,6 +203,7 @@ export interface RulesConfig {
   scales: { goldBonusEach: number; qiBonusEach: number; forWings: number };
   wings: { goldBonus: number; qiBonus: number };
   soul: SoulRules;
+  main: MainRules;
   notifications: {
     /** Push notifications per local day; the most urgent are kept. */
     maxPerDay: number;
@@ -145,7 +215,7 @@ export interface RulesConfig {
 }
 
 export const RULES_V1: RulesConfig = Object.freeze({
-  version: "1.5.0",
+  version: "1.6.0",
   tiers: {
     turtle: { capacity: 30, weeklyLoss: 10, goldBonus: 0.01, coreQiBonus: 0, breakthroughLegendaryChance: 0 },
     panda: { capacity: 800, weeklyLoss: 200, goldBonus: 0.1, coreQiBonus: 0, breakthroughLegendaryChance: 0 },
@@ -159,11 +229,11 @@ export const RULES_V1: RulesConfig = Object.freeze({
   gold: { exercise: 1, routine: 10 },
   repetition: { fullValueWeeks: 4, weeklyLoss: 0.15, floor: 0.25 },
   poses: [
-    { name: "standing", minMastered: 0 },
-    { name: "heroic", minMastered: 1 },
-    { name: "warrior", minMastered: 3 },
-    { name: "knight", minMastered: 6 },
-    { name: "king", minMastered: 10 },
+    { name: "standing", minMastered: 0, qiBonus: 0 },
+    { name: "heroic", minMastered: 1, qiBonus: 0.01 },
+    { name: "warrior", minMastered: 3, qiBonus: 0.02 },
+    { name: "knight", minMastered: 6, qiBonus: 0.03 },
+    { name: "king", minMastered: 10, qiBonus: 0.05 },
   ],
   halo: { visibleDays: 30, ticketDays: 90 },
   rest: {
@@ -234,5 +304,45 @@ export const RULES_V1: RulesConfig = Object.freeze({
       loseQi: 10,
     },
     alertMargin: 5,
+  },
+  main: {
+    difficultyPoints: { trivial: 1, easy: 2, mid: 4, hard: 8, deadly: 16 },
+    effortWeight: { quick: 0.25, session: 1, day: 4, project: 16 },
+    qiCurve: [
+      [0, 0],
+      [1, 1],
+      [2, 3],
+      [4, 8],
+      [8, 20],
+      [16, 50],
+    ],
+    goldPerPoint: 1.25,
+    simpleDifficulties: ["trivial", "easy"],
+    simpleTaper: {
+      qi_condensation: 1,
+      foundation_establishment: 1,
+      core_formation: 0.5,
+      nascent_soul: 0.25,
+      spirit_realm: 0.1,
+      void_god: 0.1,
+      golden_god: 0.1,
+      true_god: 0.1,
+      sovereign: 0.1,
+      immortal: 0.1,
+    },
+    questBonusCap: 0.5,
+    repetition: { fullValueWeeks: 4, weeklyLoss: 0.15, floor: 0.25 },
+    maxPaidPerNamePerDay: 2,
+    maxDeadlineDays: 365,
+    extension: { windowDays: 3, minPrice: 5 },
+    tax: {
+      main: { qi: 5, gold: 5 },
+      sideFraction: 0.2,
+      graceDays: { main: 3, body: 7, soul: 7 },
+      partialPeriods: "floor",
+    },
+    debtCap: { qi: 50, gold: 50 },
+    comeback: { tasks: 3, minDifficulty: "easy", windowDays: 3 },
+    questDeadlineAlertHours: [72, 48, 24, 1],
   },
 } satisfies RulesConfig);

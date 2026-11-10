@@ -1,5 +1,6 @@
 /**
- * Economy simulator: the Body food economy here, the Soul scenario in ./soul.ts.
+ * Economy simulator: the Body food economy here, the Soul scenario in ./soul.ts,
+ * the Main path (tasks, quests and tax) in ./main.ts.
  *
  * Food-economy simulator. Runs synthetic cultivators through the real rules
  * engine (no reimplementation) and reports how long each tier takes to reach,
@@ -14,6 +15,7 @@ import { fileURLToPath } from "node:url";
 import { OATH_TEXT, type GameEvent } from "@cultivation/schema";
 import { DAY, RULES_V1, TIERS, WEEK, advanceTo, applyEvent, initialState, type CultivatorState, type Tier } from "@cultivation/rules";
 import { runSoulScenarios } from "./soul.js";
+import { runMainScenarios } from "./main.js";
 
 const T0 = Date.UTC(2026, 10, 2, 3); // Monday 00:00 in Buenos Aires
 const TRAINING_HOUR = 19 * 60 * 60 * 1000;
@@ -118,5 +120,7 @@ for (const tier of TIERS) {
 }
 // 3. Soul: heart demons and soul color under different habits.
 runSoulScenarios(outDir);
+// 4. Main: tasks, quests, repetition decay and the procrastination tax.
+runMainScenarios(outDir);
 
 console.log(`\nCSV written to ${outDir}`);

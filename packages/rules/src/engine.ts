@@ -18,6 +18,24 @@ import {
   type SoulState,
 } from "./soul.js";
 import { DAY, WEEK, localDay, nextLocalMidnight } from "./time.js";
+import { earnGold, earnQi, goldMultiplier, qiMultiplier, trainingGoldMultiplier } from "./economy.js";
+import {
+  advanceMain,
+  decayMultiplier,
+  initialMain,
+  mainMidnight,
+  markActivity,
+  onInterviewAnswered,
+  onItemExtended,
+  onMainQuestDefined,
+  onTaskArchived,
+  onTaskCancelled,
+  onTaskCompleted,
+  onTaskDefined,
+  onTaskRestored,
+  shiftDeadlinesAfterRest,
+  type MainState,
+} from "./main.js";
 
 // ---- State --------------------------------------------------------------------
 
@@ -49,6 +67,8 @@ export interface CultivatorState {
     food: number;
     /** First paying completion of each activity version (repetition decay). */
     firstCompletedAt: Record<string, number>;
+    /** Decay age of each activity version: time since its first paying completion, rest excluded (ruling 19). */
+    ageMs: Record<string, number>;
     /** Local day key and routines counted that day (daily cap). */
     routineDay: number;
     routinesToday: number;
@@ -64,6 +84,7 @@ export interface CultivatorState {
   goldenTickets: number;
   inventory: { potions: number; legendary: number; scales: number; wings: boolean };
   soul: SoulState;
+  main: MainState;
   /** Things that should be impossible (e.g. a second set of wings); flagged, never silently fixed. */
   anomalies: { at: number; code: string }[];
 }
@@ -81,6 +102,7 @@ export function initialState(rules: RulesConfig = RULES_V1): CultivatorState {
       tier: "turtle",
       food: rules.tiers.turtle.capacity * rules.tierStartFraction,
       firstCompletedAt: {},
+      ageMs: {},
       routineDay: -1,
       routinesToday: 0,
     },
@@ -94,6 +116,7 @@ export function initialState(rules: RulesConfig = RULES_V1): CultivatorState {
     goldenTickets: 0,
     inventory: { potions: 0, legendary: 0, scales: 0, wings: false },
     soul: initialSoul(),
+    main: initialMain(),
     anomalies: [],
   };
 }
@@ -101,43 +124,13 @@ export function initialState(rules: RulesConfig = RULES_V1): CultivatorState {
 // ---- Helpers --------------------------------------------------------------------
 
 /**
- * Value multiplier for an activity version that was first completed `ageMs`
- * ago: full value for `fullValueWeeks`, then one step of `weeklyLoss` at the
- * start of each further week, down to `floor`.
+ * Body value multiplier for an activity version whose decay age (active time
+ * since its first paying completion, rest excluded) is `ageMs`: full value
+ * for `fullValueWeeks`, then one step of `weeklyLoss` at the start of each
+ * further week, down to `floor`.
  */
 export function repetitionMultiplier(ageMs: number, rules: RulesConfig = RULES_V1): number {
-  const r = rules.repetition;
-  const fullMs = r.fullValueWeeks * WEEK;
-  if (ageMs < fullMs) return 1;
-  const steps = Math.floor((ageMs - fullMs) / WEEK) + 1;
-  return Math.max(r.floor, 1 - r.weeklyLoss * steps);
-}
-
-export function goldMultiplier(state: CultivatorState, rules: RulesConfig = RULES_V1): number {
-  // Additive pool first, then scales and wings multiply the total.
-  const pool = 1 + rules.tiers[state.companion.tier].goldBonus;
-  const inv = state.inventory;
-  const scales = (1 + rules.scales.goldBonusEach) ** inv.scales;
-  const wings = inv.wings ? 1 + rules.wings.goldBonus : 1;
-  return pool * scales * wings;
-}
-
-export function qiMultiplier(state: CultivatorState, rules: RulesConfig = RULES_V1): number {
-  const inv = state.inventory;
-  const scales = (1 + rules.scales.qiBonusEach) ** inv.scales;
-  const wings = inv.wings ? 1 + rules.wings.qiBonus : 1;
-  return scales * wings;
-}
-
-export function masteredCount(state: CultivatorState): number {
-  return state.masteries.length;
-}
-
-export function pose(state: CultivatorState, rules: RulesConfig = RULES_V1): string {
-  const n = masteredCount(state);
-  let current = rules.poses[0]?.name ?? "standing";
-  for (const p of rules.poses) if (n >= p.minMastered) current = p.name;
-  return current;
+  return decayMultiplier(ageMs, rules.repetition);
 }
 
 export function haloVisible(state: CultivatorState, now: number, rules: RulesConfig = RULES_V1): boolean {
@@ -242,16 +235,30 @@ function advanceMut(s: CultivatorState, to: number, rules: RulesConfig): void {
     let stop = Math.min(to, dayEnd);
     if (s.rest) {
       stop = Math.min(stop, s.rest.end);
+      s.main.day.rested = true;
     } else {
       advanceCompanion(s, cur, stop, rules);
+      advanceBodyAge(s, cur, stop);
       advanceSoul(s.soul, cur, stop, rules);
+      advanceMain(s, cur, stop);
     }
     cur = stop;
-    if (s.rest && cur >= s.rest.end) s.rest = null;
+    if (s.rest && cur >= s.rest.end) {
+      shiftDeadlinesAfterRest(s, s.rest, s.rest.end);
+      s.rest = null;
+    }
+    // Periods close and tax is charged at every midnight (a day with rest is never taxed).
+    if (cur === dayEnd) mainMidnight(s, cur, rules);
     // Rest freezes the soul color; a midnight that ends the rest is evaluated.
     if (cur === dayEnd && !s.rest) endOfDay(s.soul, cur, rules);
   }
   s.clock = to;
+}
+
+/** Body decay ages over [from, to], a stretch with no rest. */
+function advanceBodyAge(s: CultivatorState, from: number, to: number): void {
+  const ages = s.companion.ageMs;
+  for (const id of Object.keys(s.companion.firstCompletedAt)) ages[id] = (ages[id] ?? 0) + (to - from);
 }
 
 /** Food loss over [from, to], a stretch with no rest. */
@@ -299,6 +306,8 @@ const onActivityLogged: Handler<"BodyActivityLogged"> = (s, e, rules) => {
   const activity = s.activities[e.activityId];
   if (!activity) violate("unknown_activity", `activity ${e.activityId} is not defined`);
   const c = s.companion;
+  // Any logged activity counts against the Body tax, even one over the routine cap (ruling 31).
+  markActivity(s.main, "body", e.at);
 
   if (activity.kind === "routine") {
     const day = localDay(e.at, s.tzOffsetMinutes);
@@ -311,11 +320,14 @@ const onActivityLogged: Handler<"BodyActivityLogged"> = (s, e, rules) => {
     c.routinesToday += 1;
   }
 
-  const first = (c.firstCompletedAt[e.activityId] ??= e.at);
-  const rep = repetitionMultiplier(e.at - first, rules);
+  if (c.firstCompletedAt[e.activityId] === undefined) {
+    c.firstCompletedAt[e.activityId] = e.at;
+    c.ageMs[e.activityId] = 0;
+  }
+  const rep = repetitionMultiplier(c.ageMs[e.activityId] ?? 0, rules);
 
   // Gold uses the multiplier of the tier the activity was done in.
-  s.gold += rules.gold[activity.kind] * rep * goldMultiplier(s, rules);
+  earnGold(s, rules.gold[activity.kind] * rep * trainingGoldMultiplier(s, rules));
 
   c.food += rules.treats[activity.kind] * rep;
   while (c.tier !== "lion" && c.food >= rules.tiers[c.tier].capacity) {
@@ -381,6 +393,7 @@ const onRestStarted: Handler<"RestStarted"> = (s, e, rules) => {
 
 const onRestEnded: Handler<"RestEnded"> = (s, e) => {
   if (!s.rest) violate("not_resting", "no active rest period");
+  shiftDeadlinesAfterRest(s, s.rest, e.at);
   if (s.rest.kind === "closed_door") {
     const log = s.closedDoorLog.at(-1);
     if (log) log.end = e.at;
@@ -394,10 +407,10 @@ const onRouletteSpun: Handler<"RouletteSpun"> = (s, e, rules) => {
   const inv = s.inventory;
   switch (e.prize) {
     case "gold":
-      s.gold += rules.roulette.goldPrize * goldMultiplier(s, rules);
+      earnGold(s, rules.roulette.goldPrize * goldMultiplier(s, rules));
       break;
     case "qi":
-      s.qi += rules.roulette.qiPrize * qiMultiplier(s, rules);
+      earnQi(s, rules.roulette.qiPrize * qiMultiplier(s, rules));
       break;
     case "potion":
       inv.potions += 1;
@@ -449,10 +462,10 @@ function applySoulDrop(s: CultivatorState, drop: SoulDrop, rules: RulesConfig): 
     case "none":
       break;
     case "gold":
-      s.gold += d.gold * goldMultiplier(s, rules);
+      earnGold(s, d.gold * goldMultiplier(s, rules));
       break;
     case "qi":
-      s.qi += d.qi * qiMultiplier(s, rules);
+      earnQi(s, d.qi * qiMultiplier(s, rules));
       break;
     case "item":
       inv.potions += 1;
@@ -486,14 +499,25 @@ const handlers: { [T in GameEvent["type"]]: Handler<T> } = {
   HeartDemonDeleted: (s, e, rules) => onDemonDeleted(s.soul, e, rules),
   SoulTaskLogged: (s, e, rules) => {
     const polarity = onSoulTaskLogged(s.soul, e, rules);
+    // Practice counts against the Soul tax; a relapse doesn't (ruling 31).
+    if (polarity === "positive") markActivity(s.main, "soul", e.at);
     rollSoulDrops(s, e, polarity, 1, e.drop === undefined ? undefined : [e.drop], rules);
   },
   SoulQuestDefined: (s, e) => onQuestDefined(s.soul, e),
   SoulQuestCompleted: (s, e, rules) => {
     const hit = onQuestCompleted(s.soul, e, rules);
+    markActivity(s.main, "soul", e.at);
     rollSoulDrops(s, e, "positive", hit, e.drops, rules);
   },
   SoulDropRolled: onDropRolled,
+  InterviewAnswered: (s, e) => onInterviewAnswered(s, e),
+  MainTaskDefined: onTaskDefined,
+  MainQuestDefined: onMainQuestDefined,
+  MainTaskCompleted: onTaskCompleted,
+  MainTaskCancelled: onTaskCancelled,
+  MainTaskArchived: (s, e) => onTaskArchived(s, e),
+  MainTaskRestored: onTaskRestored,
+  MainItemExtended: onItemExtended,
 };
 
 // ---- Public API ---------------------------------------------------------------------

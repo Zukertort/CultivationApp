@@ -557,7 +557,7 @@ describe("soul drops", () => {
     const at = T0 + DAY + H;
     const gain = (d: string) => applyEvent(green(), task("a+", at, d));
     const loss = (d: string, s: CultivatorState = violet()) => applyEvent(s, task("a-", at, d));
-    expect(gain("gold").gold).toBeCloseTo(10 * 1.01, 9); // Turtle gold bonus applies
+    expect(gain("gold").gold).toBeCloseTo(10, 9); // the tier gold bonus never applies to soul drops (ruling 35)
     expect(gain("qi").qi).toBeCloseTo(10, 9);
     expect(gain("item").inventory.potions).toBe(1);
     expect(gain("legendary").inventory.legendary).toBe(1);
@@ -583,11 +583,11 @@ describe("soul drops", () => {
     let s = applyEvent(green(), task("a+", T0 + DAY + H));
     const taskId = `e${seq}`;
     s = applyEvent(s, rolled(taskId, T0 + DAY + 2 * H, ["gold"]));
-    expect(s.gold).toBeCloseTo(10.1, 9);
+    expect(s.gold).toBeCloseTo(10, 9);
     expect(pendingCount(s)).toBe(0);
     // A second roll for the same task is flagged, never applied.
     s = applyEvent(s, rolled(taskId, T0 + DAY + 3 * H, ["gold"]));
-    expect(s.gold).toBeCloseTo(10.1, 9);
+    expect(s.gold).toBeCloseTo(10, 9);
     expect(s.anomalies).toEqual([{ at: T0 + DAY + 3 * H, code: "orphan_drop_roll" }]);
     expect(code(() => applyEvent(applyEvent(green(), task("a+", T0 + DAY + H)), rolled(`e${seq}`, T0 + DAY + 2 * H, ["lose_qi"])))).toBe(
       "drop_wrong_polarity",

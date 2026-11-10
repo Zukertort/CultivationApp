@@ -77,4 +77,36 @@ describe("parseEvent", () => {
     expect(() => parseEvent({ ...q, demonIds: ["d1"] })).toThrow();
     expect(parseEvent({ ...q, demonIds: ["d1", "d2"] }).type).toBe("SoulQuestDefined");
   });
+
+  const task = { id: "e1", userId: "u1", at: 0, type: "MainTaskDefined", taskId: "t1", name: "Math exercise", difficulty: "mid", effort: "session" };
+
+  it("accepts one-time and recurring Main tasks", () => {
+    expect(parseEvent({ ...task, schedule: { kind: "once", deadline: 1000 } }).type).toBe("MainTaskDefined");
+    expect(parseEvent({ ...task, schedule: { kind: "recurring", count: 3, per: "week" } }).type).toBe("MainTaskDefined");
+  });
+
+  it("caps recurring tasks at 2 a day", () => {
+    expect(() => parseEvent({ ...task, schedule: { kind: "recurring", count: 3, per: "day" } })).toThrow();
+    expect(() => parseEvent({ ...task, schedule: { kind: "recurring", count: 15, per: "week" } })).toThrow();
+    expect(() => parseEvent({ ...task, schedule: { kind: "recurring", count: 0, per: "month" } })).toThrow();
+  });
+
+  it("rejects unknown difficulties and efforts, and a one-time task without a deadline", () => {
+    expect(() => parseEvent({ ...task, difficulty: "legendary", schedule: { kind: "once", deadline: 1 } })).toThrow();
+    expect(() => parseEvent({ ...task, effort: "forever", schedule: { kind: "once", deadline: 1 } })).toThrow();
+    expect(() => parseEvent({ ...task, schedule: { kind: "once" } })).toThrow();
+  });
+
+  it("requires a Main quest to bundle 2 to 10 tasks", () => {
+    const member = { taskId: "t", name: "Read", difficulty: "easy", effort: "quick" };
+    const q = { id: "e1", userId: "u1", at: 0, type: "MainQuestDefined", questId: "q1", name: "Exam prep", deadline: 1000 };
+    expect(() => parseEvent({ ...q, tasks: [member] })).toThrow();
+    expect(parseEvent({ ...q, tasks: [member, { ...member, taskId: "t2" }] }).type).toBe("MainQuestDefined");
+    expect(() => parseEvent({ ...q, tasks: Array.from({ length: 11 }, (_, i) => ({ ...member, taskId: "t" + i })) })).toThrow();
+  });
+
+  it("accepts the interview with undecided interests", () => {
+    const e = { id: "e1", userId: "u1", at: 0, type: "InterviewAnswered", interests: { main: "Mathematics", body: "", soul: "" } };
+    expect(parseEvent(e).type).toBe("InterviewAnswered");
+  });
 });
