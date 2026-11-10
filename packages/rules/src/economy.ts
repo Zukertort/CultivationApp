@@ -85,36 +85,46 @@ export function mainQiMultiplier(state: CultivatorState, rules: RulesConfig = RU
   return pool * qiItems(state, rules);
 }
 
-/** Add gold; tax debt is repaid first. */
+/** Add gold; tax debt is repaid first, its unforgivable postponed part first of all. */
 export function earnGold(s: CultivatorState, amount: number): void {
   if (!(amount > 0)) return;
-  const repay = Math.min(s.main.debt.gold, amount);
-  s.main.debt.gold -= repay;
+  const m = s.main;
+  const repay = Math.min(m.debt.gold, amount);
+  m.debt.gold -= repay;
+  m.debtPostponed.gold = Math.max(0, m.debtPostponed.gold - repay);
   s.gold += amount - repay;
 }
 
-/** Add Qi; tax debt is repaid first. */
+/** Add Qi; tax debt is repaid first, its unforgivable postponed part first of all. */
 export function earnQi(s: CultivatorState, amount: number): void {
   if (!(amount > 0)) return;
-  const repay = Math.min(s.main.debt.qi, amount);
-  s.main.debt.qi -= repay;
+  const m = s.main;
+  const repay = Math.min(m.debt.qi, amount);
+  m.debt.qi -= repay;
+  m.debtPostponed.qi = Math.max(0, m.debtPostponed.qi - repay);
   s.qi += amount - repay;
 }
 
 /**
  * Charge procrastination tax: taken from the balances, the rest becomes debt
  * (balances never go below 0), capped. Reaching either cap starts Qi
- * deviation (ruling 33).
+ * deviation (ruling 33). Debt from `postponed` tax is tracked apart, since
+ * the comeback doesn't forgive it (ruling 59).
  */
-export function chargeTax(s: CultivatorState, path: MainPath, qi: number, gold: number, at: number, rules: RulesConfig): void {
+export function chargeTax(s: CultivatorState, path: MainPath, qi: number, gold: number, at: number, rules: RulesConfig, postponed = false): void {
   const m = s.main;
   const cap = rules.main.debtCap;
   const fromQi = Math.min(s.qi, qi);
   const fromGold = Math.min(s.gold, gold);
   s.qi -= fromQi;
   s.gold -= fromGold;
+  const before = { ...m.debt };
   m.debt.qi = Math.min(cap.qi, m.debt.qi + (qi - fromQi));
   m.debt.gold = Math.min(cap.gold, m.debt.gold + (gold - fromGold));
+  if (postponed) {
+    m.debtPostponed.qi += m.debt.qi - before.qi;
+    m.debtPostponed.gold += m.debt.gold - before.gold;
+  }
   const paid = m.taxPaid[path];
   paid.qi += qi;
   paid.gold += gold;

@@ -23,7 +23,6 @@ import {
   staleTasks,
   taxForecast,
   workDays,
-  workOnCounts,
   workPoints,
   type CultivatorState,
   type RulesConfig,
@@ -517,14 +516,15 @@ describe("quests (rulings 26, 45)", () => {
 
   it("pays the complexity bonus when the last task is completed", () => {
     const s = replay([created, quest("q", T0, T0 + DAY, twoTasks), complete("a", T0 + H)]);
-    expect(s.qi).toBe(8);
+    // Stage one (ruling 60): a quarter day of work done pays 0.875% on its 8 Qi at once.
+    expect(s.qi).toBeCloseTo(8 * (1 + questBonusCap(0.25)), 9);
     const done = apply(s, complete("b", T0 + 2 * H));
-    // Half a day of work caps the bonus at 1.75% (the curve alone would give 14 for 8 + 3).
+    // Once both are done, the total is the cap for half a day of work: 1.75%.
     expect(done.qi).toBeCloseTo(11 * 1.0175, 9);
     expect(done.main.quests.q!.bonusQi).toBeCloseTo(11 * 0.0175, 9);
   });
 
-  it("forfeits the bonus when a member is cancelled", () => {
+  it("keeps the stages already paid when a member is cancelled, but earns no item roll", () => {
     const s = replay([
       created,
       quest("q", T0, T0 + DAY, twoTasks),
@@ -532,7 +532,8 @@ describe("quests (rulings 26, 45)", () => {
       ev("MainTaskCancelled", T0 + 2 * H, { taskId: "b" }),
     ]);
     expect(mainQuestStatus(s, "q")).toBe("completed");
-    expect(s.qi).toBe(8);
+    expect(s.qi).toBeCloseTo(8 * (1 + questBonusCap(0.25)), 9);
+    expect(pendingQuestRolls(s)).toEqual([]);
   });
 
   it("shares the quest's deadline and rejects duplicate names inside a quest", () => {
@@ -903,25 +904,110 @@ describe("a new version takes over the old one's count (ruling 55)", () => {
   });
 });
 
-describe("work-on needs a recent completion; the cultivation streak (rulings 56-57)", () => {
+describe("postponed tax (ruling 59)", () => {
   const work = (taskId: string, at: number) => ev("MainTaskWorkedOn", at, { taskId });
+  // A project worked on every 3 days and never anything else: from day 4 every day is idle but for work-on.
+  const worked: GameEvent[] = [
+    created,
+    interview(),
+    once("p", T0, T0 + 20 * DAY, "hard", "project"),
+    work("p", T0 + 3 * DAY + H),
+    work("p", T0 + 6 * DAY + H),
+    work("p", T0 + 9 * DAY + H),
+  ];
 
-  it("counts work-on only within 14 active days of a Main completion, and then doesn't use up the cap", () => {
-    const evs: GameEvent[] = [created, interview(), once("p", T0, T0 + 100 * DAY, "hard", "project")];
-    let s = replay(evs);
-    expect(workOnCounts(s)).toBe(false); // no completion yet
-    s = apply(s, work("p", T0 + H));
-    expect(s.main.tasks.p!.workedOn.uses).toBe(0);
-    s = apply(s, once("q", T0 + 2 * H, T0 + DAY, "trivial", "quick"), complete("q", T0 + 3 * H), work("p", T0 + DAY + H));
-    expect(s.main.tasks.p!.workedOn.uses).toBe(1);
-    expect(workOnCounts(advanceTo(s, T0 + 3 * H + 14 * DAY))).toBe(true);
-    expect(workOnCounts(advanceTo(s, T0 + 3 * H + 14 * DAY + 1))).toBe(false);
+  it("postpones the idle tax onto the task worked on, and completing the task cancels it", () => {
+    const s = replay(worked, RULES_V1, T0 + 10 * DAY);
+    expect(s.main.taxPaid.main.idleDays).toBe(0);
+    expect(s.main.tasks.p!.postponed).toEqual({ qi: 35, gold: 35, days: 7 }); // midnights of days 4 to 10
+    expect(s.main.taxPaid.main.qi).toBe(0); // (the debt holds only Body and Soul idle tax: this test never trains them)
+    const done = apply(s, complete("p", T0 + 10 * DAY + H));
+    expect(done.main.postponed.cancelled.days).toBe(7);
+    expect(done.main.tasks.p!.postponed.days).toBe(0);
+    expect(done.main.taxPaid.main.qi).toBe(0); // nothing charged
   });
 
-  it("pauses the 14 days during rest", () => {
-    const s = replay([created, interview(), once("q", T0, T0 + DAY, "trivial", "quick"), complete("q", T0 + H), ev("RestStarted", T0 + 2 * DAY, { kind: "closed_door", until: T0 + 12 * DAY })], RULES_V1, T0 + 20 * DAY);
-    expect(workOnCounts(s)).toBe(true); // 20 days later, 10 of them resting
+  it("charges all of it when the task is cancelled", () => {
+    const s = replay([...worked, ev("MainTaskCancelled", T0 + 10 * DAY + H, { taskId: "p" })]);
+    expect(s.main.postponed.charged).toEqual({ qi: 35, gold: 35, days: 7 });
+    expect(s.main.taxPaid.main.qi).toBe(35);
+    expect(s.main.debtPostponed).toEqual({ qi: 35, gold: 35 });
   });
+
+  it("charges all of it when the task fails after its extension window", () => {
+    const evs = [...worked, ...[12, 15, 18].map((d) => work("p", T0 + d * DAY + H))];
+    const before = replay(evs, RULES_V1, T0 + 23 * DAY);
+    expect(before.main.postponed.charged.days).toBe(0);
+    const after = replay(evs, RULES_V1, T0 + 24 * DAY); // the window closes at the end of day 23
+    expect(after.main.tasks.p!.failedAt).toBe(T0 + 24 * DAY);
+    expect(after.main.postponed.charged.days).toBe(before.main.tasks.p!.postponed.days);
+    expect(after.main.postponed.charged.days).toBeGreaterThan(0);
+  });
+
+  it("never postpones on a day with an active recurring task, which already replaces the idle rule", () => {
+    const s = replay([...worked, recurring("r", T0 + 9 * DAY + 2 * H, 1, "week")], RULES_V1, T0 + 10 * DAY);
+    expect(s.main.tasks.p!.postponed.days).toBe(6); // the day the weekly task was active isn't postponed
+  });
+
+  it("lets the comeback forgive idle and missed-occurrence debt but not postponed debt", () => {
+    // Cancelling charges 7 postponed days; the idle days after it push the debt to the cap.
+    let s = replay([...worked, ev("MainTaskCancelled", T0 + 10 * DAY + H, { taskId: "p" })], RULES_V1, T0 + 16 * DAY);
+    expect(s.main.deviation).not.toBeNull();
+    expect(s.main.debt.qi).toBe(50);
+    const postponedDebt = s.main.debtPostponed.qi;
+    expect(postponedDebt).toBeGreaterThan(35);
+    expect(postponedDebt).toBeLessThan(50);
+    for (const [i, id] of ["c1", "c2", "c3"].entries()) {
+      s = apply(s, once(id, T0 + 16 * DAY + i * H, T0 + 18 * DAY, "easy"), complete(id, T0 + 16 * DAY + i * H + 1));
+    }
+    expect(s.main.deviation).toBeNull();
+    // Gains repay the postponed part first: 3 easy tasks paid 9 Qi of it; the rest stays.
+    expect(s.main.debt.qi).toBeCloseTo(postponedDebt - 9, 9);
+    expect(s.main.debtPostponed.qi).toBeCloseTo(postponedDebt - 9, 9);
+  });
+});
+
+describe("staged quest bonus and failed milestones (rulings 60-61)", () => {
+  const milestones = (deadlines: number[]) =>
+    ev("MainQuestDefined", T0, {
+      questId: "q",
+      name: "Thesis",
+      deadline: T0 + 60 * DAY,
+      tasks: deadlines.map((deadline, i) => ({ taskId: `m${i}`, name: `Milestone ${i}`, difficulty: "hard" as const, effort: "project" as const, deadline })),
+    });
+
+  it("pays each milestone's share at once, on the effort completed so far", () => {
+    let s = replay([created, milestones([T0 + 20 * DAY, T0 + 40 * DAY, T0 + 60 * DAY])]);
+    const paid: number[] = [];
+    for (let i = 0; i < 3; i++) {
+      s = apply(s, complete(`m${i}`, T0 + (i * 20 + 10) * DAY));
+      paid.push(s.main.quests.q!.bonusQi);
+    }
+    expect(paid[0]).toBeCloseTo(470 * questBonusCap(4), 9);
+    expect(paid[1]).toBeCloseTo(940 * questBonusCap(8), 9);
+    expect(paid[2]).toBeCloseTo(1410 * questBonusCap(12), 9);
+    expect(s.qi).toBeCloseTo(1410 * (1 + questBonusCap(12)), 6);
+    expect(pendingQuestRolls(s)).toHaveLength(1);
+  });
+
+  it("fails a milestone past its extension window; the quest completes without it and earns no item roll", () => {
+    const s = replay([created, milestones([T0 + 10 * DAY, T0 + 40 * DAY, T0 + 60 * DAY]), complete("m1", T0 + 30 * DAY), complete("m2", T0 + 50 * DAY)]);
+    expect(s.main.tasks.m0!.failedAt).toBe(T0 + 14 * DAY);
+    expect(mainQuestStatus(s, "q")).toBe("completed");
+    expect(s.main.quests.q!.bonusQi).toBeCloseTo(940 * questBonusCap(8), 9);
+    expect(pendingQuestRolls(s)).toEqual([]);
+  });
+
+  it("completes the quest at the failure itself when everything else was already done", () => {
+    const s = replay([created, milestones([T0 + 10 * DAY, T0 + 40 * DAY]), complete("m1", T0 + 5 * DAY)], RULES_V1, T0 + 15 * DAY);
+    expect(s.main.quests.q!.completedAt).toBe(T0 + 14 * DAY);
+    expect(pendingQuestRolls(s)).toEqual([]);
+    const allFailed = replay([created, milestones([T0 + 10 * DAY, T0 + 40 * DAY])], RULES_V1, T0 + 64 * DAY);
+    expect(mainQuestStatus(allFailed, "q")).toBe("gone");
+  });
+});
+
+describe("the cultivation streak (ruling 57)", () => {
 
   it("counts days without Main idle, pauses on rest, and breaks when the idle tax condition is met", () => {
     const daily = recurring("r", T0, 1, "day");

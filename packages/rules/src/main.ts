@@ -2,7 +2,7 @@
  * Main path, part 1: tasks, quests, repetition decay, expiry and extensions,
  * the procrastination tax on all three paths, and Qi deviation.
  *
- * Settled rules live in docs/design.md, Rulings 18-58. The only random
+ * Settled rules live in docs/design.md, Rulings 18-63. The only random
  * outcome is a completed quest's item roll, which the server rolls and stores
  * in the event; expiry, ticks, idle tax, debt, deviation and quest bonuses are
  * all derived from time and the event log.
@@ -59,15 +59,24 @@ export interface MainTask {
   restoredAt: number[];
   /** When the task was last archived (a same-day new version takes over its count; ruling 55). */
   archivedAt: number | null;
+  /**
+   * Idle tax postponed by working on this task (ruling 59): cancelled when the
+   * task is completed, charged when it is cancelled or fails.
+   */
+  postponed: { qi: number; gold: number; days: number };
+  /** When the task failed: a one-time task past its extension window (ruling 61). */
+  failedAt: number | null;
 }
 
 export interface MainQuest {
   name: string;
   due: Due;
   taskIds: string[];
-  /** A member was cancelled: the quest pays no bonus. */
+  /** A member was cancelled or failed: the quest earns no item roll (rulings 52, 61). */
   forfeited: boolean;
+  /** When every member was completed, cancelled or failed. */
   completedAt: number | null;
+  /** Bonus Qi paid so far, before multipliers; paid in stages as members complete (ruling 60). */
   bonusQi: number;
 }
 
@@ -115,13 +124,22 @@ export interface MainState {
   /** The current local day: any rest in it, any active recurring task in it. */
   day: { rested: boolean; hadRecurring: boolean };
   debt: { qi: number; gold: number };
+  /** The part of the debt from postponed tax charged at cancellation or failure: the comeback doesn't forgive it (ruling 59). */
+  debtPostponed: { qi: number; gold: number };
+  /**
+   * Main idle time that "work on" doesn't reset, and the task last worked on
+   * since the last real Main activity. A day this clock is past the grace
+   * while the real one isn't, the day's idle tax is postponed onto that task.
+   */
+  workIdleMs: number;
+  shieldTaskId: string | null;
+  /** Postponed tax totals: still pending on tasks, cancelled by completions, charged. */
+  postponed: Record<"cancelled" | "charged", { qi: number; gold: number; days: number }>;
   deviation: { since: number; windowStart: number; done: number } | null;
   /** Totals for the simulator and the integrity view. */
   taxPaid: Record<MainPath, { qi: number; gold: number; ticks: number; idleDays: number }>;
   deviationsEntered: number;
   comebacks: number;
-  /** Active time (rest excluded) since the last Main completion; null before the first (ruling 56). */
-  sinceCompletionMs: number | null;
   /** Cosmetic: local days in a row without Main idle, rest days paused (ruling 57). */
   streak: { current: number; best: number };
   flags: IntegrityFlag[];
@@ -146,11 +164,14 @@ export function initialMain(): MainState {
     paths: { main: clock(), body: clock(), soul: clock() },
     day: { rested: false, hadRecurring: false },
     debt: { qi: 0, gold: 0 },
+    debtPostponed: { qi: 0, gold: 0 },
+    workIdleMs: 0,
+    shieldTaskId: null,
+    postponed: { cancelled: { qi: 0, gold: 0, days: 0 }, charged: { qi: 0, gold: 0, days: 0 } },
     deviation: null,
     taxPaid: { main: paid(), body: paid(), soul: paid() },
     deviationsEntered: 0,
     comebacks: 0,
-    sinceCompletionMs: null,
     streak: { current: 0, best: 0 },
     flags: [],
     pendingRolls: {},
@@ -320,7 +341,8 @@ export function mainTaskStatus(state: CultivatorState, taskId: string, rules: Ru
 export function mainQuestStatus(state: CultivatorState, questId: string, rules: RulesConfig = RULES_V1): ItemStatus | null {
   const q = state.main.quests[questId];
   if (!q) return null;
-  if (q.completedAt !== null) return "completed";
+  // Completed when every member is done or failed; a quest whose members all failed or were cancelled is gone (ruling 61).
+  if (q.completedAt !== null) return q.taskIds.some((id) => state.main.tasks[id]!.status === "completed") ? "completed" : "gone";
   return dueStatus(q.due, state.rest, state.clock, rules);
 }
 
@@ -383,10 +405,14 @@ export function onInterviewAnswered(s: CultivatorState, e: EventOf<"InterviewAns
   }
 }
 
-/** Activity on a path resets its idle clock (ruling 31). */
+/** Activity on a path resets its idle clock (ruling 31); on Main it also ends any postponement (ruling 59). */
 export function markActivity(m: MainState, path: MainPath, at: number): void {
   m.paths[path].idleMs = 0;
   m.paths[path].lastActivityAt = at;
+  if (path === "main") {
+    m.workIdleMs = 0;
+    m.shieldTaskId = null;
+  }
 }
 
 function addTask(
@@ -413,6 +439,8 @@ function addTask(
     workedOn: { day: -1, uses: 0 },
     restoredAt: [],
     archivedAt: null,
+    postponed: { qi: 0, gold: 0, days: 0 },
+    failedAt: null,
   };
   s.main.tasks[e.taskId] = task;
   if (task.recurring) s.main.lineages[key]!.recurringTaskId = e.taskId;
@@ -493,8 +521,8 @@ export function onTaskCompleted(s: CultivatorState, e: EventOf<"MainTaskComplete
   if (st === "expired" || st === "gone") violate("task_expired", "the deadline has passed");
 
   markActivity(m, "main", e.at);
-  m.sinceCompletionMs = 0;
   t.completions += 1;
+  cancelPostponed(m, t);
   const lineage = m.lineages[t.key]!;
   const day = localDay(e.at, s.tzOffsetMinutes);
   if (lineage.paidDay !== day) {
@@ -535,32 +563,52 @@ export function onTaskCompleted(s: CultivatorState, e: EventOf<"MainTaskComplete
       progressComeback(s, e.at, rules);
     }
   }
-  if (t.questId !== null) settleQuest(s, t.questId, e, rules);
+  if (t.questId !== null) {
+    payQuestStage(s, t.questId, rules);
+    settleQuest(s, t.questId, e, rules);
+  }
 }
 
 /**
- * When every member is completed or cancelled, the quest completes. With no
- * member cancelled, it pays the bonus and earns one item roll, under the
- * daily roll cap (ruling 52).
+ * The quest bonus in stages (rulings 54, 60): after each member completes,
+ * the bonus due is the cap for the completed members' days of work times
+ * their own Qi; the part not yet paid is paid now. Once every member is done,
+ * the total equals the cap for the whole quest.
+ */
+function payQuestStage(s: CultivatorState, questId: string, rules: RulesConfig): void {
+  const m = s.main;
+  const q = m.quests[questId]!;
+  const done = q.taskIds.map((id) => m.tasks[id]!).filter((t) => t.status === "completed");
+  const days = workDays(
+    done.map((t) => t.effort),
+    rules,
+  );
+  const due = done.reduce((sum, t) => sum + t.paidBaseQi, 0) * questBonusCap(days, rules);
+  if (due <= q.bonusQi) return;
+  const qi = (due - q.bonusQi) * mainQiMultiplier(s, rules);
+  q.bonusQi = due;
+  earnQi(s, qi);
+  m.earned.qi += qi;
+}
+
+/**
+ * When every member is completed, cancelled or failed, the quest completes
+ * (ruling 61). With no member cancelled or failed it earns one item roll,
+ * under the daily roll cap (ruling 52). `e` is the completing event, or null
+ * when a member's failure completes the quest at a midnight.
  */
 function settleQuest(s: CultivatorState, questId: string, e: { id: string; at: number; questDrop?: MainQuestDrop | undefined }, rules: RulesConfig): void {
   const m = s.main;
   const q = m.quests[questId]!;
   if (q.completedAt !== null) return;
   const members = q.taskIds.map((id) => m.tasks[id]!);
-  if (members.some((t) => t.status !== "completed" && t.status !== "cancelled")) return;
+  if (members.some((t) => t.status === "open" && t.failedAt === null)) return;
   q.completedAt = e.at;
   if (q.forfeited) return;
   const days = workDays(
     members.map((t) => t.effort),
     rules,
   );
-  // The bonus is the cap for the members' days of work, paid on their own Qi (ruling 54).
-  const paid = members.reduce((sum, t) => sum + t.paidBaseQi, 0);
-  q.bonusQi = paid * questBonusCap(days, rules);
-  const qi = q.bonusQi * mainQiMultiplier(s, rules);
-  earnQi(s, qi);
-  m.earned.qi += qi;
 
   const day = localDay(e.at, s.tzOffsetMinutes);
   if (m.rollDay !== day) {
@@ -612,7 +660,8 @@ function progressComeback(s: CultivatorState, at: number, rules: RulesConfig): v
   d.done += 1;
   if (d.done >= c.tasks) {
     m.deviation = null;
-    m.debt = { qi: 0, gold: 0 };
+    // Debt from idle tax and missed occurrences is forgiven; debt from postponed tax isn't (ruling 59).
+    m.debt = { ...m.debtPostponed };
     m.comebacks += 1;
   }
 }
@@ -625,6 +674,7 @@ export function onTaskCancelled(s: CultivatorState, e: EventOf<"MainTaskCancelle
   if (st === "completed") violate("task_already_completed", "a completed task can't be cancelled");
   if (st === "cancelled") violate("task_cancelled", "this task was already cancelled");
   t.status = "cancelled";
+  chargePostponed(s, t, e.at, rules);
   if (t.questId !== null) {
     s.main.quests[t.questId]!.forfeited = true;
     settleQuest(s, t.questId, e, rules);
@@ -740,18 +790,34 @@ export function onTaskWorkedOn(s: CultivatorState, e: EventOf<"MainTaskWorkedOn"
   if (!t.recurring && t.workedOn.uses >= cap!) {
     violate("work_on_cap", "this task has used all its work days; complete it or split it into milestones");
   }
-  if (!workOnCounts(s, rules)) {
-    t.workedOn = { day, uses: t.workedOn.uses };
-    return;
-  }
   t.workedOn = { day, uses: t.workedOn.uses + 1 };
-  markActivity(s.main, "main", e.at);
+  // Work-on resets the idle clock but not the work-idle one: idle tax is postponed onto this task, not cancelled (ruling 59).
+  const main = s.main.paths.main;
+  main.idleMs = 0;
+  main.lastActivityAt = e.at;
+  s.main.shieldTaskId = e.taskId;
 }
 
-/** Whether "work on" counts as activity now: a Main completion within the window, rest excluded (ruling 56). */
-export function workOnCounts(state: CultivatorState, rules: RulesConfig = RULES_V1): boolean {
-  const since = state.main.sinceCompletionMs;
-  return since !== null && since <= rules.main.workOn.completionWithinDays * DAY;
+function cancelPostponed(m: MainState, t: MainTask): void {
+  const p = t.postponed;
+  if (p.days === 0) return;
+  const c = m.postponed.cancelled;
+  c.qi += p.qi;
+  c.gold += p.gold;
+  c.days += p.days;
+  t.postponed = { qi: 0, gold: 0, days: 0 };
+}
+
+/** Charge a task's postponed tax: the task was cancelled or failed (ruling 59). */
+function chargePostponed(s: CultivatorState, t: MainTask, at: number, rules: RulesConfig): void {
+  const p = t.postponed;
+  if (p.days === 0) return;
+  t.postponed = { qi: 0, gold: 0, days: 0 };
+  chargeTax(s, "main", p.qi, p.gold, at, rules, true);
+  const c = s.main.postponed.charged;
+  c.qi += p.qi;
+  c.gold += p.gold;
+  c.days += p.days;
 }
 
 /** Closed-door rest pushes open deadlines back by the time spent inside (ruling 30). */
@@ -788,7 +854,7 @@ export function advanceMain(s: CultivatorState, from: number, to: number): void 
     }
   }
   for (const p of MAIN_PATHS) if (m.paths[p].startedAt !== null) m.paths[p].idleMs += dt;
-  if (m.sinceCompletionMs !== null) m.sinceCompletionMs += dt;
+  if (m.paths.main.startedAt !== null) m.workIdleMs += dt;
 }
 
 function occurrencesOwed(count: number, activeMs: number, periodMs: number, rules: RulesConfig): number {
@@ -820,6 +886,7 @@ export function mainMidnight(s: CultivatorState, midnight: number, rules: RulesC
     const r = t.recurring;
     if (r && periodKey(r.per, midnight, tz) !== r.period.key) settlePeriod(s, t, midnight, rules);
   }
+  failExpiredTasks(s, midnight, rules);
   if (!m.day.rested) {
     const tax = rules.main.tax;
     // The cosmetic streak breaks on the idle condition, even when a recurring task replaces the idle tax with ticks (ruling 57).
@@ -837,8 +904,35 @@ export function mainMidnight(s: CultivatorState, midnight: number, rules: RulesC
       chargeTax(s, path, tax.main.qi * f, tax.main.gold * f, midnight, rules);
       m.taxPaid[path].idleDays += 1;
     }
+    // Idle only because of work-on: the day's tax is postponed onto the task worked on (ruling 59).
+    if (main.startedAt !== null && !m.day.hadRecurring && main.idleMs <= tax.graceDays.main * DAY && m.workIdleMs > tax.graceDays.main * DAY) {
+      const t = m.shieldTaskId === null ? undefined : m.tasks[m.shieldTaskId];
+      if (t) {
+        t.postponed = { qi: t.postponed.qi + tax.main.qi, gold: t.postponed.gold + tax.main.gold, days: t.postponed.days + 1 };
+        // A task already cancelled or failed charges at once.
+        if (t.status === "cancelled" || t.failedAt !== null) chargePostponed(s, t, midnight, rules);
+      }
+    }
   }
   m.day = { rested: false, hadRecurring: false };
+}
+
+/**
+ * One-time tasks past their extension window fail (ruling 61): postponed tax
+ * is charged, and a failed quest member no longer blocks its quest.
+ */
+function failExpiredTasks(s: CultivatorState, midnight: number, rules: RulesConfig): void {
+  const m = s.main;
+  for (const t of Object.values(m.tasks)) {
+    if (t.status !== "open" || t.recurring || t.failedAt !== null) continue;
+    if (statusAt(s, t, midnight, rules) !== "gone") continue;
+    t.failedAt = midnight;
+    chargePostponed(s, t, midnight, rules);
+    if (t.questId !== null) {
+      m.quests[t.questId]!.forfeited = true;
+      settleQuest(s, t.questId, { id: "", at: midnight }, rules);
+    }
+  }
 }
 
 // ---- Projections ------------------------------------------------------------

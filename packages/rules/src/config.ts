@@ -82,13 +82,12 @@ export interface MainRules {
   /**
    * "Work on this task today" (ruling 49): once per task per local day, pays
    * nothing. Total uses per one-time task by effort; efforts missing here
-   * can't use it. It counts as Main activity only if a Main task was completed
-   * within the last `completionWithinDays` days, rest excluded (ruling 56).
+   * can't use it. It postpones Main's idle tax onto the task rather than
+   * cancelling it (ruling 59).
    */
   workOn: {
     capByEffort: Partial<Record<Effort, number>>;
     recurringPeriods: readonly ("week" | "month" | "year")[];
-    completionWithinDays: number;
   };
   /** Restores of one task within windowDays that flag it in the integrity log (ruling 48). */
   archiveChurn: { restores: number; windowDays: number };
@@ -258,7 +257,7 @@ export interface RulesConfig {
 }
 
 export const RULES_V1: RulesConfig = Object.freeze({
-  version: "1.8.0",
+  version: "1.9.0",
   tiers: {
     turtle: { capacity: 30, weeklyLoss: 10, goldBonus: 0.01, coreQiBonus: 0, breakthroughLegendaryChance: 0 },
     panda: { capacity: 800, weeklyLoss: 200, goldBonus: 0.1, coreQiBonus: 0, breakthroughLegendaryChance: 0 },
@@ -392,7 +391,7 @@ export const RULES_V1: RulesConfig = Object.freeze({
       ],
       maxRollsPerDay: 2,
     },
-    workOn: { capByEffort: { day: 3, project: 30 }, recurringPeriods: ["week", "month", "year"], completionWithinDays: 14 },
+    workOn: { capByEffort: { day: 3, project: 30 }, recurringPeriods: ["week", "month", "year"] },
     archiveChurn: { restores: 3, windowDays: 30 },
     repetition: { fullValueWeeks: 4, weeklyLoss: 0.15, floor: 0.25 },
     maxPaidPerNamePerDay: 2,

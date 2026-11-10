@@ -226,6 +226,15 @@ const PERSONAS: Persona[] = [
     },
   },
   {
+    label: "project worked on for 6 weeks, then abandoned",
+    plan: ((study) => (r: Runner, d: number) => {
+      if (d === 0) r.once("abandoned", "Abandoned project", 0, 8, "hard", "project", 60);
+      if (d < 42 && d % 3 === 0) r.work("abandoned", d, 18);
+      if (d === 42) r.ev("MainTaskCancelled", r.at(d, 18), { taskId: "abandoned" });
+      if (d >= 42) study(r, d);
+    })(studier("mid", ["Study"])),
+  },
+  {
     label: "fake projects renewed every 90 days + a trivial task every 13 days",
     plan: (r, d) => {
       const n = Math.floor(d / 90);
@@ -331,7 +340,7 @@ export function runMainScenarios(outDir: string): void {
 
   console.log(`\nMain: earnings and tax per persona (${WEEKS} weeks; per month = /${n(MONTHS, 1)})\n`);
   console.log(
-    ["persona", "Main Qi/mo", "Main gold/mo", "tax Qi main", "tax Qi body", "tax Qi soul", "ticks", "idle days", "1st deviation wk", "weeks in deviation", "comebacks", "end debt Qi", "quest rolls", "gain potions", "legendary potions", "churn flags", "best streak"].join("\t"),
+    ["persona", "Main Qi/mo", "Main gold/mo", "tax Qi main", "tax Qi body", "tax Qi soul", "ticks", "idle days", "1st deviation wk", "weeks in deviation", "comebacks", "end debt Qi", "postponed days cancelled", "postponed days charged", "quest rolls", "gain potions", "legendary potions", "churn flags", "best streak"].join("\t"),
   );
   for (const r of runs) {
     const m = r.final.main;
@@ -349,6 +358,8 @@ export function runMainScenarios(outDir: string): void {
         r.deviationWeeks,
         m.comebacks,
         n(m.debt.qi),
+        m.postponed.cancelled.days,
+        m.postponed.charged.days,
         m.drops.none + m.drops.gain_potion + m.drops.legendary_potion,
         m.drops.gain_potion,
         m.drops.legendary_potion,
