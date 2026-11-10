@@ -559,13 +559,16 @@ describe("soul drops", () => {
     const loss = (d: string, s: CultivatorState = violet()) => applyEvent(s, task("a-", at, d));
     expect(gain("gold").gold).toBeCloseTo(10, 9); // the tier gold bonus never applies to soul drops (ruling 35)
     expect(gain("qi").qi).toBeCloseTo(10, 9);
-    expect(gain("item").inventory.potions).toBe(1);
+    expect(gain("gain_potion").inventory.gainPotions).toBe(1);
+    expect(gain("legendary_potion").inventory.legendaryPotions).toBe(1);
     expect(gain("legendary").inventory.legendary).toBe(1);
     expect(gain("none").soul.drops).toEqual({ none: 1 });
     expect(pendingCount(gain("none"))).toBe(0);
     expect(loss("lose_gold").gold).toBe(0);
     expect(loss("lose_gold", { ...violet(), gold: 50 }).gold).toBe(30);
-    expect(loss("lose_item").inventory.potions).toBe(0);
+    expect(loss("lose_item").inventory).toMatchObject({ gainPotions: 0, legendaryPotions: 0 });
+    const stocked = { ...violet(), inventory: { ...violet().inventory, gainPotions: 1, legendaryPotions: 1 } };
+    expect(loss("lose_item", stocked).inventory).toMatchObject({ gainPotions: 0, legendaryPotions: 1 }); // a gain potion goes first
   });
 
   it("rejects an outcome of the wrong polarity", () => {
@@ -654,3 +657,15 @@ function soulWith(demons: { hp: number; defeated?: boolean; idleMs?: number }[],
   });
   return soul;
 }
+
+describe("soul potion drops (ruling 58)", () => {
+  it("splits the item band 50/50 between gain and legendary potions", () => {
+    // Golden: gold 0-300, qi 300-600, item 600-800 basis points.
+    expect(soulDropOutcome("golden", "positive", 0.0601, RULES_V1)).toBe("gain_potion");
+    expect(soulDropOutcome("golden", "positive", 0.0699, RULES_V1)).toBe("gain_potion");
+    expect(soulDropOutcome("golden", "positive", 0.07, RULES_V1)).toBe("legendary_potion");
+    expect(soulDropOutcome("golden", "positive", 0.0799, RULES_V1)).toBe("legendary_potion");
+    expect(soulDropOutcome("golden", "positive", 0.08, RULES_V1)).toBe("none");
+    expect(soulDropOutcome("violet", "negative", 0.045, RULES_V1)).toBe("lose_item");
+  });
+});

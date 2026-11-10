@@ -18,7 +18,7 @@ import {
   type SoulState,
 } from "./soul.js";
 import { DAY, WEEK, localDay, nextLocalMidnight } from "./time.js";
-import { earnGold, earnQi, goldMultiplier, qiMultiplier, trainingGoldMultiplier } from "./economy.js";
+import { addPotion, earnGold, earnQi, goldMultiplier, losePotion, potionKind, qiMultiplier, trainingGoldMultiplier } from "./economy.js";
 import {
   advanceMain,
   decayMultiplier,
@@ -84,7 +84,11 @@ export interface CultivatorState {
   rest: RestPeriod | null;
   closedDoorLog: RestPeriod[];
   goldenTickets: number;
-  inventory: { potions: number; legendary: number; scales: number; wings: boolean };
+  /**
+   * Potions by kind (ruling 58); a drunk gain potion is active until
+   * `gainPotionUntil`. `legendary` counts legendary items.
+   */
+  inventory: { gainPotions: number; legendaryPotions: number; gainPotionUntil: number | null; legendary: number; scales: number; wings: boolean };
   soul: SoulState;
   main: MainState;
   /** Things that should be impossible (e.g. a second set of wings); flagged, never silently fixed. */
@@ -116,7 +120,7 @@ export function initialState(rules: RulesConfig = RULES_V1): CultivatorState {
     rest: null,
     closedDoorLog: [],
     goldenTickets: 0,
-    inventory: { potions: 0, legendary: 0, scales: 0, wings: false },
+    inventory: { gainPotions: 0, legendaryPotions: 0, gainPotionUntil: null, legendary: 0, scales: 0, wings: false },
     soul: initialSoul(),
     main: initialMain(),
     anomalies: [],
@@ -414,8 +418,11 @@ const onRouletteSpun: Handler<"RouletteSpun"> = (s, e, rules) => {
     case "qi":
       earnQi(s, rules.roulette.qiPrize * qiMultiplier(s, rules));
       break;
-    case "potion":
-      inv.potions += 1;
+    case "gain_potion":
+      addPotion(s, "gain");
+      break;
+    case "legendary_potion":
+      addPotion(s, "legendary");
       break;
     case "legendary":
       inv.legendary += 1;
@@ -451,10 +458,19 @@ const onDropRolled: Handler<"SoulDropRolled"> = (s, e, rules) => {
   else for (const drop of drops) applySoulDrop(s, drop, rules);
 };
 
+/** Drink a gain potion (ruling 58): +10% gold and Qi for 24 hours, one active at a time. */
+const onPotionUsed: Handler<"PotionUsed"> = (s, e, rules) => {
+  const inv = s.inventory;
+  if (inv.gainPotions < 1) violate("no_potion", "no gain potion to drink");
+  if (inv.gainPotionUntil !== null && e.at < inv.gainPotionUntil) violate("potion_active", "a gain potion is already active");
+  inv.gainPotions -= 1;
+  inv.gainPotionUntil = e.at + rules.potions.gain.hours * 60 * 60 * 1000;
+};
+
 /**
  * Apply a server-rolled soul drop. Gains get the gold/Qi multipliers; losses
- * never take a balance below 0. "item" is a potion until gear exists, and a
- * lost item is a potion (never a legendary).
+ * never take a balance below 0. Until gear exists an item is a potion, and a
+ * lost item is a potion (a gain potion first; never a legendary item).
  */
 function applySoulDrop(s: CultivatorState, drop: SoulDrop, rules: RulesConfig): void {
   const d = rules.soul.drops;
@@ -469,8 +485,11 @@ function applySoulDrop(s: CultivatorState, drop: SoulDrop, rules: RulesConfig): 
     case "qi":
       earnQi(s, d.qi * qiMultiplier(s, rules));
       break;
-    case "item":
-      inv.potions += 1;
+    case "gain_potion":
+      addPotion(s, "gain");
+      break;
+    case "legendary_potion":
+      addPotion(s, "legendary");
       break;
     case "legendary":
       inv.legendary += 1;
@@ -482,7 +501,7 @@ function applySoulDrop(s: CultivatorState, drop: SoulDrop, rules: RulesConfig): 
       s.qi = Math.max(0, s.qi - d.loseQi);
       break;
     case "lose_item":
-      inv.potions = Math.max(0, inv.potions - 1);
+      losePotion(s);
       break;
   }
 }
@@ -496,6 +515,7 @@ const handlers: { [T in GameEvent["type"]]: Handler<T> } = {
   RestStarted: onRestStarted,
   RestEnded: onRestEnded,
   RouletteSpun: onRouletteSpun,
+  PotionUsed: onPotionUsed,
   HeartDemonCreated: (s, e, rules) => onDemonCreated(s.soul, e, rules),
   HeartDemonRenamed: (s, e, rules) => onDemonRenamed(s.soul, e, rules),
   HeartDemonDeleted: (s, e, rules) => onDemonDeleted(s.soul, e, rules),
@@ -573,11 +593,15 @@ export function rouletteOutcome(u: number, rules: RulesConfig = RULES_V1): Roule
   if (!(u >= 0 && u < 1)) throw new RangeError("u must be in [0, 1)");
   const bp = Math.floor(u * 10_000);
   const odds = rules.roulette.oddsBp;
-  const order: RoulettePrize[] = ["gold", "qi", "potion", "legendary", "scale"];
+  const order = ["gold", "qi", "potion", "legendary", "scale"] as const;
   let acc = 0;
-  for (const prize of order) {
-    acc += odds[prize];
-    if (bp < acc) return prize;
+  for (const band of order) {
+    if (bp < acc + odds[band]) {
+      if (band !== "potion") return band;
+      // Where the roll landed inside the potion band picks the kind (ruling 58).
+      return potionKind((u * 10_000 - acc) / odds.potion, rules) === "gain" ? "gain_potion" : "legendary_potion";
+    }
+    acc += odds[band];
   }
   return "gold";
 }

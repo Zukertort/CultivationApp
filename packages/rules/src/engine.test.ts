@@ -163,7 +163,8 @@ describe("roulette", () => {
     expect(rouletteOutcome(0)).toBe("gold");
     expect(rouletteOutcome(0.4999)).toBe("gold");
     expect(rouletteOutcome(0.5)).toBe("qi");
-    expect(rouletteOutcome(0.8)).toBe("potion");
+    expect(rouletteOutcome(0.8)).toBe("gain_potion");
+    expect(rouletteOutcome(0.89)).toBe("legendary_potion"); // the potion band (8000-9800) splits 50/50
     expect(rouletteOutcome(0.98)).toBe("legendary");
     expect(rouletteOutcome(0.999)).toBe("scale");
     expect(rouletteOutcome(0.99999)).toBe("scale");

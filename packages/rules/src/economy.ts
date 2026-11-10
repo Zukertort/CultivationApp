@@ -31,24 +31,57 @@ function qiItems(state: CultivatorState, rules: RulesConfig): number {
   return (1 + rules.scales.qiBonusEach) ** inv.scales * (inv.wings ? 1 + rules.wings.qiBonus : 1);
 }
 
+// ---- Potions (ruling 58) ----------------------------------------------------
+
+export type PotionKind = "gain" | "legendary";
+
+/**
+ * Split a potion drop by where the server's roll landed inside the potion
+ * band (f in [0, 1)): the last `legendaryShare` of the band is a legendary
+ * potion, the rest a gain potion. One roll decides both the drop and its kind.
+ */
+export function potionKind(f: number, rules: RulesConfig = RULES_V1): PotionKind {
+  return f < 1 - rules.potions.legendaryShare ? "gain" : "legendary";
+}
+
+export function addPotion(s: CultivatorState, kind: PotionKind): void {
+  if (kind === "gain") s.inventory.gainPotions += 1;
+  else s.inventory.legendaryPotions += 1;
+}
+
+/** A lost item is a potion: a gain potion if there is one, else a legendary potion. */
+export function losePotion(s: CultivatorState): void {
+  const inv = s.inventory;
+  if (inv.gainPotions > 0) inv.gainPotions -= 1;
+  else if (inv.legendaryPotions > 0) inv.legendaryPotions -= 1;
+}
+
+/** The active gain potion's share of the additive pool (0 when none is active). */
+export function potionBonus(state: CultivatorState, rules: RulesConfig = RULES_V1): number {
+  const until = state.inventory.gainPotionUntil;
+  return until !== null && state.clock < until ? rules.potions.gain.bonus : 0;
+}
+
+// ---- Multipliers ------------------------------------------------------------
+
 /** Gold multiplier for soul drops, the roulette and anything outside Body and Main: no tier bonus (ruling 35). */
 export function goldMultiplier(state: CultivatorState, rules: RulesConfig = RULES_V1): number {
-  return goldItems(state, rules);
+  return (1 + potionBonus(state, rules)) * goldItems(state, rules);
 }
 
 /** Gold multiplier for Body and Main gold: the fitness tier's bonus joins the pool (ruling 35). */
 export function trainingGoldMultiplier(state: CultivatorState, rules: RulesConfig = RULES_V1): number {
-  return (1 + rules.tiers[state.companion.tier].goldBonus) * goldItems(state, rules);
+  return (1 + rules.tiers[state.companion.tier].goldBonus + potionBonus(state, rules)) * goldItems(state, rules);
 }
 
 /** Qi multiplier for every Qi gain: the pose bonus joins the pool (ruling 35). */
 export function qiMultiplier(state: CultivatorState, rules: RulesConfig = RULES_V1): number {
-  return (1 + (currentPose(state, rules)?.qiBonus ?? 0)) * qiItems(state, rules);
+  return (1 + (currentPose(state, rules)?.qiBonus ?? 0) + potionBonus(state, rules)) * qiItems(state, rules);
 }
 
 /** Qi multiplier for Main tasks and quests: the pose plus the fitness tier's core Qi bonus. */
 export function mainQiMultiplier(state: CultivatorState, rules: RulesConfig = RULES_V1): number {
-  const pool = 1 + (currentPose(state, rules)?.qiBonus ?? 0) + rules.tiers[state.companion.tier].coreQiBonus;
+  const pool = 1 + (currentPose(state, rules)?.qiBonus ?? 0) + rules.tiers[state.companion.tier].coreQiBonus + potionBonus(state, rules);
   return pool * qiItems(state, rules);
 }
 

@@ -5,7 +5,7 @@
  * Numbers marked SIM are placeholders the design doc leaves to the economy
  * simulator.
  */
-import type { Difficulty, Effort, SoulDrop } from "@cultivation/schema";
+import type { Difficulty, Effort } from "@cultivation/schema";
 
 export const TIERS = ["turtle", "panda", "horse", "tiger", "lion"] as const;
 export type Tier = (typeof TIERS)[number];
@@ -32,6 +32,9 @@ export const REALMS = [
 export type Realm = (typeof REALMS)[number];
 
 export type MainPath = "main" | "body" | "soul";
+
+/** Bands a soul drop roll lands in; the "item" band (a common item) splits into the two potion kinds until gear exists. */
+export type SoulDropBand = "gold" | "qi" | "item" | "legendary" | "lose_gold" | "lose_qi" | "lose_item";
 
 /** Age-based repetition decay (Body and Main, rulings 18-19). */
 export interface RepetitionRules {
@@ -61,8 +64,8 @@ export interface MainRules {
   simpleDifficulties: readonly Difficulty[];
   simpleTaper: Record<Realm, number>;
   /**
-   * A completed quest pays min(curve(sum of points), (1 + cap) x members' own
-   * Qi). The cap grows with the members' total effort in days of work (each
+   * A completed quest's bonus is this cap times the members' own Qi (ruling
+   * 54). The cap grows with the members' total effort in days of work (each
    * effort weight / dayWeight), piecewise linear through these [days, cap]
    * anchors and flat past the last (ruling 51).
    */
@@ -77,11 +80,16 @@ export interface MainRules {
    */
   questDrops: { chance: readonly (readonly [number, number])[]; maxRollsPerDay: number };
   /**
-   * "Work on this task today" (ruling 49): once per task per local day, counts
-   * as Main activity, pays nothing. Total uses per one-time task by effort;
-   * efforts missing here can't use it.
+   * "Work on this task today" (ruling 49): once per task per local day, pays
+   * nothing. Total uses per one-time task by effort; efforts missing here
+   * can't use it. It counts as Main activity only if a Main task was completed
+   * within the last `completionWithinDays` days, rest excluded (ruling 56).
    */
-  workOn: { capByEffort: Partial<Record<Effort, number>>; recurringPeriods: readonly ("week" | "month" | "year")[] };
+  workOn: {
+    capByEffort: Partial<Record<Effort, number>>;
+    recurringPeriods: readonly ("week" | "month" | "year")[];
+    completionWithinDays: number;
+  };
   /** Restores of one task within windowDays that flag it in the integrity log (ruling 48). */
   archiveChurn: { restores: number; windowDays: number };
   repetition: RepetitionRules;
@@ -163,7 +171,7 @@ export interface SoulRules {
      * hold losses (rolled by negative tasks). The doc fixes each color's
      * total; SIM: the split of "gain/loss (items, gold or Qi)".
      */
-    oddsBp: Record<SoulColor, Partial<Record<Exclude<SoulDrop, "none">, number>>>;
+    oddsBp: Record<SoulColor, Partial<Record<SoulDropBand, number>>>;
     /** Drop rolls earned per local day, across tasks and quests (a quest earns one per demon hit). */
     maxRollsPerDay: number;
     /** SIM: amounts. Gains get the gold/Qi multipliers; losses don't and never go below 0. Gold is about one routine's worth. */
@@ -225,6 +233,18 @@ export interface RulesConfig {
   };
   scales: { goldBonusEach: number; qiBonusEach: number; forWings: number };
   wings: { goldBonus: number; qiBonus: number };
+  /**
+   * Potions (ruling 58): only obtained, never crafted. Every potion drop (a
+   * soul or quest "item", a roulette potion) is a legendary potion with
+   * probability `legendaryShare`, else a gain potion; the server rolls it.
+   */
+  potions: {
+    legendaryShare: number;
+    /** A gain potion adds this to the additive gold and Qi pool for `hours`; one active at a time. */
+    gain: { bonus: number; hours: number };
+    /** Stored for now; with gear: + this legendary chance at the next breakthrough, `perBreakthrough` at most. */
+    legendary: { chanceBonus: number; perBreakthrough: number };
+  };
   soul: SoulRules;
   main: MainRules;
   notifications: {
@@ -238,7 +258,7 @@ export interface RulesConfig {
 }
 
 export const RULES_V1: RulesConfig = Object.freeze({
-  version: "1.7.0",
+  version: "1.8.0",
   tiers: {
     turtle: { capacity: 30, weeklyLoss: 10, goldBonus: 0.01, coreQiBonus: 0, breakthroughLegendaryChance: 0 },
     panda: { capacity: 800, weeklyLoss: 200, goldBonus: 0.1, coreQiBonus: 0, breakthroughLegendaryChance: 0 },
@@ -272,6 +292,7 @@ export const RULES_V1: RulesConfig = Object.freeze({
   },
   scales: { goldBonusEach: 0.1, qiBonusEach: 0.05, forWings: 9 },
   wings: { goldBonus: 1.0, qiBonus: 0.5 },
+  potions: { legendaryShare: 0.5, gain: { bonus: 0.1, hours: 24 }, legendary: { chanceBonus: 0.05, perBreakthrough: 1 } },
   notifications: { maxPerDay: 3, horizonDays: 14, companionHungryFraction: 0.05 },
   soul: {
     startHp: 50,
@@ -371,7 +392,7 @@ export const RULES_V1: RulesConfig = Object.freeze({
       ],
       maxRollsPerDay: 2,
     },
-    workOn: { capByEffort: { day: 3, project: 30 }, recurringPeriods: ["week", "month", "year"] },
+    workOn: { capByEffort: { day: 3, project: 30 }, recurringPeriods: ["week", "month", "year"], completionWithinDays: 14 },
     archiveChurn: { restores: 3, windowDays: 30 },
     repetition: { fullValueWeeks: 4, weeklyLoss: 0.15, floor: 0.25 },
     maxPaidPerNamePerDay: 2,

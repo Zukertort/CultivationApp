@@ -77,8 +77,15 @@ class Runner {
     const at = this.at(day, hour);
     this.ev("MainTaskDefined", at, { taskId, name, difficulty, effort, schedule: { kind: "once", deadline: at + daysToDeadline * DAY } });
   }
-  daily(taskId: string, name: string, day: number, difficulty: Difficulty, effort: Effort = "session"): void {
-    this.ev("MainTaskDefined", this.at(day, 7), { taskId, name, difficulty, effort, schedule: { kind: "recurring", count: 1, per: "day" } });
+  daily(taskId: string, name: string, day: number, difficulty: Difficulty, effort: Effort = "session", replaces?: string): void {
+    this.ev("MainTaskDefined", this.at(day, 7), {
+      taskId,
+      name,
+      difficulty,
+      effort,
+      schedule: { kind: "recurring", count: 1, per: "day" },
+      ...(replaces === undefined ? {} : { replaces }),
+    });
   }
   quest(questId: string, day: number, hour: number, tasks: [string, string, Difficulty, Effort][]): void {
     const at = this.at(day, hour);
@@ -109,15 +116,20 @@ interface Persona {
 /** Monthly version suffix: "Study v1", "Study v2", ... (leveling up every 4 weeks). */
 const v = (day: number) => Math.floor(day / 28) + 1;
 
-/** A 1-a-day recurring task, replaced by a new version every 4 weeks unless `stagnant`. */
-function studier(difficulty: Difficulty, names: string[], stagnant = false) {
+/**
+ * A 1-a-day recurring task, replaced by a new version every 4 weeks unless
+ * `stagnant`. The new version is linked to the old one (ruling 55), so it
+ * takes over the day's count; `unlinked` archives the old one instead.
+ */
+function studier(difficulty: Difficulty, names: string[], stagnant = false, unlinked = false) {
   let current: number | null = null;
   return (r: Runner, day: number) => {
     const version = stagnant ? 1 : v(day);
     if (current !== version) {
       for (const n of names) {
-        if (current !== null) r.ev("MainTaskArchived", r.at(day, 6), { taskId: `${n}-${current}` });
-        r.daily(`${n}-${version}`, `${n} v${version}`, day, difficulty);
+        const old = current === null ? undefined : `${n}-${current}`;
+        if (old && unlinked) r.ev("MainTaskArchived", r.at(day, 6), { taskId: old });
+        r.daily(`${n}-${version}`, `${n} v${version}`, day, difficulty, "session", unlinked ? undefined : old);
       }
       current = version;
     }
@@ -139,29 +151,32 @@ function weeklyProject(workOn: boolean) {
 }
 
 /**
- * A year goal as one quest of 10 hard, project-sized milestones, one due
- * every 5 weeks; each is worked on Monday, Wednesday and Friday and done in its fifth week.
+ * A year goal as one quest of `count` hard, project-sized milestones, one due
+ * every `every` days; each is worked on Monday, Wednesday and Friday and done
+ * two days before it is due.
  */
-function yearGoal(r: Runner, d: number) {
-  if (d === 0) {
-    const start = r.at(0, 8);
-    r.ev("MainQuestDefined", start, {
-      questId: "goal",
-      name: "Year goal",
-      deadline: start + 360 * DAY,
-      tasks: Array.from({ length: 10 }, (_, i) => ({
-        taskId: `ms${i}`,
-        name: `Milestone ${i}`,
-        difficulty: "hard",
-        effort: "project",
-        deadline: start + (i + 1) * 35 * DAY,
-      })),
-    });
-  }
-  const i = Math.floor(d / 35);
-  if (i >= 10) return;
-  if (d % 35 === 33) r.done(`ms${i}`, d, 15);
-  else if (d % 7 === 0 || d % 7 === 2 || d % 7 === 4) r.work(`ms${i}`, d, 18);
+function yearGoal(count: number, every: number) {
+  return (r: Runner, d: number) => {
+    if (d === 0) {
+      const start = r.at(0, 8);
+      r.ev("MainQuestDefined", start, {
+        questId: "goal",
+        name: "Year goal",
+        deadline: start + count * every * DAY,
+        tasks: Array.from({ length: count }, (_, i) => ({
+          taskId: `ms${i}`,
+          name: `Milestone ${i}`,
+          difficulty: "hard",
+          effort: "project",
+          deadline: start + (i + 1) * every * DAY,
+        })),
+      });
+    }
+    const i = Math.floor(d / every);
+    if (i >= count) return;
+    if (d % every === every - 2) r.done(`ms${i}`, d, 15);
+    else if (d % 7 === 0 || d % 7 === 2 || d % 7 === 4) r.work(`ms${i}`, d, 18);
+  };
 }
 
 /** Archives the daily task at 23:00 and restores it at 01:00; never completes it. */
@@ -173,6 +188,7 @@ function dodger(r: Runner, day: number) {
 
 const PERSONAS: Persona[] = [
   { label: "daily studier, mid, levels up monthly", plan: studier("mid", ["Study"]) },
+  { label: "same, new version not linked (archived)", plan: studier("mid", ["Study"], false, true) },
   { label: "daily studier, mid, never levels up", plan: studier("mid", ["Study"], true) },
   { label: "rates everything deadly", plan: studier("deadly", ["Study"]) },
   { label: "splitter: same work as 2 easy tasks", plan: studier("easy", ["Study A", "Study B"]) },
@@ -200,12 +216,25 @@ const PERSONAS: Persona[] = [
   },
   { label: "weekly project, hard, a day's work", plan: weeklyProject(false) },
   { label: "weekly project, worked on Tue and Thu", plan: weeklyProject(true) },
-  { label: "year goal: 10 milestones as a quest", plan: yearGoal },
+  { label: "year goal: 10 milestones (5-weekly)", plan: yearGoal(10, 35) },
+  { label: "year goal: 52 weekly milestones", plan: yearGoal(52, 7) },
   {
     label: "fake project: far deadline, only 'works on' it",
     plan: (r, d) => {
       if (d === 0) r.once("fake", "Fake project", 0, 8, "hard", "project", 364);
       if (d % 3 === 0 && d / 3 < 30) r.work("fake", d, 18); // 30 uses, the project cap
+    },
+  },
+  {
+    label: "fake projects renewed every 90 days + a trivial task every 13 days",
+    plan: (r, d) => {
+      const n = Math.floor(d / 90);
+      if (d % 90 === 0) r.once(`fake${n}`, `Fake project ${n}`, d, 8, "hard", "project", 364 - d > 100 ? 120 : 364 - d);
+      if (d % 3 === 0) r.work(`fake${n}`, d, 18);
+      if (d % 13 === 0) {
+        r.once(`token${d}`, `Token ${d}`, d, 9, "trivial", "quick", 1);
+        r.done(`token${d}`, d, 10);
+      }
     },
   },
   {
@@ -263,6 +292,9 @@ function simulate(p: Persona): MainRun {
 
   for (let day = 0; day < WEEKS * 7; day++) {
     const away = p.away?.(day) ?? false;
+    // Drink a gain potion as soon as one is stored and none is active (ruling 58).
+    const inv = r.s.inventory;
+    if (!away && inv.gainPotions > 0 && (inv.gainPotionUntil ?? 0) <= r.at(day, 6)) r.ev("PotionUsed", r.at(day, 6), { potion: "gain" });
     p.plan(r, day);
     if (!away) {
       // Body twice a week (leveling up monthly), Soul twice a week.
@@ -299,7 +331,7 @@ export function runMainScenarios(outDir: string): void {
 
   console.log(`\nMain: earnings and tax per persona (${WEEKS} weeks; per month = /${n(MONTHS, 1)})\n`);
   console.log(
-    ["persona", "Main Qi/mo", "Main gold/mo", "tax Qi main", "tax Qi body", "tax Qi soul", "ticks", "idle days", "1st deviation wk", "weeks in deviation", "comebacks", "end debt Qi", "quest potions", "quest rolls", "churn flags"].join("\t"),
+    ["persona", "Main Qi/mo", "Main gold/mo", "tax Qi main", "tax Qi body", "tax Qi soul", "ticks", "idle days", "1st deviation wk", "weeks in deviation", "comebacks", "end debt Qi", "quest rolls", "gain potions", "legendary potions", "churn flags", "best streak"].join("\t"),
   );
   for (const r of runs) {
     const m = r.final.main;
@@ -317,9 +349,11 @@ export function runMainScenarios(outDir: string): void {
         r.deviationWeeks,
         m.comebacks,
         n(m.debt.qi),
-        m.drops.item,
-        m.drops.item + m.drops.none,
+        m.drops.none + m.drops.gain_potion + m.drops.legendary_potion,
+        m.drops.gain_potion,
+        m.drops.legendary_potion,
         m.flags.length,
+        m.streak.best,
       ].join("\t"),
     );
   }
@@ -333,8 +367,8 @@ export function runMainScenarios(outDir: string): void {
   const sep = qi("3 mid tasks a day, separately");
   console.log(`3 mid tasks as a quest vs separately\t${(qi("3 mid tasks a day, as a quest") / sep).toFixed(2)}`);
 
-  // What a quest's bonus actually pays, against its cap from the members' days of work (ruling 51).
-  console.log(`\nMain: the last completed quest's bonus vs its cap\n`);
+  // What a quest's bonus pays (the cap for the members' days of work; rulings 51 and 54).
+  console.log(`\nMain: the last completed quest's bonus\n`);
   for (const r of runs) {
     const m = r.final.main;
     const q = Object.values(m.quests)
@@ -344,7 +378,7 @@ export function runMainScenarios(outDir: string): void {
     const members = q.taskIds.map((id) => m.tasks[id]!);
     const paid = members.reduce((sum, t) => sum + t.paidBaseQi, 0);
     const days = workDays(members.map((t) => t.effort));
-    console.log(`${r.persona.label}\t${n(days, 2)} days of work\tbonus ${n((100 * q.bonusQi) / paid, 1)}%\tcap ${n(100 * questBonusCap(days), 1)}%`);
+    console.log(`${r.persona.label}\t${n(days, 2)} days of work\tbonus ${n((100 * q.bonusQi) / paid, 1)}% (cap ${n(100 * questBonusCap(days), 1)}%)\t${n(q.bonusQi)} Qi`);
   }
 }
 

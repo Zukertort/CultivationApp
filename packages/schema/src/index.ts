@@ -120,10 +120,11 @@ export const HeartDemonDeleted = z.object({
 /**
  * Outcome of a soul drop roll, rolled on the server with
  * `soulDropOutcome(color, polarity, u)`. Positive tasks roll for gains at
- * growth colors; negative tasks roll for losses at weakening colors. "item" is
- * a common item (a potion until gear exists).
+ * growth colors; negative tasks roll for losses at weakening colors. Until
+ * gear exists, a common item is a potion of either kind (ruling 58);
+ * "lose_item" loses a potion.
  */
-export const SoulDrop = z.enum(["none", "gold", "qi", "item", "legendary", "lose_gold", "lose_qi", "lose_item"]);
+export const SoulDrop = z.enum(["none", "gold", "qi", "gain_potion", "legendary_potion", "legendary", "lose_gold", "lose_qi", "lose_item"]);
 
 /** A completed positive task or a logged negative task; the polarity comes from the demon's definition. */
 export const SoulTaskLogged = z.object({
@@ -233,12 +234,18 @@ export const MainTaskDefined = z.object({
   type: z.literal("MainTaskDefined"),
   ...mainTaskFields,
   schedule: TaskSchedule,
+  /**
+   * A new version of this recurring task (e.g. "Math exercise II" replacing
+   * "Math exercise"). The old task is archived if still open, and the new one
+   * takes over its count for the current period (ruling 55).
+   */
+  replaces: id.optional(),
 });
 
 /**
- * A quest bundles 2-10 new one-time tasks. A member without a deadline shares
- * the quest's; one with its own deadline (on or before the quest's) is a
- * milestone (ruling 50).
+ * A quest bundles 2-52 new one-time tasks (52: weekly milestones for a year;
+ * ruling 54). A member without a deadline shares the quest's; one with its
+ * own deadline (on or before the quest's) is a milestone (ruling 50).
  */
 export const MainQuestDefined = z.object({
   ...base,
@@ -246,11 +253,11 @@ export const MainQuestDefined = z.object({
   questId: id,
   name: z.string().min(1).max(120),
   deadline: epochMs,
-  tasks: z.array(z.object({ ...mainTaskFields, deadline: epochMs.optional() })).min(2).max(10),
+  tasks: z.array(z.object({ ...mainTaskFields, deadline: epochMs.optional() })).min(2).max(52),
 });
 
-/** Outcome of a completed quest's item roll, rolled on the server with `questDropOutcome(chance, u)`. "item" is a potion until gear exists. */
-export const MainQuestDrop = z.enum(["none", "item"]);
+/** Outcome of a completed quest's item roll, rolled on the server with `questDropOutcome(chance, u)`. Until gear exists, an item is a potion. */
+export const MainQuestDrop = z.enum(["none", "gain_potion", "legendary_potion"]);
 
 export const MainTaskCompleted = z.object({
   ...base,
@@ -333,7 +340,18 @@ export const RestEnded = z.object({
 
 // ---- Golden ticket roulette -------------------------------------------------
 
-export const RoulettePrize = z.enum(["gold", "qi", "potion", "legendary", "scale"]);
+export const RoulettePrize = z.enum(["gold", "qi", "gain_potion", "legendary_potion", "legendary", "scale"]);
+
+/**
+ * Drinks a stored potion (ruling 58). Only gain potions are drunk for now: +10%
+ * gold and Qi for 24 hours, one active at a time. Legendary potions are
+ * stored until gear exists.
+ */
+export const PotionUsed = z.object({
+  ...base,
+  type: z.literal("PotionUsed"),
+  potion: z.enum(["gain"]),
+});
 
 /** Rolled on the server with `rouletteOutcome(u)` and stored here. */
 export const RouletteSpun = z.object({
@@ -360,6 +378,7 @@ export const GameEvent = z.discriminatedUnion("type", [
   RestStarted,
   RestEnded,
   RouletteSpun,
+  PotionUsed,
   InterviewAnswered,
   MainTaskDefined,
   MainQuestDefined,

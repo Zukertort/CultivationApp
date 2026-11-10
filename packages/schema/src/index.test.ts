@@ -97,12 +97,13 @@ describe("parseEvent", () => {
     expect(() => parseEvent({ ...task, schedule: { kind: "once" } })).toThrow();
   });
 
-  it("requires a Main quest to bundle 2 to 10 tasks", () => {
+  it("requires a Main quest to bundle 2 to 52 tasks", () => {
     const member = { taskId: "t", name: "Read", difficulty: "easy", effort: "quick" };
     const q = { id: "e1", userId: "u1", at: 0, type: "MainQuestDefined", questId: "q1", name: "Exam prep", deadline: 1000 };
     expect(() => parseEvent({ ...q, tasks: [member] })).toThrow();
     expect(parseEvent({ ...q, tasks: [member, { ...member, taskId: "t2" }] }).type).toBe("MainQuestDefined");
-    expect(() => parseEvent({ ...q, tasks: Array.from({ length: 11 }, (_, i) => ({ ...member, taskId: "t" + i })) })).toThrow();
+    expect(parseEvent({ ...q, tasks: Array.from({ length: 52 }, (_, i) => ({ ...member, taskId: "t" + i })) }).type).toBe("MainQuestDefined");
+    expect(() => parseEvent({ ...q, tasks: Array.from({ length: 53 }, (_, i) => ({ ...member, taskId: "t" + i })) })).toThrow();
   });
 
   it("accepts milestones with their own deadline, yearly tasks, work-on and quest drops", () => {
@@ -112,9 +113,19 @@ describe("parseEvent", () => {
     expect(parseEvent({ ...task, schedule: { kind: "recurring", count: 12, per: "year" } }).type).toBe("MainTaskDefined");
     expect(() => parseEvent({ ...task, schedule: { kind: "recurring", count: 733, per: "year" } })).toThrow();
     expect(parseEvent({ id: "e1", userId: "u1", at: 0, type: "MainTaskWorkedOn", taskId: "t1" }).type).toBe("MainTaskWorkedOn");
-    expect(parseEvent({ id: "e1", userId: "u1", at: 0, type: "MainTaskCompleted", taskId: "t1", questDrop: "item" }).type).toBe("MainTaskCompleted");
-    expect(() => parseEvent({ id: "e1", userId: "u1", at: 0, type: "MainTaskCompleted", taskId: "t1", questDrop: "legendary" })).toThrow();
+    expect(parseEvent({ id: "e1", userId: "u1", at: 0, type: "MainTaskCompleted", taskId: "t1", questDrop: "legendary_potion" }).type).toBe("MainTaskCompleted");
+    expect(() => parseEvent({ id: "e1", userId: "u1", at: 0, type: "MainTaskCompleted", taskId: "t1", questDrop: "item" })).toThrow();
     expect(parseEvent({ id: "e2", userId: "u1", at: 0, type: "MainQuestDropRolled", eventId: "e1", drop: "none" }).type).toBe("MainQuestDropRolled");
+    expect(parseEvent({ ...task, schedule: { kind: "recurring", count: 1, per: "day" }, replaces: "t0" }).type).toBe("MainTaskDefined");
+  });
+
+  it("accepts drinking a gain potion and potion outcomes of both kinds", () => {
+    const base = { id: "e1", userId: "u1", at: 0 };
+    expect(parseEvent({ ...base, type: "PotionUsed", potion: "gain" }).type).toBe("PotionUsed");
+    expect(() => parseEvent({ ...base, type: "PotionUsed", potion: "legendary" })).toThrow();
+    expect(parseEvent({ ...base, type: "RouletteSpun", prize: "legendary_potion" }).type).toBe("RouletteSpun");
+    expect(() => parseEvent({ ...base, type: "RouletteSpun", prize: "potion" })).toThrow();
+    expect(parseEvent({ ...base, type: "SoulTaskLogged", taskId: "t", drop: "gain_potion" }).type).toBe("SoulTaskLogged");
   });
 
   it("accepts the interview with undecided interests", () => {

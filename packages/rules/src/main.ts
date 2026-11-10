@@ -2,7 +2,7 @@
  * Main path, part 1: tasks, quests, repetition decay, expiry and extensions,
  * the procrastination tax on all three paths, and Qi deviation.
  *
- * Settled rules live in docs/design.md, Rulings 18-53. The only random
+ * Settled rules live in docs/design.md, Rulings 18-58. The only random
  * outcome is a completed quest's item roll, which the server rolls and stores
  * in the event; expiry, ticks, idle tax, debt, deviation and quest bonuses are
  * all derived from time and the event log.
@@ -10,7 +10,7 @@
 import type { Difficulty, Effort, EventOf, MainQuestDrop, Period, TaskSchedule } from "@cultivation/schema";
 import { RULES_V1, type MainPath, type Realm, type RepetitionRules, type RulesConfig } from "./config.js";
 import type { CultivatorState } from "./engine.js";
-import { chargeTax, earnGold, earnQi, mainQiMultiplier, trainingGoldMultiplier } from "./economy.js";
+import { addPotion, chargeTax, earnGold, earnQi, mainQiMultiplier, potionKind, trainingGoldMultiplier } from "./economy.js";
 import { violate } from "./errors.js";
 import { DAY, MINUTE, localDay, nextLocalMidnight } from "./time.js";
 
@@ -57,6 +57,8 @@ export interface MainTask {
   workedOn: { day: number; uses: number };
   /** When this task was restored from archived, for the integrity flag (ruling 48). */
   restoredAt: number[];
+  /** When the task was last archived (a same-day new version takes over its count; ruling 55). */
+  archivedAt: number | null;
 }
 
 export interface MainQuest {
@@ -118,6 +120,10 @@ export interface MainState {
   taxPaid: Record<MainPath, { qi: number; gold: number; ticks: number; idleDays: number }>;
   deviationsEntered: number;
   comebacks: number;
+  /** Active time (rest excluded) since the last Main completion; null before the first (ruling 56). */
+  sinceCompletionMs: number | null;
+  /** Cosmetic: local days in a row without Main idle, rest days paused (ruling 57). */
+  streak: { current: number; best: number };
   flags: IntegrityFlag[];
   pendingRolls: Record<string, PendingQuestRoll>;
   /** Local day of the last earned quest roll, and quest rolls earned that day (daily cap). */
@@ -144,11 +150,13 @@ export function initialMain(): MainState {
     taxPaid: { main: paid(), body: paid(), soul: paid() },
     deviationsEntered: 0,
     comebacks: 0,
+    sinceCompletionMs: null,
+    streak: { current: 0, best: 0 },
     flags: [],
     pendingRolls: {},
     rollDay: -1,
     rollsToday: 0,
-    drops: { none: 0, item: 0 },
+    drops: { none: 0, gain_potion: 0, legendary_potion: 0 },
     earned: { qi: 0, gold: 0 },
   };
 }
@@ -222,29 +230,15 @@ export function questDropChance(days: number, rules: RulesConfig = RULES_V1): nu
 }
 
 /**
- * Total Qi a quest pays for its members' work (rulings 38, 51): the members'
- * own Qi times min(curve(sum of points) / sum of the members' curve values,
- * 1 + the cap for the members' days of work). The total never exceeds one
- * task of the combined points, so splitting a member never pays more.
- */
-export function questQiRatio(memberPoints: readonly number[], days: number, rules: RulesConfig = RULES_V1): number {
-  const own = memberPoints.reduce((sum, w) => sum + qiForPoints(w, rules), 0);
-  if (own <= 0) return 1;
-  const whole = qiForPoints(
-    memberPoints.reduce((sum, w) => sum + w, 0),
-    rules,
-  );
-  return Math.max(1, Math.min(whole / own, 1 + questBonusCap(days, rules)));
-}
-
-/**
- * Map a uniform number u in [0, 1) to a quest's item roll. The server draws u
+ * Map a uniform number u in [0, 1) to a quest's item roll: an item below the
+ * chance, its potion kind by where u landed (ruling 58). The server draws u
  * from a secure RNG and stores the outcome in the completing event (or in a
  * MainQuestDropRolled on sync).
  */
-export function questDropOutcome(chance: number, u: number): MainQuestDrop {
+export function questDropOutcome(chance: number, u: number, rules: RulesConfig = RULES_V1): MainQuestDrop {
   if (!(u >= 0 && u < 1)) throw new RangeError("u must be in [0, 1)");
-  return u < chance ? "item" : "none";
+  if (u >= chance) return "none";
+  return potionKind(u / chance, rules) === "gain" ? "gain_potion" : "legendary_potion";
 }
 
 // ---- Periods ----------------------------------------------------------------
@@ -418,6 +412,7 @@ function addTask(
     paidBaseQi: 0,
     workedOn: { day: -1, uses: 0 },
     restoredAt: [],
+    archivedAt: null,
   };
   s.main.tasks[e.taskId] = task;
   if (task.recurring) s.main.lineages[key]!.recurringTaskId = e.taskId;
@@ -426,8 +421,35 @@ function addTask(
 export function onTaskDefined(s: CultivatorState, e: EventOf<"MainTaskDefined">, rules: RulesConfig): void {
   if (s.main.tasks[e.taskId]) violate("duplicate_task", `task ${e.taskId} already exists`);
   checkSchedule(e.schedule, e.at, rules);
+  const old = e.replaces === undefined ? null : replacedTask(s, e.replaces, e.at, e.schedule, rules);
   checkName(s, normalizeName(e.name), e.difficulty, e.at, rules);
   addTask(s, e, e.schedule, null);
+  if (!old) return;
+  if (old.status === "open") {
+    old.status = "archived";
+    old.archivedAt = e.at;
+  }
+  // The new version takes over the old one's count for the current period, so leveling up never owes tax (ruling 55).
+  const from = old.recurring!;
+  const to = s.main.tasks[e.taskId]!.recurring!;
+  if (from.per === to.per && from.period.key === to.period.key) {
+    to.period = { ...from.period };
+    from.period = { key: from.period.key, done: 0, activeMs: 0 };
+  }
+}
+
+/** The recurring task a new version replaces: open, or archived earlier the same local day. */
+function replacedTask(s: CultivatorState, taskId: string, at: number, schedule: TaskSchedule, rules: RulesConfig): MainTask {
+  const old = s.main.tasks[taskId];
+  if (!old) violate("unknown_task", `task ${taskId} does not exist`);
+  if (!old.recurring || schedule.kind !== "recurring") violate("replace_recurring_only", "only a recurring task gets a new version this way");
+  const st = statusAt(s, old, at, rules);
+  const tz = s.tzOffsetMinutes;
+  const sameDay = old.archivedAt !== null && localDay(old.archivedAt, tz) === localDay(at, tz);
+  if (st !== "open" && !(st === "archived" && sameDay)) {
+    violate("replace_too_late", "a new version takes over a task that is open or was archived the same day");
+  }
+  return old;
 }
 
 export function onMainQuestDefined(s: CultivatorState, e: EventOf<"MainQuestDefined">, rules: RulesConfig): void {
@@ -471,6 +493,7 @@ export function onTaskCompleted(s: CultivatorState, e: EventOf<"MainTaskComplete
   if (st === "expired" || st === "gone") violate("task_expired", "the deadline has passed");
 
   markActivity(m, "main", e.at);
+  m.sinceCompletionMs = 0;
   t.completions += 1;
   const lineage = m.lineages[t.key]!;
   const day = localDay(e.at, s.tzOffsetMinutes);
@@ -532,13 +555,9 @@ function settleQuest(s: CultivatorState, questId: string, e: { id: string; at: n
     members.map((t) => t.effort),
     rules,
   );
-  const ratio = questQiRatio(
-    members.map((t) => workPoints(t.difficulty, t.effort, rules)),
-    days,
-    rules,
-  );
+  // The bonus is the cap for the members' days of work, paid on their own Qi (ruling 54).
   const paid = members.reduce((sum, t) => sum + t.paidBaseQi, 0);
-  q.bonusQi = paid * (ratio - 1);
+  q.bonusQi = paid * questBonusCap(days, rules);
   const qi = q.bonusQi * mainQiMultiplier(s, rules);
   earnQi(s, qi);
   m.earned.qi += qi;
@@ -558,7 +577,8 @@ function settleQuest(s: CultivatorState, questId: string, e: { id: string; at: n
 /** An item is a potion until gear exists. */
 function applyQuestDrop(s: CultivatorState, drop: MainQuestDrop): void {
   s.main.drops[drop] += 1;
-  if (drop === "item") s.inventory.potions += 1;
+  if (drop === "gain_potion") addPotion(s, "gain");
+  if (drop === "legendary_potion") addPotion(s, "legendary");
 }
 
 /**
@@ -618,6 +638,7 @@ export function onTaskArchived(s: CultivatorState, e: EventOf<"MainTaskArchived"
   if (t.status === "archived") violate("task_archived", "this task is already archived");
   // The period keeps its tally: what was owed until now is still owed at the period's end.
   t.status = "archived";
+  t.archivedAt = e.at;
 }
 
 export function onTaskRestored(s: CultivatorState, e: EventOf<"MainTaskRestored">, rules: RulesConfig): void {
@@ -637,6 +658,7 @@ export function onTaskRestored(s: CultivatorState, e: EventOf<"MainTaskRestored"
   const lineage = s.main.lineages[t.key]!;
   const old = t.recurring;
   t.status = "open";
+  t.archivedAt = null;
   if (e.schedule.kind === "once") {
     if (old) settlePeriod(s, t, e.at, rules);
     t.recurring = null;
@@ -695,7 +717,9 @@ export function onItemExtended(s: CultivatorState, e: EventOf<"MainItemExtended"
 /**
  * "Work on this task today" (ruling 49): once per task per local day, for
  * one-time tasks of day or project effort (up to a total cap by effort) and
- * recurring tasks per week or longer. Main activity; pays nothing.
+ * recurring tasks per week or longer; pays nothing. It counts as Main activity
+ * only if a Main task was completed in the last 14 days, rest excluded
+ * (ruling 56); otherwise it is logged but neither counts nor uses up the cap.
  */
 export function onTaskWorkedOn(s: CultivatorState, e: EventOf<"MainTaskWorkedOn">, rules: RulesConfig): void {
   const t = s.main.tasks[e.taskId];
@@ -716,8 +740,18 @@ export function onTaskWorkedOn(s: CultivatorState, e: EventOf<"MainTaskWorkedOn"
   if (!t.recurring && t.workedOn.uses >= cap!) {
     violate("work_on_cap", "this task has used all its work days; complete it or split it into milestones");
   }
+  if (!workOnCounts(s, rules)) {
+    t.workedOn = { day, uses: t.workedOn.uses };
+    return;
+  }
   t.workedOn = { day, uses: t.workedOn.uses + 1 };
   markActivity(s.main, "main", e.at);
+}
+
+/** Whether "work on" counts as activity now: a Main completion within the window, rest excluded (ruling 56). */
+export function workOnCounts(state: CultivatorState, rules: RulesConfig = RULES_V1): boolean {
+  const since = state.main.sinceCompletionMs;
+  return since !== null && since <= rules.main.workOn.completionWithinDays * DAY;
 }
 
 /** Closed-door rest pushes open deadlines back by the time spent inside (ruling 30). */
@@ -754,6 +788,7 @@ export function advanceMain(s: CultivatorState, from: number, to: number): void 
     }
   }
   for (const p of MAIN_PATHS) if (m.paths[p].startedAt !== null) m.paths[p].idleMs += dt;
+  if (m.sinceCompletionMs !== null) m.sinceCompletionMs += dt;
 }
 
 function occurrencesOwed(count: number, activeMs: number, periodMs: number, rules: RulesConfig): number {
@@ -787,6 +822,12 @@ export function mainMidnight(s: CultivatorState, midnight: number, rules: RulesC
   }
   if (!m.day.rested) {
     const tax = rules.main.tax;
+    // The cosmetic streak breaks on the idle condition, even when a recurring task replaces the idle tax with ticks (ruling 57).
+    const main = m.paths.main;
+    if (main.startedAt !== null) {
+      m.streak.current = main.idleMs > tax.graceDays.main * DAY ? 0 : m.streak.current + 1;
+      m.streak.best = Math.max(m.streak.best, m.streak.current);
+    }
     for (const path of MAIN_PATHS) {
       const c = m.paths[path];
       if (c.startedAt === null || c.idleMs <= tax.graceDays[path] * DAY) continue;
@@ -917,3 +958,8 @@ export function questDeadlineAlerts(state: CultivatorState, rules: RulesConfig =
   return out.sort((a, b) => a.at - b.at);
 }
 
+
+/** The cosmetic cultivation streak (ruling 57): no rewards attached. */
+export function cultivationStreak(state: CultivatorState): { current: number; best: number } {
+  return { ...state.main.streak };
+}

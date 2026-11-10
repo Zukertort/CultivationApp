@@ -6,6 +6,7 @@ import {
   RuleViolation,
   advanceTo,
   applyEvent,
+  cultivationStreak,
   deviationStatus,
   goldForPoints,
   mainQuestStatus,
@@ -18,11 +19,11 @@ import {
   questDeadlineAlerts,
   questDropChance,
   questDropOutcome,
-  questQiRatio,
   replay,
   staleTasks,
   taxForecast,
   workDays,
+  workOnCounts,
   workPoints,
   type CultivatorState,
   type RulesConfig,
@@ -141,18 +142,30 @@ describe("splitting never pays more (ruling 27)", () => {
     }
   });
 
-  it("never raises a quest's total by splitting a member, and never beats one task of the combined work", () => {
-    const total = (members: number[], days = 365) => members.reduce((sum, w) => sum + qiForPoints(w), 0) * questQiRatio(members, days);
-    for (const x of grid) {
-      for (const y of grid) {
-        const members = [x, y];
-        const sum = x + y;
-        expect(total(members)).toBeLessThanOrEqual(qiForPoints(sum) + 1e-9);
-        for (const c of cuts) {
-          expect(total([x * c, x - x * c, y])).toBeLessThanOrEqual(total(members) + 1e-9);
+  it("never raises a quest's total by splitting a member into pieces with the same effort", () => {
+    // The bonus is the cap for the members' days of work times their own Qi (ruling 54); splitting lowers their own Qi.
+    for (const days of [0.5, 1, 7, 40, 365]) {
+      const total = (members: number[]) => members.reduce((sum, w) => sum + qiForPoints(w), 0) * (1 + questBonusCap(days));
+      for (const x of grid) {
+        for (const y of grid) {
+          for (const c of cuts) {
+            expect(total([x * c, x - x * c, y])).toBeLessThanOrEqual(total([x, y]) + 1e-9);
+          }
         }
       }
     }
+  });
+
+  it("lets a quest of big pieces pay more than one task of the combined work (ruling 54)", () => {
+    const project = replay([created, once("p", T0, T0 + 5 * DAY, "hard", "project"), complete("p", T0 + H)]).qi;
+    const ids = ["d1", "d2", "d3", "d4"];
+    const asQuest = replay([
+      created,
+      quest("q", T0, T0 + 5 * DAY, ids.map((id) => [id, "hard", "day"] as [string, Difficulty, Effort])),
+      ...ids.map((id, i) => complete(id, T0 + (i + 1) * H)),
+    ]).qi;
+    expect(project).toBe(470);
+    expect(asQuest).toBeCloseTo(440 * (1 + questBonusCap(4)), 9); // 480.7: about 2% more than the single project
   });
 
   it("closes the count-bonus exploit: splitting a quest's small member gains nothing", () => {
@@ -167,7 +180,7 @@ describe("splitting never pays more (ruling 27)", () => {
       ["t1", "trivial", "session"],
       ["t2", "trivial", "session"],
     ]);
-    expect(whole).toBeCloseTo(53 * (1 + 0.035 / 2), 9); // half a day of work: the cap, not the curve, binds
+    expect(whole).toBeCloseTo(53 * (1 + 0.035 / 2), 9); // half a day of work: +1.75%
     expect(split).toBeLessThanOrEqual(whole + 1e-9);
   });
 
@@ -199,7 +212,7 @@ describe("splitting never pays more (ruling 27)", () => {
   });
 });
 
-describe("quest bonus and item drops by effort (rulings 51-52)", () => {
+describe("quest bonus and item drops by effort (rulings 51-52, 54, 58)", () => {
   it("scales the bonus cap with the members' days of work, not the deadline", () => {
     expect(workDays(["session", "session"])).toBe(0.5);
     expect(workDays(["project", "project"])).toBe(8);
@@ -220,7 +233,7 @@ describe("quest bonus and item drops by effort (rulings 51-52)", () => {
         complete("b", T0 + 2 * H),
       ]).main.quests.q!.bonusQi;
     expect(pay(T0 + 2 * DAY)).toBeCloseTo(pay(T0 + 300 * DAY), 9);
-    expect(pay(T0 + 2 * DAY)).toBeCloseTo(100 * (0.035 + (1 / 6) * 0.115), 9); // 2 days of work; the curve alone would give +10%
+    expect(pay(T0 + 2 * DAY)).toBeCloseTo(100 * (0.035 + (1 / 6) * 0.115), 9); // 2 days of work
   });
 
   it("caps a daily bundle of unrelated sessions at a few percent", () => {
@@ -236,7 +249,10 @@ describe("quest bonus and item drops by effort (rulings 51-52)", () => {
   it("maps the server's roll to an item at the effort band's chance", () => {
     expect(questDropChance(0.5)).toBeCloseTo(0.01, 9);
     expect(questDropChance(7)).toBeCloseTo(0.08, 9);
-    expect(questDropOutcome(0.08, 0.079)).toBe("item");
+    expect(questDropOutcome(0.08, 0)).toBe("gain_potion");
+    expect(questDropOutcome(0.08, 0.0399)).toBe("gain_potion");
+    expect(questDropOutcome(0.08, 0.04)).toBe("legendary_potion"); // 50/50 inside the item chance
+    expect(questDropOutcome(0.08, 0.079)).toBe("legendary_potion");
     expect(questDropOutcome(0.08, 0.08)).toBe("none");
     expect(() => questDropOutcome(0.08, 1)).toThrow(RangeError);
   });
@@ -251,29 +267,29 @@ describe("quest bonus and item drops by effort (rulings 51-52)", () => {
 
   it("applies a stored drop as a potion, and leaves an offline completion pending until the server rolls it", () => {
     const s = replay([created, ...q2("q", T0)]);
-    const online = apply(s, ev("MainTaskCompleted", T0 + 2 * H, { taskId: "qb", questDrop: "item" }));
-    expect(online.inventory.potions).toBe(1);
+    const online = apply(s, ev("MainTaskCompleted", T0 + 2 * H, { taskId: "qb", questDrop: "legendary_potion" }));
+    expect(online.inventory.legendaryPotions).toBe(1);
     expect(pendingQuestRolls(online)).toEqual([]);
     const offline = apply(s, ev("MainTaskCompleted", T0 + 2 * H, { taskId: "qb" }));
     const [pending] = pendingQuestRolls(offline);
     expect(pending).toMatchObject({ questId: "q", chance: questDropChance(0.5) });
-    const rolled = apply(offline, ev("MainQuestDropRolled", T0 + 3 * H, { eventId: pending!.eventId, drop: "item" }));
-    expect(rolled.inventory.potions).toBe(1);
+    const rolled = apply(offline, ev("MainQuestDropRolled", T0 + 3 * H, { eventId: pending!.eventId, drop: "gain_potion" }));
+    expect(rolled.inventory.gainPotions).toBe(1);
     expect(pendingQuestRolls(rolled)).toEqual([]);
     // A second roll for the same event is flagged, never applied.
-    const dup = apply(rolled, ev("MainQuestDropRolled", T0 + 4 * H, { eventId: pending!.eventId, drop: "item" }));
-    expect(dup.inventory.potions).toBe(1);
+    const dup = apply(rolled, ev("MainQuestDropRolled", T0 + 4 * H, { eventId: pending!.eventId, drop: "gain_potion" }));
+    expect(dup.inventory.gainPotions).toBe(1);
     expect(dup.anomalies.map((a) => a.code)).toEqual(["orphan_quest_drop_roll"]);
   });
 
   it("rolls at most 2 quests a day, and never a forfeited quest", () => {
     const evs: GameEvent[] = [created];
     for (const [id, h] of [["x", 2], ["y", 5], ["z", 8]] as const) {
-      evs.push(...q2(id, T0 + h * H), ev("MainTaskCompleted", T0 + (h + 2) * H, { taskId: `${id}b`, questDrop: "item" }));
+      evs.push(...q2(id, T0 + h * H), ev("MainTaskCompleted", T0 + (h + 2) * H, { taskId: `${id}b`, questDrop: "gain_potion" }));
     }
     const s = replay(evs);
-    expect(s.inventory.potions).toBe(2);
-    expect(s.main.drops).toEqual({ none: 0, item: 2 });
+    expect(s.inventory.gainPotions).toBe(2);
+    expect(s.main.drops).toEqual({ none: 0, gain_potion: 2, legendary_potion: 0 });
     const forfeited = replay([created, ...q2("f", T0), ev("MainTaskCancelled", T0 + 2 * H, { taskId: "fb" })]);
     expect(pendingQuestRolls(forfeited)).toEqual([]);
   });
@@ -723,15 +739,17 @@ describe("projections", () => {
 
 describe("work on a task today (ruling 49)", () => {
   const work = (taskId: string, at: number) => ev("MainTaskWorkedOn", at, { taskId });
+  /** A quick completion, so work-on counts for the next 14 days (ruling 56). */
+  const warmUp = (id: string, at: number): GameEvent[] => [once(id, at, at + DAY, "trivial", "quick"), complete(id, at + 1)];
 
   it("counts as Main activity without paying, so a multi-day project isn't taxed while worked on", () => {
-    const evs: GameEvent[] = [created, interview(), once("p", T0, T0 + 20 * DAY, "hard", "project")];
+    const evs: GameEvent[] = [created, interview(), once("p", T0, T0 + 20 * DAY, "hard", "project"), ...warmUp("w", T0)];
     const idle = replay(evs, RULES_V1, T0 + 10 * DAY);
     expect(idle.main.taxPaid.main.idleDays).toBe(7);
     const worked = replay([...evs, work("p", T0 + 3 * DAY), work("p", T0 + 6 * DAY), work("p", T0 + 9 * DAY)], RULES_V1, T0 + 10 * DAY);
     expect(worked.main.taxPaid.main.idleDays).toBe(0);
-    expect(worked.qi).toBe(0);
-    expect(worked.gold).toBe(0);
+    expect(worked.qi).toBe(idle.qi); // only the warm-up paid
+    expect(worked.gold).toBe(idle.gold);
   });
 
   it("allows it once per task per local day, and only for day or project effort or recurring tasks per week or longer", () => {
@@ -753,12 +771,15 @@ describe("work on a task today (ruling 49)", () => {
   });
 
   it("caps total uses by effort (day 3, project 30); after that, complete or split", () => {
-    let s = replay([created, once("d", T0, T0 + 30 * DAY, "mid", "day")]);
+    let s = replay([created, once("d", T0, T0 + 30 * DAY, "mid", "day"), ...warmUp("w", T0)]);
     for (let d = 0; d < 3; d++) s = apply(s, work("d", T0 + d * DAY + H));
     expect(code(() => applyEvent(s, work("d", T0 + 3 * DAY + H)))).toBe("work_on_cap");
     expect(code(() => applyEvent(s, complete("d", T0 + 3 * DAY + H)))).toBeUndefined();
     let p = replay([created, once("p", T0, T0 + 60 * DAY, "mid", "project")]);
-    for (let d = 0; d < 30; d++) p = apply(p, work("p", T0 + d * DAY + H));
+    for (let d = 0; d < 30; d++) {
+      if (d % 10 === 0) p = apply(p, ...warmUp(`w${d}`, T0 + d * DAY));
+      p = apply(p, work("p", T0 + d * DAY + H));
+    }
     expect(code(() => applyEvent(p, work("p", T0 + 30 * DAY + H)))).toBe("work_on_cap");
   });
 
@@ -818,5 +839,138 @@ describe("milestones and the year period (ruling 50)", () => {
     const evs: GameEvent[] = [created, recurring("r", T0, 1, "week", { endsAt: T0 + DAY })];
     for (let d = 1; d <= 4; d++) evs.push(ev("MainTaskRestored", T0 + d * DAY + H, { taskId: "r", schedule: { ...schedule, endsAt: T0 + (d + 1) * DAY } }));
     expect(replay(evs).main.flags).toEqual([]);
+  });
+});
+
+describe("52-member quests (ruling 54)", () => {
+  it("accepts weekly milestones for a year and pays the year band", () => {
+    const start = T0;
+    const tasks = Array.from({ length: 52 }, (_, i) => ({
+      taskId: `w${i}`,
+      name: `Week ${i}`,
+      difficulty: "hard" as const,
+      effort: "project" as const,
+      deadline: start + (i + 1) * 7 * DAY,
+    }));
+    let s = replay([created, ev("MainQuestDefined", start, { questId: "y", name: "Year", deadline: start + 364 * DAY, tasks })]);
+    for (let i = 0; i < 52; i++) s = apply(s, complete(`w${i}`, start + i * 7 * DAY + H));
+    const days = workDays(tasks.map((t) => t.effort));
+    expect(days).toBe(208);
+    expect(s.main.quests.y!.bonusQi).toBeCloseTo(52 * 470 * questBonusCap(208), 6);
+    expect(questBonusCap(208)).toBeCloseTo(0.15 + (201 / 358) * 0.25, 9); // about 29%
+  });
+});
+
+describe("a new version takes over the old one's count (ruling 55)", () => {
+  const v2 = (taskId: string, at: number, replaces: string, per: Period = "day", count = 1) =>
+    ev("MainTaskDefined", at, { taskId, name: taskId, difficulty: "mid", effort: "session", schedule: { kind: "recurring", count, per }, replaces });
+
+  it("charges no tick on level-up day, whether the old version is archived first or replaced while open", () => {
+    const archivedFirst = replay(
+      [created, interview(), recurring("v1", T0, 1, "day"), complete("v1", T0 + 19 * H), ev("MainTaskArchived", T0 + DAY + 6 * H, { taskId: "v1" }), v2("v2", T0 + DAY + 7 * H, "v1"), complete("v2", T0 + DAY + 19 * H)],
+      RULES_V1,
+      T0 + 2 * DAY,
+    );
+    expect(archivedFirst.main.taxPaid.main.ticks).toBe(0);
+    const whileOpen = replay(
+      [created, interview(), recurring("v1", T0, 1, "day"), complete("v1", T0 + 19 * H), v2("v2", T0 + DAY + 7 * H, "v1"), complete("v2", T0 + DAY + 19 * H)],
+      RULES_V1,
+      T0 + 2 * DAY,
+    );
+    expect(whileOpen.main.taxPaid.main.ticks).toBe(0);
+    expect(mainTaskStatus(whileOpen, "v1")).toBe("archived");
+    // Without the link, the old version's 6 hours are owed (a quarter tick).
+    const unlinked = replay(
+      [created, interview(), recurring("v1", T0, 1, "day"), complete("v1", T0 + 19 * H), ev("MainTaskArchived", T0 + DAY + 6 * H, { taskId: "v1" }), recurring("v2", T0 + DAY + 7 * H, 1, "day"), complete("v2", T0 + DAY + 19 * H)],
+      RULES_V1,
+      T0 + 2 * DAY,
+    );
+    expect(unlinked.main.taxPaid.main.ticks).toBeCloseTo(0.25, 9);
+  });
+
+  it("carries this period's completions, so the cap can't be reset by leveling up", () => {
+    const s = replay([created, recurring("v1", T0, 2, "week"), complete("v1", T0 + H), complete("v1", T0 + DAY + H), v2("v2", T0 + 2 * DAY, "v1", "week", 2)]);
+    expect(periodProgress(s, "v2")).toMatchObject({ done: 2, count: 2 });
+    const before = s.qi;
+    expect(apply(s, complete("v2", T0 + 2 * DAY + H)).qi).toBe(before);
+  });
+
+  it("rejects replacing a one-time task, or a task archived on an earlier day", () => {
+    const s = replay([created, once("o", T0, T0 + DAY), recurring("r", T0, 1, "day"), ev("MainTaskArchived", T0 + H, { taskId: "r" })]);
+    expect(code(() => applyEvent(s, v2("x", T0 + 2 * H, "o")))).toBe("replace_recurring_only");
+    expect(code(() => applyEvent(s, v2("x", T0 + DAY + H, "r")))).toBe("replace_too_late");
+    expect(code(() => applyEvent(s, v2("x", T0 + 2 * H, "r")))).toBeUndefined();
+  });
+});
+
+describe("work-on needs a recent completion; the cultivation streak (rulings 56-57)", () => {
+  const work = (taskId: string, at: number) => ev("MainTaskWorkedOn", at, { taskId });
+
+  it("counts work-on only within 14 active days of a Main completion, and then doesn't use up the cap", () => {
+    const evs: GameEvent[] = [created, interview(), once("p", T0, T0 + 100 * DAY, "hard", "project")];
+    let s = replay(evs);
+    expect(workOnCounts(s)).toBe(false); // no completion yet
+    s = apply(s, work("p", T0 + H));
+    expect(s.main.tasks.p!.workedOn.uses).toBe(0);
+    s = apply(s, once("q", T0 + 2 * H, T0 + DAY, "trivial", "quick"), complete("q", T0 + 3 * H), work("p", T0 + DAY + H));
+    expect(s.main.tasks.p!.workedOn.uses).toBe(1);
+    expect(workOnCounts(advanceTo(s, T0 + 3 * H + 14 * DAY))).toBe(true);
+    expect(workOnCounts(advanceTo(s, T0 + 3 * H + 14 * DAY + 1))).toBe(false);
+  });
+
+  it("pauses the 14 days during rest", () => {
+    const s = replay([created, interview(), once("q", T0, T0 + DAY, "trivial", "quick"), complete("q", T0 + H), ev("RestStarted", T0 + 2 * DAY, { kind: "closed_door", until: T0 + 12 * DAY })], RULES_V1, T0 + 20 * DAY);
+    expect(workOnCounts(s)).toBe(true); // 20 days later, 10 of them resting
+  });
+
+  it("counts days without Main idle, pauses on rest, and breaks when the idle tax condition is met", () => {
+    const daily = recurring("r", T0, 1, "day");
+    const done = Array.from({ length: 5 }, (_, d) => complete("r", T0 + d * DAY + 10 * H));
+    let s = replay([created, interview(), daily, ...done], RULES_V1, T0 + 5 * DAY);
+    expect(cultivationStreak(s)).toEqual({ current: 5, best: 5 });
+    s = apply(s, ev("RestStarted", T0 + 5 * DAY + H, { kind: "closed_door", until: T0 + 8 * DAY }));
+    s = advanceTo(s, T0 + 8 * DAY);
+    expect(cultivationStreak(s).current).toBe(5);
+    // After the rest: no activity for 3 more days. The recurring task replaces the idle tax with ticks, but the streak still breaks.
+    s = advanceTo(s, T0 + 12 * DAY);
+    expect(s.main.taxPaid.main.idleDays).toBe(0);
+    expect(cultivationStreak(s)).toEqual({ current: 0, best: 7 });
+  });
+});
+
+describe("potions (ruling 58)", () => {
+  const withPotions = (s: CultivatorState, gain: number, legendary = 0): CultivatorState => ({
+    ...s,
+    inventory: { ...s.inventory, gainPotions: gain, legendaryPotions: legendary },
+  });
+  const drink = (at: number) => ev("PotionUsed", at, { potion: "gain" });
+
+  it("adds 10% to gold and Qi for 24 hours, one active at a time", () => {
+    let s = withPotions(replay([created, once("a", T0, T0 + 5 * DAY, "hard"), once("b", T0, T0 + 5 * DAY, "hard", "session", "b")]), 2);
+    expect(code(() => applyEvent(withPotions(s, 0), drink(T0 + H)))).toBe("no_potion");
+    s = apply(s, drink(T0 + H));
+    expect(s.inventory.gainPotions).toBe(1);
+    expect(code(() => applyEvent(s, drink(T0 + 2 * H)))).toBe("potion_active");
+    const boosted = apply(s, complete("a", T0 + 2 * H));
+    expect(boosted.qi).toBeCloseTo(22, 9);
+    expect(boosted.gold).toBeCloseTo(10 * (1 + RULES_V1.tiers.turtle.goldBonus + 0.1), 9);
+    const later = apply(s, complete("b", T0 + 25 * H + 1));
+    expect(later.qi).toBe(20);
+    expect(code(() => applyEvent(s, drink(T0 + 25 * H)))).toBeUndefined(); // the first one has worn off
+  });
+
+  it("joins the additive pool rather than multiplying it", () => {
+    // Body gold with the Turtle's tier bonus: (1 + tier bonus + 0.1), not (1 + tier bonus) x 1.1.
+    const base = replay([created, ev("BodyActivityDefined", T0, { activityId: "bjj", name: "BJJ", kind: "routine" })]);
+    const plain = apply(base, ev("BodyActivityLogged", T0 + H, { activityId: "bjj" })).gold;
+    const boosted = apply(withPotions(base, 1), drink(T0 + H), ev("BodyActivityLogged", T0 + 2 * H, { activityId: "bjj" })).gold;
+    const tier = RULES_V1.tiers.turtle.goldBonus;
+    expect(boosted).toBeCloseTo((plain / (1 + tier)) * (1 + tier + 0.1), 9);
+  });
+
+  it("only stores legendary potions for now", () => {
+    const s = withPotions(replay([created]), 0, 2);
+    expect(code(() => applyEvent(s, drink(T0 + H)))).toBe("no_potion");
+    expect(s.inventory.legendaryPotions).toBe(2);
   });
 });
