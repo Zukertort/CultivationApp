@@ -376,6 +376,15 @@ None open.
 
 None open. Each decision is recorded in its section; the remaining numbers are listed for the economy simulator.
 
+## New to-dos
+
+Items found while implementing; each waits for a decision or a later part.
+
+- [ ] `taxForecast` shows pending postponed tax per task
+- [ ] Revoking a false tribulation claim
+- [ ] The LLM review on tribulation claims, and the verified vs self-reported badge
+- [ ] Linking a quest to a tribulation as its preparation
+
 ## Rulings
 
 Decisions made while implementing the rules engine. They are settled: future sessions apply them without asking again. Where code and this list disagree, the list wins.
@@ -448,3 +457,14 @@ Decisions made while implementing the rules engine. They are settled: future ses
 61. Milestones stay quest members, not tribulations. A member that expires past its extension window fails and no longer blocks the quest: the quest completes when every other member is completed, cancelled or failed. The item roll still requires that no member was cancelled or failed. A quest whose members all failed or were cancelled is gone.
 62. Part 3 sets the realm Qi thresholds against honest personas, not the hard-project-every-week one.
 63. Accepted choices from Main part 1: a new version takes over the count only when the period type matches; any Main completion counts as a completion; the streak also breaks on days a recurring task replaces the idle tax with ticks; a gain potion boosts every gold and Qi gain, soul drops and the roulette included; a lost item takes a gain potion first; one server roll decides both a drop and its potion kind.
+
+**Main path, part 2: tribulations (Nov 10, 2026)**
+
+64. Part 2 builds the tribulation lifecycle: declare, lock, edit, delete, claim, fail and reschedule. Each tribulation records the realm it was declared in; Part 3 decides which tribulations a breakthrough needs and how they count.
+65. A failure costs Qi and gold (Step 1 simulator values: 65 Qi and 45 gold), taken from the balances, floored at 0, never debt and never a deviation trigger. The loss is the "extra tasks before the next attempt": there is no separate task counter. Part 3 sizes the loss as a share of the current level's Qi threshold, so a failure always means extra work, even with Qi above the threshold. Armor reduction and gear damage come with gear.
+66. Deadlines are at least 24 hours and at most 365 days out, with no limit on open tribulations. A failure is applied at the first local midnight after the effective deadline, or at the next event about that tribulation if sooner, and is dated at the deadline; a claim is allowed up to the deadline. A failed tribulation has no deadline until the cultivator sets a new one; rescheduling is free and repeatable, and every failure costs again.
+67. The title and criteria can be edited, never the deadline. Step 1 prices: an edit is free within 1 hour of declaring (still logged), costs 20 Qi during the first three quarters of the time from declaration (or the last reschedule) to the deadline, and costs the full failure cost (Qi and gold) in the last quarter, so a late edit can't turn a hard tribulation into an easy one cheaply. Deleting an open tribulation costs 1.5 times the failure cost; deleting a failed one costs 40 Qi, since the failure was already paid. Without enough Qi or gold the change is rejected. A passed tribulation can't be edited or deleted. Adding is free in Step 1. From Step 2 on, adding is paid and editing and deleting cost the normal prices only, since tribulations become part of the discovery phase; those prices are set when Step 2 is built. All are simulator values.
+68. Passing pays no Qi or gold. A passed tribulation earns one item roll at 50%, rolled by the server (a potion until gear exists, 50/50 by kind), outside the daily roll cap. Until Part 3, at most one tribulation item roll per 7 days; Part 3 limits rolls to tribulations that count toward the current realm's breakthrough, and Part 4 adds class drops.
+69. A claim counts as Main activity; declaring, editing and rescheduling don't. A claim carries the oath "I solemnly swear I have passed this tribulation.", optional evidence references (file, link or photo) and an LLM review marker. There is no LLM yet, so the marker is "skipped".
+70. Closed-door rest pushes tribulation deadlines back like any deadline (up to 14 days at a time and 30 days a quarter), with no extra limit; the simulator measures the maximum delay. Vacation keeps them.
+71. Tribulation edits, deletions and claims are recorded in the integrity log.
