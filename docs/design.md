@@ -399,3 +399,25 @@ Decisions made while implementing the rules engine. They are settled: future ses
 15. Until gear exists, a gained "item" is a potion, and a lost item is a potion, never a legendary.
 16. Stored drop outcomes are never re-rolled. Under rebalanced rules, outcomes beyond what a task now earns are ignored and missing ones become pending; a SoulDropRolled with nothing pending is logged as an anomaly, never applied.
 17. On Android the app asks the cultivator once to set its battery usage to Unrestricted, explaining that alerts can arrive late otherwise (One UI held a test alarm for over 7 minutes under the default setting). Both "yes" and "no" are accepted; "no" means alerts may be late, and the app keeps working. Delays are measured again on a development build.
+
+**Main path, part 1: tasks, quests and the tax (Nov 10, 2026)**
+
+18. Main repetition decay is age-based, the same rule as Body: it penalizes stagnation, not consistency. A task pays full value for a set time after its first completion, then loses a share each week down to a floor. Main has its own numbers in the config (simulator values), starting from Body's.
+19. Decay age counts only active time: not while resting (on Main and Body) and not while the task is archived.
+20. A task is either one-time or recurring, picked with a "One time only" checkbox at creation. A one-time task has a deadline, expires, and can get the one paid extension. A recurring task has a frequency (N per day, week or month, at most 2 per day) and an optional end date; it never expires and gets no extension. Quests have a deadline only, never a frequency.
+21. A recurring task's frequency is its payout cap: completions beyond it in a period are logged but pay nothing.
+22. Repetition is tracked by task name, so "Math exercise II" starts fresh. Changing a task's difficulty requires a new named version. Resetting decay with a new version at the same rating is accepted: this is a role game, and cheating means lying to yourself. A "Do again" shortcut is fine.
+23. Deleting a task archives it, and archived tasks can be restored with their history. Creating a task with an archived task's name restores that task instead, so deleting and recreating never resets decay.
+24. Difficulty is self-rated relative to current abilities, with no cap on "deadly"; honesty is the cultivator's responsibility. The simulator keeps a "rates everything deadly" persona to measure the effect.
+25. Effort is self-rated and locked at creation. Gold scales with difficulty, effort and the number of tasks, never with the deadline's length.
+26. More complex quests give more Qi, through a bonus paid when the quest's last task is completed. The numbers are simulator values.
+27. Splitting a task into honestly rated pieces must never pay more than one task, or one quest, of the combined difficulty. A "splitter" simulator persona and the tests check it.
+28. Simple tasks pay well in the first two realms and taper off above; the taper values are simulator numbers.
+29. One extension per one-time task or quest, paid in gold, no longer than the original duration, bought within 3 days after the deadline. Unpaid, the item disappears. Extending a quest extends its unfinished tasks. Tasks can't be edited after creation, and deadlines are at most 1 year out.
+30. Tasks and quests follow the tribulation rule during rest: vacation keeps their deadlines; closed-door cultivation extends them by the days spent inside, because the cultivator may be ill. This is an exception to ruling 8.
+31. Procrastination-tax activity: on Main, completing a task; on Body, logging an activity (even one over the routine cap); on Soul, a positive task or quest. Defining things never counts. Each path's tax clock starts when the path is chosen in the Qi Condensation interview, so a path the cultivator never starts is still taxed.
+32. Main tax: each missed occurrence of a recurring task is one tax tick. With no active tasks, the idle rule applies after 3 days without Main activity. Body and Soul use the idle rule after 7 days, and their tax is 1/5 of Main's. Rest days are never taxed and don't count toward the grace.
+33. The tax hits Qi and gold, never realm progress. It is deducted from the balances; what they can't cover becomes debt (balances never go below 0), and future gains repay the debt first. Debt is capped, and Qi deviation starts at the cap. The amounts are simulator values.
+34. A comeback quest clears Qi deviation and forgives the remaining debt: complete 3 Main tasks rated easy or harder within 3 days of entering deviation; if the window passes, a new 3-day window starts.
+35. Bonuses: the fitness tier's Qi bonus applies only to Main tasks and quests; the pose Qi bonus applies to all Qi gains; the tier gold bonus applies only to Main and Body gold, never to soul drops, the roulette or anything else.
+36. The server checks each event's timestamp against when it was received; the rules engine trusts `at`.
