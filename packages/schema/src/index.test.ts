@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { OATH_TEXT, parseEvent } from "./index.js";
+import { OATH_TEXT, TRIBULATION_OATH, parseEvent } from "./index.js";
 
 describe("parseEvent", () => {
   it("accepts a valid event", () => {
@@ -131,5 +131,31 @@ describe("parseEvent", () => {
   it("accepts the interview with undecided interests", () => {
     const e = { id: "e1", userId: "u1", at: 0, type: "InterviewAnswered", interests: { main: "Mathematics", body: "", soul: "" } };
     expect(parseEvent(e).type).toBe("InterviewAnswered");
+  });
+});
+
+describe("tribulation events", () => {
+  const base = { id: "e1", userId: "u1", at: 0, tribulationId: "t1" };
+
+  it("accepts a declaration and rejects empty criteria", () => {
+    const d = { ...base, type: "TribulationDeclared", title: "Pass the exam", criteria: "Score at least 80", deadline: 1000 };
+    expect(parseEvent(d).type).toBe("TribulationDeclared");
+    expect(() => parseEvent({ ...d, criteria: "" })).toThrow();
+  });
+
+  it("requires the exact claim oath and an LLM review marker, with optional evidence and drop", () => {
+    const c = { ...base, type: "TribulationClaimed", oath: TRIBULATION_OATH, llmReview: "skipped" };
+    expect(parseEvent(c).type).toBe("TribulationClaimed");
+    expect(parseEvent({ ...c, evidence: [{ kind: "file", ref: "uploads/grade.pdf" }], drop: "gain_potion" }).type).toBe("TribulationClaimed");
+    expect(() => parseEvent({ ...c, oath: "I passed" })).toThrow();
+    expect(() => parseEvent({ ...c, llmReview: undefined })).toThrow();
+    expect(() => parseEvent({ ...c, evidence: [{ kind: "video", ref: "x" }] })).toThrow();
+  });
+
+  it("accepts edits, deletions, reschedules and drop rolls", () => {
+    expect(parseEvent({ ...base, type: "TribulationEdited", criteria: "Score at least 70" }).type).toBe("TribulationEdited");
+    expect(parseEvent({ ...base, type: "TribulationDeleted" }).type).toBe("TribulationDeleted");
+    expect(parseEvent({ ...base, type: "TribulationRescheduled", deadline: 5000 }).type).toBe("TribulationRescheduled");
+    expect(parseEvent({ id: "e2", userId: "u1", at: 0, type: "TribulationDropRolled", eventId: "e1", drop: "none" }).type).toBe("TribulationDropRolled");
   });
 });

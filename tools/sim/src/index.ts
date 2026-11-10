@@ -16,6 +16,7 @@ import { OATH_TEXT, type GameEvent } from "@cultivation/schema";
 import { DAY, RULES_V1, TIERS, WEEK, advanceTo, applyEvent, initialState, type CultivatorState, type Tier } from "@cultivation/rules";
 import { runSoulScenarios } from "./soul.js";
 import { runMainScenarios } from "./main.js";
+import { runTribulationScenarios } from "./tribulation.js";
 
 const T0 = Date.UTC(2026, 10, 2, 3); // Monday 00:00 in Buenos Aires
 const TRAINING_HOUR = 19 * 60 * 60 * 1000;
@@ -122,5 +123,7 @@ for (const tier of TIERS) {
 runSoulScenarios(outDir);
 // 4. Main: tasks, quests, repetition decay and the procrastination tax.
 runMainScenarios(outDir);
+// 5. Tribulations: failure, edit and deletion costs, item rolls, closed-door delay.
+runTribulationScenarios(outDir);
 
 console.log(`\nCSV written to ${outDir}`);

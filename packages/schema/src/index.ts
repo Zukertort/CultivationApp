@@ -323,6 +323,81 @@ export const MainItemExtended = z.object({
   until: epochMs,
 });
 
+// ---- Tribulations -----------------------------------------------------------
+
+/** The claim oath (ruling 69). */
+export const TRIBULATION_OATH = "I solemnly swear I have passed this tribulation.";
+
+const tribulationText = {
+  title: z.string().min(1).max(120),
+  /** The specific, checkable result, written before starting. */
+  criteria: z.string().min(1).max(2000),
+};
+
+/** Declares a tribulation: criteria plus a deadline at least 24 hours and at most 365 days out (ruling 66). */
+export const TribulationDeclared = z.object({
+  ...base,
+  type: z.literal("TribulationDeclared"),
+  tribulationId: id,
+  ...tribulationText,
+  deadline: epochMs,
+});
+
+/** Edits the title or criteria (at least one); the deadline is never edited. Priced by ruling 67. */
+export const TribulationEdited = z.object({
+  ...base,
+  type: z.literal("TribulationEdited"),
+  tribulationId: id,
+  title: tribulationText.title.optional(),
+  criteria: tribulationText.criteria.optional(),
+});
+
+/** Deletes an open or failed tribulation; priced by ruling 67. */
+export const TribulationDeleted = z.object({
+  ...base,
+  type: z.literal("TribulationDeleted"),
+  tribulationId: id,
+});
+
+/** Sets a new deadline for a failed tribulation (free; ruling 66). */
+export const TribulationRescheduled = z.object({
+  ...base,
+  type: z.literal("TribulationRescheduled"),
+  tribulationId: id,
+  deadline: epochMs,
+});
+
+/** A reference to claim evidence; the rules engine never reads its content. */
+export const ClaimEvidence = z.object({
+  kind: z.enum(["file", "link", "photo"]),
+  ref: z.string().min(1).max(2048),
+});
+
+/**
+ * Claims a tribulation as passed, up to its deadline (ruling 69). `drop` is
+ * the item roll's outcome when the server rolled it at claim time; offline,
+ * the server appends a TribulationDropRolled on sync instead.
+ */
+export const TribulationClaimed = z.object({
+  ...base,
+  type: z.literal("TribulationClaimed"),
+  tribulationId: id,
+  oath: z.literal(TRIBULATION_OATH),
+  evidence: z.array(ClaimEvidence).max(10).optional(),
+  /** No LLM yet: always "skipped" for now. */
+  llmReview: z.enum(["skipped", "done"]),
+  drop: MainQuestDrop.optional(),
+});
+
+/** Appended by the server on sync for a claim whose earned item roll has no recorded outcome. */
+export const TribulationDropRolled = z.object({
+  ...base,
+  type: z.literal("TribulationDropRolled"),
+  /** The TribulationClaimed event the roll belongs to. */
+  eventId: id,
+  drop: MainQuestDrop,
+});
+
 // ---- Rest -------------------------------------------------------------------
 
 export const RestStarted = z.object({
@@ -389,6 +464,12 @@ export const GameEvent = z.discriminatedUnion("type", [
   MainItemExtended,
   MainTaskWorkedOn,
   MainQuestDropRolled,
+  TribulationDeclared,
+  TribulationEdited,
+  TribulationDeleted,
+  TribulationRescheduled,
+  TribulationClaimed,
+  TribulationDropRolled,
 ]);
 
 export type GameEvent = z.infer<typeof GameEvent>;
@@ -404,6 +485,7 @@ export type Effort = z.infer<typeof Effort>;
 export type Period = z.infer<typeof Period>;
 export type TaskSchedule = z.infer<typeof TaskSchedule>;
 export type MainQuestDrop = z.infer<typeof MainQuestDrop>;
+export type ClaimEvidence = z.infer<typeof ClaimEvidence>;
 
 /** Validate untrusted input (sync payloads, local DB rows) into a typed event. */
 export function parseEvent(input: unknown): GameEvent {

@@ -121,6 +121,26 @@ export interface MainRules {
   questDeadlineAlertHours: readonly number[];
 }
 
+/** Tribulations (rulings 64-71). Step 1 prices; Step 2+ prices come with Step 2. Every number is a simulator value. */
+export interface TribulationRules {
+  minDeadlineHours: number;
+  maxDeadlineDays: number;
+  /** What a failure takes from the balances (floored at 0, never debt; ruling 65). Part 3 sizes it from the level's Qi threshold. */
+  failure: { qi: number; gold: number };
+  /** Edits are free this long after declaring (ruling 67). */
+  freeEditMinutes: number;
+  /** An edit's price before `lateEditFrom` of the time span has passed; after it, the full failure cost. */
+  editQi: number;
+  lateEditFrom: number;
+  /** Deleting an open tribulation costs this times the failure cost; a failed one costs `deleteFailedQi`. */
+  deleteOpenMultiplier: number;
+  deleteFailedQi: number;
+  /** A passed tribulation's item roll (ruling 68): its chance, and at most one roll per `cooldownDays`. */
+  item: { chance: number; cooldownDays: number };
+  /** Push alerts before a deadline, in hours. */
+  alertHours: readonly number[];
+}
+
 export interface SoulRules {
   /** All HP values are percentages of a demon's maximum (0-100). */
   startHp: number;
@@ -246,6 +266,7 @@ export interface RulesConfig {
   };
   soul: SoulRules;
   main: MainRules;
+  tribulations: TribulationRules;
   notifications: {
     /** Push notifications per local day; the most urgent are kept. */
     maxPerDay: number;
@@ -257,7 +278,7 @@ export interface RulesConfig {
 }
 
 export const RULES_V1: RulesConfig = Object.freeze({
-  version: "1.9.0",
+  version: "1.10.0",
   tiers: {
     turtle: { capacity: 30, weeklyLoss: 10, goldBonus: 0.01, coreQiBonus: 0, breakthroughLegendaryChance: 0 },
     panda: { capacity: 800, weeklyLoss: 200, goldBonus: 0.1, coreQiBonus: 0, breakthroughLegendaryChance: 0 },
@@ -406,5 +427,18 @@ export const RULES_V1: RulesConfig = Object.freeze({
     debtCap: { qi: 50, gold: 50 },
     comeback: { tasks: 3, minDifficulty: "easy", windowDays: 3 },
     questDeadlineAlertHours: [72, 48, 24, 1],
+  },
+  tribulations: {
+    minDeadlineHours: 24,
+    maxDeadlineDays: 365,
+    // About a week of an honest studier's Main income (276 Qi and 193 gold a month).
+    failure: { qi: 65, gold: 45 },
+    freeEditMinutes: 60,
+    editQi: 20,
+    lateEditFrom: 0.75,
+    deleteOpenMultiplier: 1.5,
+    deleteFailedQi: 40,
+    item: { chance: 0.5, cooldownDays: 7 },
+    alertHours: [72, 48, 24, 1],
   },
 } satisfies RulesConfig);

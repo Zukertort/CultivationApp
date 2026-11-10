@@ -38,6 +38,18 @@ import {
   shiftDeadlinesAfterRest,
   type MainState,
 } from "./main.js";
+import {
+  initialTribulations,
+  onTribulationClaimed,
+  onTribulationDeclared,
+  onTribulationDeleted,
+  onTribulationDropRolled,
+  onTribulationEdited,
+  onTribulationRescheduled,
+  shiftTribulationsAfterRest,
+  tribulationMidnight,
+  type TribulationState,
+} from "./tribulation.js";
 
 // ---- State --------------------------------------------------------------------
 
@@ -91,6 +103,7 @@ export interface CultivatorState {
   inventory: { gainPotions: number; legendaryPotions: number; gainPotionUntil: number | null; legendary: number; scales: number; wings: boolean };
   soul: SoulState;
   main: MainState;
+  tribulations: TribulationState;
   /** Things that should be impossible (e.g. a second set of wings); flagged, never silently fixed. */
   anomalies: { at: number; code: string }[];
 }
@@ -123,6 +136,7 @@ export function initialState(rules: RulesConfig = RULES_V1): CultivatorState {
     inventory: { gainPotions: 0, legendaryPotions: 0, gainPotionUntil: null, legendary: 0, scales: 0, wings: false },
     soul: initialSoul(),
     main: initialMain(),
+    tribulations: initialTribulations(),
     anomalies: [],
   };
 }
@@ -251,10 +265,14 @@ function advanceMut(s: CultivatorState, to: number, rules: RulesConfig): void {
     cur = stop;
     if (s.rest && cur >= s.rest.end) {
       shiftDeadlinesAfterRest(s, s.rest, s.rest.end);
+      shiftTribulationsAfterRest(s, s.rest, s.rest.end);
       s.rest = null;
     }
     // Periods close and tax is charged at every midnight (a day with rest is never taxed).
-    if (cur === dayEnd) mainMidnight(s, cur, rules);
+    if (cur === dayEnd) {
+      mainMidnight(s, cur, rules);
+      tribulationMidnight(s, cur, rules);
+    }
     // Rest freezes the soul color; a midnight that ends the rest is evaluated.
     if (cur === dayEnd && !s.rest) endOfDay(s.soul, cur, rules);
   }
@@ -400,6 +418,7 @@ const onRestStarted: Handler<"RestStarted"> = (s, e, rules) => {
 const onRestEnded: Handler<"RestEnded"> = (s, e) => {
   if (!s.rest) violate("not_resting", "no active rest period");
   shiftDeadlinesAfterRest(s, s.rest, e.at);
+  shiftTribulationsAfterRest(s, s.rest, e.at);
   if (s.rest.kind === "closed_door") {
     const log = s.closedDoorLog.at(-1);
     if (log) log.end = e.at;
@@ -544,6 +563,14 @@ const handlers: { [T in GameEvent["type"]]: Handler<T> } = {
   MainQuestDropRolled: (s, e) => {
     // Nothing pending: a duplicate roll, or one a rebalance no longer earns. Flagged, never applied.
     if (!onQuestDropRolled(s, e)) s.anomalies.push({ at: e.at, code: "orphan_quest_drop_roll" });
+  },
+  TribulationDeclared: onTribulationDeclared,
+  TribulationEdited: onTribulationEdited,
+  TribulationDeleted: onTribulationDeleted,
+  TribulationRescheduled: onTribulationRescheduled,
+  TribulationClaimed: onTribulationClaimed,
+  TribulationDropRolled: (s, e) => {
+    if (!onTribulationDropRolled(s, e)) s.anomalies.push({ at: e.at, code: "orphan_tribulation_drop_roll" });
   },
 };
 

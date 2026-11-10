@@ -217,17 +217,17 @@ Qi pays for breakthroughs and gold buys gear and rest; repeated tasks pay less e
 
 **Gaps**
 
-- [ ] Numbers for the simulator: the Main tax's grace period and amount, extension prices, vacation lengths and prices, and the Qi cost of editing tribulations or changing discipline *(The Main tax and extension prices have been in the config since Main part 1, provisional per ruling 47. Vacation prices were already set; tribulation and discipline costs come in parts 2 and 3.)*
+- [ ] Numbers for the simulator: the Main tax's grace period and amount, extension prices, vacation lengths and prices, and the Qi cost of editing tribulations or changing discipline *(The Main tax and extension prices have been in the config since Main part 1, provisional per ruling 47. Vacation prices were already set. Step 1 tribulation costs came with part 2 (ruling 67); discipline costs come in part 3.)*
 
 ## Breakthroughs and tribulations
 
 A breakthrough is only claimable against criteria written before the attempt, which keeps faking possible but deliberate.
 
-- [ ] &#91;v1\] Declare a tribulation: specific, checkable result plus a deadline, written before starting
+- [x] &#91;v1\] Declare a tribulation: specific, checkable result plus a deadline, written before starting
 - [ ] &#91;v1\] A breakthrough needs both the realm/level Qi threshold and the tribulations passed
-- [ ] &#91;v1\] Lock criteria once declared; editing or deleting a tribulation costs Qi in every step and is logged visibly (a cultivator may discover a tribulation was wrong or needs to be more specific); adding one is free in Step 1; the only free change is switching the foundation discipline right after a Foundation tribulation
-- [ ] &#91;v1\] Claim flow: optional LLM review that flags points the cultivator may have missed; the cultivator decides and confirms "I solemnly swear I have passed this tribulation"; optional evidence attachment (file, link, photo)
-- [ ] &#91;v1\] Missed deadline: no extensions; the tribulation fails, Qi is lost, and it stays in place for the cultivator to set a new date; extra tasks are required before the next attempt, even if the result is now within reach
+- [ ] &#91;v1\] Lock criteria once declared; editing or deleting a tribulation costs Qi in every step and is logged visibly (a cultivator may discover a tribulation was wrong or needs to be more specific); adding one is free in Step 1; the only free change is switching the foundation discipline right after a Foundation tribulation *(Step 1 prices and the integrity log entries were built in Main part 2 (ruling 67). Step 2+ prices come with Step 2, and the free foundation switch with realms in part 3.)*
+- [x] &#91;v1\] Claim flow: optional LLM review that flags points the cultivator may have missed; the cultivator decides and confirms "I solemnly swear I have passed this tribulation"; optional evidence attachment (file, link, photo) *(Main part 2: the oath, evidence references and an LLM review marker, always "skipped" until the LLM review exists; see New to-dos.)*
+- [x] &#91;v1\] Missed deadline: no extensions; the tribulation fails, Qi is lost, and it stays in place for the cultivator to set a new date; extra tasks are required before the next attempt, even if the result is now within reach *(The Qi and gold lost are the extra tasks required: ruling 65.)*
 - [ ] &#91;v1\] Adding tribulations never demotes a level; changing the core discipline costs Qi and sends the cultivator back to early Core Formation, not Foundation
 - [ ] Verified vs. self-reported badge on each breakthrough
 - [ ] Manual override to advance any realm, logged as such (the game must remain finishable)
@@ -241,8 +241,8 @@ None open.
 
 The comeback after a bad week must cost less than quitting the app, or users leave.
 
-- [ ] &#91;v1\] Vacations: rest periods bought with gold; the avatar travels to visit the Nine Marvels; tribulation deadlines keep their dates, and the request screen says so
-- [ ] &#91;v1\] Closed-door cultivation: a free "feeling ill / burnout" button; the avatar enters a cave; up to 14 days at a time and 30 days per quarter; tribulation deadlines extend by the days spent inside, and the request screen says so
+- [ ] &#91;v1\] Vacations: rest periods bought with gold; the avatar travels to visit the Nine Marvels; tribulation deadlines keep their dates, and the request screen says so *(The deadline rule was built in Main part 2; the screens and the avatar wait for the app.)*
+- [ ] &#91;v1\] Closed-door cultivation: a free "feeling ill / burnout" button; the avatar enters a cave; up to 14 days at a time and 30 days per quarter; tribulation deadlines extend by the days spent inside, and the request screen says so *(The deadline rule was built in Main part 2; the screens and the avatar wait for the app.)*
 - [ ] &#91;v1\] While resting (vacation or closed-door): no tax, the companion sleeps (no food loss) and the soul is frozen (no demon growth)
 - [x] &#91;v1\] Qi deviation: entered when procrastination-tax debt hits its cap; a short comeback quest clears both the state and the debt
 
@@ -320,7 +320,7 @@ None open; alchemy and techniques are dropped.
 Few and meaningful; guilt-trip spam is how Duolingo's notifications became a meme.
 
 - [ ] &#91;v1\] Push notifications only for losses that are close, at most 3 a day, most urgent first:
-  - Tribulation and core quest deadlines at 72, 48, 24 and 1 hour left *(quest deadlines have been in the push plan since Main part 1; tribulations come in part 2)*
+  - Tribulation and core quest deadlines at 72, 48, 24 and 1 hour left *(in the push plan since Main parts 1 and 2, tribulations first)*
   - The soul turning Broken (a demon above 90% HP)
   - A defeated demon within 5% of reviving, or any demon within 5% of 70% HP
   - The companion within 5% of empty
@@ -328,7 +328,7 @@ Few and meaningful; guilt-trip spam is how Duolingo's notifications became a mem
 - [ ] &#91;v1\] On a day with nothing urgent, one daily push reminding the cultivator to check the to-do list
 - [ ] &#91;v1\] Everything else (rewards, expiring tasks, tax, chronicle ready) goes to the in-app notification list, read on login
 - [ ] Quiet hours
-- [ ] During vacation, mute everything except tribulation deadlines (they keep running) and the return date; during closed-door cultivation, mute everything except the return date
+- [x] During vacation, mute everything except tribulation deadlines (they keep running) and the return date; during closed-door cultivation, mute everything except the return date *(Main part 2: the push plan mutes the current rest and adds a return-date push.)*
 
 **Gaps**
 
@@ -342,7 +342,7 @@ The oath sets the tone; pre-commitment and visible logs do the actual work.
 - [ ] &#91;v1\] The Qi Condensation interview is the onboarding: interests for Main, Body and Soul (see Main)
 - [ ] &#91;v1\] First companion: a Turtle at 50% food
 - [ ] &#91;v1\] The soul starts Broken until the first heart demon and its counter tasks are identified
-- [ ] Integrity log: every override, criteria edit, demon deletion or rename, and self-reported claim on one screen *(Main part 1 records repeated archive-and-restore as `archive_churn` flags; the screen waits for the app.)*
+- [ ] Integrity log: every override, criteria edit, demon deletion or rename, and self-reported claim on one screen *(Main part 1 records repeated archive-and-restore as `archive_churn` flags, and part 2 records tribulation edits, deletions and claims; the screen waits for the app.)*
 
 ## Data and architecture requirements
 
