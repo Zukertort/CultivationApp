@@ -437,8 +437,40 @@ describe("the hall of fame (ruling 96)", () => {
   });
 });
 
-describe("legendary rolls (rulings 83, 94)", () => {
-  it("rolls every step at a 2% base, adding the Lion's 2% and one halo ticket, used up", () => {
+describe("legendary rolls (rulings 83, 94, 111)", () => {
+  it("rolls realm breakthroughs at 5, 10, 20 and 30% by the realm entered, and level-ups at 2%", () => {
+    let s = withQi(foundation(), 100_000);
+    for (const id of ["a", "b", "c"]) s = apply(s, declare(id, T0 + 3 * H));
+    s = apply(s, claim("a", T0 + DAY), claim("b", T0 + 2 * DAY), claim("c", T0 + 3 * DAY), formCore(T0 + 4 * DAY));
+    const core = ["c1", "c2", "c3", "c4", "c5"];
+    for (const id of core) s = apply(s, declare(id, T0 + 5 * DAY));
+    s = apply(s, ...core.map((id, k) => claim(id, T0 + (6 + k) * DAY)), declare("n1", T0 + 11 * DAY, 200), lock(T0 + 12 * DAY), claim("n1", T0 + 13 * DAY));
+    const chances = pendingBreakthroughRolls(s).map((r) => [s.progress.steps[r.step - 1]!.kind, s.progress.steps[r.step - 1]!.realm, r.chance]);
+    expect(chances.filter(([kind]) => kind === "breakthrough")).toEqual([
+      ["breakthrough", "foundation_establishment", 0.05],
+      ["breakthrough", "core_formation", 0.1],
+      ["breakthrough", "nascent_soul", 0.2],
+      ["breakthrough", "spirit_realm", 0.3],
+    ]);
+    expect(new Set(chances.filter(([kind]) => kind === "level").map(([, , c]) => c))).toEqual(new Set([0.02]));
+  });
+
+  it("rolls the levels again after a core discipline change", () => {
+    let s = withQi(replay([created, interview, decide("main", "Mathematics", T0), ...overrides(7)]), 100_000);
+    const climb = (prefix: string, at: number) => {
+      for (const id of [1, 2, 3, 4, 5]) s = apply(s, declare(`${prefix}${id}`, at));
+      s = apply(s, ...[1, 2, 3].map((id) => claim(`${prefix}${id}`, at + id * H)));
+    };
+    climb("a", T0 + DAY);
+    expect(where(s)).toEqual(["core_formation", "late"]);
+    const rolled = pendingBreakthroughRolls(s).length;
+    s = apply(s, decide("main", "Physics", T0 + 2 * DAY));
+    climb("b", T0 + 3 * DAY);
+    expect(where(s)).toEqual(["core_formation", "late"]);
+    expect(pendingBreakthroughRolls(s)).toHaveLength(rolled + 2);
+  });
+
+  it("rolls every level-up at a 2% base, adding the Lion's 2% and one halo ticket, used up", () => {
     const s = replay([created, interview]);
     expect(pendingBreakthroughRolls(apply(s, decide("main", "Mathematics")))).toEqual([{ step: 1, at: T0 + H, chance: 0.02 }]);
     const lion = { ...s, companion: { ...s.companion, tier: "lion" as const }, haloTickets: [{ grantedAt: T0, expiresAt: T0 + 90 * DAY }] };

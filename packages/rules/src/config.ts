@@ -161,8 +161,8 @@ export interface RealmRules {
   failureShare: number;
   /** Changing Body or Soul after Qi Condensation; changing Main in Foundation; changing the core discipline (rulings 88, 90, 91). */
   prices: { areaChangeQi: number; foundationSwitchQi: number; coreChangeQi: number };
-  /** Every level-up and breakthrough's legendary roll starts at this chance (ruling 94). */
-  legendaryBaseChance: number;
+  /** A legendary roll's base chance: every level-up's, and each realm breakthrough's by the realm entered (rulings 94, 111). */
+  legendaryBaseChance: { level: number; breakthrough: Record<"foundation_establishment" | "core_formation" | "nascent_soul" | "spirit_realm", number> };
   /**
    * Repent (rulings 101-106): the penalty for each repent in the same realm
    * (the last applies to every later one), the repent count after which the
@@ -316,7 +316,7 @@ export interface RulesConfig {
 }
 
 export const RULES_V1: RulesConfig = Object.freeze({
-  version: "1.13.0",
+  version: "1.14.0",
   tiers: {
     turtle: { capacity: 30, weeklyLoss: 10, goldBonus: 0.01, coreQiBonus: 0, breakthroughLegendaryChance: 0 },
     panda: { capacity: 800, weeklyLoss: 200, goldBonus: 0.1, coreQiBonus: 0, breakthroughLegendaryChance: 0 },
@@ -489,7 +489,10 @@ export const RULES_V1: RulesConfig = Object.freeze({
     lockWithinDays: 90,
     failureShare: 0.25,
     prices: { areaChangeQi: 30, foundationSwitchQi: 125, coreChangeQi: 275 },
-    legendaryBaseChance: 0.02,
+    legendaryBaseChance: {
+      level: 0.02,
+      breakthrough: { foundation_establishment: 0.05, core_formation: 0.1, nascent_soul: 0.2, spirit_realm: 0.3 },
+    },
     repent: {
       penalties: [
         { items: 0, gold: 0, qi: 0, death: false },

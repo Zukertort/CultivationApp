@@ -64,6 +64,8 @@ class Cultivator {
   private roll = rng(23);
   private queue: GameEvent[] = [];
   waitingDays = 0;
+  /** Sum of every legendary roll's chance: the expected legendary items, free of seed luck. */
+  expectedLegendary = 0;
 
   at(day: number, hour: number): number {
     return T0 + day * DAY + hour * HOUR;
@@ -96,6 +98,7 @@ class Cultivator {
       this.s = applyEvent(this.s, this.event("TribulationDropRolled", this.s.clock, { eventId: p.eventId, drop: tribulationDropOutcome(this.roll()) }), RULES_V1);
     }
     for (const p of pendingBreakthroughRolls(this.s)) {
+      this.expectedLegendary += p.chance;
       this.s = applyEvent(this.s, this.event("BreakthroughRolled", this.s.clock, { step: p.step, item: breakthroughRollOutcome(p.chance, this.roll()) }), RULES_V1);
     }
   }
@@ -176,6 +179,8 @@ interface Habits {
   eager?: boolean;
   /** Repents at every Nascent Soul entry, cycling back through Core Formation's last steps (ruling 104). */
   repentCycle?: boolean;
+  /** The eternal student: changes the core discipline at every Nascent Soul entry, climbing Core Formation again (ruling 111). */
+  changeDiscipline?: boolean;
 }
 
 interface Plan {
@@ -235,6 +240,8 @@ function tribulationPlan(h: Habits) {
       }
     }
 
+    if (h.changeDiscipline && realm === "nascent_soul" && c.now("AreaDecided", at, { path: "main", choice: `discipline ${day}` })) return;
+
     const open = [...plans.keys()].filter((id) => {
       const t = c.s.tribulations.items[id]!;
       return t.realm === c.s.main.realm && t.closedAt === null && (t.status === "open" || t.status === "failed");
@@ -284,6 +291,8 @@ const PERSONAS: Persona[] = [
   { label: "eager study + weekly project", income: both, habits: { eager: true } },
   { label: "eager reference: weekly hard milestones", income: weeklyMilestones, habits: { eager: true } },
   { label: "repent cycler: eager reference, repents at every Nascent Soul entry", income: weeklyMilestones, habits: { eager: true, repentCycle: true } },
+  { label: "eternal student: eager reference, changes discipline at every Nascent Soul entry", income: weeklyMilestones, habits: { eager: true, changeDiscipline: true } },
+  { label: "eternal student, honest pace: studier, changes discipline at every Nascent Soul entry", income: study, habits: { changeDiscipline: true } },
 ];
 
 const REALM_ORDER: Realm[] = ["foundation_establishment", "core_formation", "nascent_soul", "spirit_realm"];
@@ -295,7 +304,8 @@ function simulate(p: Persona) {
   c.now("BodyActivityDefined", T0, { activityId: "gym-1", name: "Gym v1", kind: "routine" });
   c.now("HeartDemonCreated", T0, { demonId: "d", name: "Impatience", positiveTasks: [{ taskId: "breathe", name: "Breathe" }], negativeTasks: [] });
   const plan = tribulationPlan(p.habits);
-  for (let day = 0; day < DAYS && c.s.main.realm !== "spirit_realm"; day++) {
+  let day = 0;
+  for (; day < DAYS && c.s.main.realm !== "spirit_realm"; day++) {
     p.income(c, day);
     if (day > 0 && day % 28 === 0) c.ev("BodyActivityDefined", c.at(day, 6), { activityId: `gym-${version(day)}`, name: `Gym v${version(day)}`, kind: "routine" });
     if (day % 7 === 1 || day % 7 === 4) c.ev("BodyActivityLogged", c.at(day, 20), { activityId: `gym-${version(day)}` });
@@ -321,6 +331,7 @@ function simulate(p: Persona) {
     tribulationRolls: c.s.tribulations.drops.none + c.s.tribulations.drops.gain_potion + c.s.tribulations.drops.legendary_potion,
     legendaryRolls: c.s.progress.legendaryRolls.none + c.s.progress.legendaryRolls.legendary,
     legendaryItems: c.s.progress.legendaryRolls.legendary,
+    expectedPerYear: c.expectedLegendary / (day / 364),
     conquered: conqueredTribulations(c.s).length,
     repents: Object.values(c.s.progress.repents).reduce((a, b) => a + b, 0),
     deaths: c.s.progress.deaths,
@@ -344,6 +355,7 @@ export function runRealmScenarios(outDir: string): void {
     "tribulation item rolls",
     "legendary rolls",
     "legendary items",
+    "expected legendary items/yr",
     "conquered tribulations",
     "repents",
     "deaths",
@@ -361,6 +373,7 @@ export function runRealmScenarios(outDir: string): void {
     String(r.tribulationRolls),
     String(r.legendaryRolls),
     String(r.legendaryItems),
+    r.expectedPerYear.toFixed(2),
     String(r.conquered),
     String(r.repents),
     String(r.deaths),

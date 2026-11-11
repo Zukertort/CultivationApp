@@ -3,7 +3,7 @@
  * Establishment, Core Formation, Nascent Soul; then Spirit Realm, where
  * progression stops until Step 2 is built).
  *
- * Settled rules live in docs/design.md, Rulings 73-109. Level-ups and
+ * Settled rules live in docs/design.md, Rulings 73-112. Level-ups and
  * breakthroughs are derived: once a step's conditions hold, its Qi threshold
  * is spent from the balance and the cultivator advances, with no event. The
  * only random outcome is each step's legendary-item roll, which the server
@@ -361,13 +361,17 @@ function moveOn(s: CultivatorState, kind: NextStep["kind"], at: number): void {
 
 /**
  * Every level-up and breakthrough earns one legendary-item roll (rulings 83,
- * 94): a 2% base, plus the tier's breakthrough chance (the Lion's 2%), plus
- * one halo ticket, used up, if one is active (the one expiring first). A
- * milestone a repent undid earns none (ruling 103).
+ * 94, 111): a base of 2% for a level-up and 5-30% for a realm breakthrough
+ * by the realm entered, plus the tier's breakthrough chance (the Lion's 2%),
+ * plus one halo ticket, used up, if one is active (the one expiring first).
+ * A milestone a repent undid earns none (ruling 103); a discipline change's
+ * re-climb rolls again (ruling 111).
  */
 function earnLegendaryRoll(s: CultivatorState, step: ProgressStep, rules: RulesConfig): void {
   if (s.progress.noRoll.includes(milestone(step.realm, step.level))) return;
-  let chance = rules.realms.legendaryBaseChance + rules.tiers[s.companion.tier].breakthroughLegendaryChance;
+  const base = rules.realms.legendaryBaseChance;
+  const realmBase = step.kind === "breakthrough" ? base.breakthrough[step.realm as keyof typeof base.breakthrough] : undefined;
+  let chance = (realmBase ?? base.level) + rules.tiers[s.companion.tier].breakthroughLegendaryChance;
   const tickets = s.haloTickets.filter((t) => step.at < t.expiresAt).sort((a, b) => a.expiresAt - b.expiresAt);
   if (tickets.length > 0) {
     chance += rules.halo.legendaryBonus;

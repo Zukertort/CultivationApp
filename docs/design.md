@@ -394,8 +394,8 @@ Items found while implementing; each waits for a decision or a later part.
 - [x] A late edit is rejected when Qi is below a quarter of the threshold (ruling 67), while a deletion is floored and never rejected (ruling 93) *(Ruling 100.)*
 - [ ] The Spirit Realm spirit quoting a Nascent Soul tribulation from the hall of fame (ruling 96) waits for the narrative layer
 - [ ] A realm-specific message with good and bad examples on the tribulation creation screen (ruling 87); later, an LLM check of the fit
-- [ ] A core discipline change returns to early Core Formation, and climbing its levels again earns new legendary rolls; only a repent blocks re-rolls (ruling 103)
-- [ ] After 5 repents in a realm, every further repent kills the avatar; revival takes a week of work, so a cycler dies about every 3 weeks (57 deaths in 4 years in the simulator)
+- [x] A core discipline change returns to early Core Formation, and climbing its levels again earns new legendary rolls; only a repent blocks re-rolls (ruling 103) *(Allowed: ruling 111.)*
+- [x] After 5 repents in a realm, every further repent kills the avatar; revival takes a week of work, so a cycler dies about every 3 weeks (57 deaths in 4 years in the simulator) *(Intended: ruling 110.)*
 
 ## Rulings
 
@@ -508,7 +508,7 @@ Decisions made while implementing the rules engine. They are settled: future ses
 91. From Core Formation on, a discipline change costs Qi, closes all the old discipline's tribulations (open, failed and passed) at no cost, and returns the cultivator to early Core Formation. Passed ones stay in the record.
 92. Ruling 80's loss applies to every tribulation; there is no flat-loss exception.
 93. Deleting an open tribulation costs the ruling 80 failure loss plus 2% in Qi, and the failure gold plus 2%, taken like a failure: floored at 0, never rejected. A late-quarter edit costs the same as a failure (ruling 100). An early edit stays at 20 Qi, and deleting an already-failed tribulation stays at 40 Qi.
-94. Every level-up and realm breakthrough's legendary roll has a 2% base chance; the Lion's 2% and a halo ticket's 10% add to it.
+94. Every level-up and realm breakthrough's legendary roll has a 2% base chance; the Lion's 2% and a halo ticket's 10% add to it. *(Realm breakthroughs' base chances raised by ruling 111.)*
 95. Deleting from a locked Nascent Soul set costs the ruling 93 price. The transcendence needs at least 1 passed tribulation in the set.
 96. Each breakthrough records the tribulations it consumed. A "conquered tribulations" projection (a hall of fame) lists them for the app, and the Spirit Realm spirit quotes a Nascent Soul tribulation from it.
 97. Accepted choices from Main part 3: Foundation's breakthrough Qi is waived only when all three counted passes had evidence; a level-up uses the halo ticket that expires first; an override earns no legendary roll, and one at the end of Foundation skips the choice (the core discipline stays the current Main area); an area decision needs the interview, and a change isn't a new decision; locking needs at least 1 tribulation, and with nothing declared at the end of the 90 days the window starts again; a discipline change in Spirit Realm is rejected until Step 2.
@@ -527,3 +527,9 @@ Decisions made while implementing the rules engine. They are settled: future ses
 107. Repents and deaths are logged in the integrity log, and repented tribulations leave the hall of fame.
 108. Every tribulation deletion goes in the integrity log, including free ones before a Nascent Soul lock and closures from a discipline change or a repent: a reminder not to rush decisions (for an honest deletion) or a reminder of cheating (for a dishonest one).
 109. Accepted choices from Main part 3: a breakthrough closes the realm's open and failed tribulations at no cost; Nascent Soul claims are rejected before the lock; Spirit Realm has no tribulations until Step 2; the core discipline is picked for free with CoreFormed; a late edit takes the failure gold as well as its Qi.
+
+**Main path, part 3 review, round 3 (Nov 11, 2026)**
+
+110. The repent death loop is intended: from the 5th repent in a realm on, every repent kills the avatar and takes the whole inventory, all gold and all Qi. The repent counter is per realm, lifetime, and never resets; ascending to the next realm (e.g. from Nascent Soul to Spirit Realm) doesn't reset it.
+111. Re-climbing after a core discipline change earns legendary rolls again ("eternal student" is a life choice). Realm breakthroughs pay more than level-ups: the base legendary chance on a breakthrough into Foundation is 5%, Core Formation 10%, Nascent Soul 20% and Spirit Realm 30%; level-ups stay at 2%. The Lion's 2% and a halo ticket's 10% add to both. All simulator values.
+112. Accepted choices from Main part 3: a repent takes inventory items least valuable first (gain potion, legendary potion, scale, legendary item, wings); it undoes the breakthrough into the realm left and the previous realm's level-ups above the new level, cancels their unrecorded rolls, and blocks re-rolls only for milestones that earned a roll (an override never did); returning from Spirit Realm keeps Nascent Soul's lock and set; while dead, Qi, gold, golden tickets, inventory, debt repayment and drop rolls earned are all held back, losses still apply, and halo tickets are untouched; a revival quest is any quest defined after death, completed with no member cancelled or failed, with at least 7 days of work, and it pays nothing itself; faked tribulations don't add to their failure count; a Nascent Soul deadline passing before the lock fails normally (deleting before the lock is free); closures at a breakthrough are logged too.
