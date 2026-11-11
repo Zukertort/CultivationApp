@@ -398,6 +398,65 @@ export const TribulationDropRolled = z.object({
   drop: MainQuestDrop,
 });
 
+// ---- Realms and levels ------------------------------------------------------
+
+/**
+ * Decides (or changes) the Main, Body or Soul area (ruling 75). Each area's
+ * first decision raises Qi Condensation one level. Changes are free until
+ * Qi Condensation's breakthrough, then cost Qi (rulings 88, 90, 91).
+ */
+export const AreaDecided = z.object({
+  ...base,
+  type: z.literal("AreaDecided"),
+  path: z.enum(["main", "body", "soul"]),
+  choice: z.string().min(1).max(200),
+});
+
+/** At the end of Foundation, forms a core in the chosen discipline, picked for free (rulings 74, 90). */
+export const CoreFormed = z.object({
+  ...base,
+  type: z.literal("CoreFormed"),
+  choice: z.string().min(1).max(200),
+});
+
+/** Locks Nascent Soul's tribulation set, within 90 days of entering (ruling 79). */
+export const NascentSoulLocked = z.object({
+  ...base,
+  type: z.literal("NascentSoulLocked"),
+});
+
+export const REPENT_OATH = "I acknowledge that at least one of my tribulations was faked and I solemnly swear I will not do it again.";
+
+/**
+ * From Nascent Soul upward, admits that tribulations of the previous realm
+ * were faked and drops back to it (rulings 101-107). `faked` may be empty
+ * only when the current realm was entered by an override.
+ */
+export const Repented = z.object({
+  ...base,
+  type: z.literal("Repented"),
+  oath: z.literal(REPENT_OATH),
+  faked: z.array(id).max(200),
+});
+
+/** Advances one level or realm, ignoring Qi and tribulations; logged (ruling 84). */
+export const RealmOverride = z.object({
+  ...base,
+  type: z.literal("RealmOverride"),
+});
+
+/**
+ * Appended by the server for a level-up or breakthrough's legendary-item roll
+ * (ruling 83). Level-ups are derived, so the roll names the progression step
+ * it belongs to; the server rolls it with `breakthroughRollOutcome(chance, u)`.
+ */
+export const BreakthroughRolled = z.object({
+  ...base,
+  type: z.literal("BreakthroughRolled"),
+  step: z.number().int().min(1),
+  item: z.enum(["none", "legendary"]),
+});
+
 // ---- Rest -------------------------------------------------------------------
 
 export const RestStarted = z.object({
@@ -470,6 +529,12 @@ export const GameEvent = z.discriminatedUnion("type", [
   TribulationRescheduled,
   TribulationClaimed,
   TribulationDropRolled,
+  AreaDecided,
+  CoreFormed,
+  NascentSoulLocked,
+  Repented,
+  RealmOverride,
+  BreakthroughRolled,
 ]);
 
 export type GameEvent = z.infer<typeof GameEvent>;

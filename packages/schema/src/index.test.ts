@@ -159,3 +159,24 @@ describe("tribulation events", () => {
     expect(parseEvent({ id: "e2", userId: "u1", at: 0, type: "TribulationDropRolled", eventId: "e1", drop: "none" }).type).toBe("TribulationDropRolled");
   });
 });
+
+describe("realm events", () => {
+  const base = { id: "e1", userId: "u1", at: 0 };
+
+  it("accepts area decisions for the three paths only", () => {
+    expect(parseEvent({ ...base, type: "AreaDecided", path: "body", choice: "BJJ" }).type).toBe("AreaDecided");
+    expect(() => parseEvent({ ...base, type: "AreaDecided", path: "class", choice: "Hybrid" })).toThrow();
+    expect(() => parseEvent({ ...base, type: "AreaDecided", path: "main", choice: "" })).toThrow();
+  });
+
+  it("accepts the core choice, the lock, the override, a repent and a breakthrough roll", () => {
+    const oath = "I acknowledge that at least one of my tribulations was faked and I solemnly swear I will not do it again.";
+    expect(parseEvent({ ...base, type: "Repented", oath, faked: ["t1"] }).type).toBe("Repented");
+    expect(() => parseEvent({ ...base, type: "Repented", oath: "sorry", faked: ["t1"] })).toThrow();
+    for (const type of ["NascentSoulLocked", "RealmOverride"]) expect(parseEvent({ ...base, type }).type).toBe(type);
+    expect(parseEvent({ ...base, type: "CoreFormed", choice: "Mathematics" }).type).toBe("CoreFormed");
+    expect(() => parseEvent({ ...base, type: "CoreFormed" })).toThrow(); // the core discipline is picked with it
+    expect(parseEvent({ ...base, type: "BreakthroughRolled", step: 3, item: "legendary" }).type).toBe("BreakthroughRolled");
+    expect(() => parseEvent({ ...base, type: "BreakthroughRolled", step: 0, item: "none" })).toThrow();
+  });
+});

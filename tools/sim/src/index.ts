@@ -17,6 +17,7 @@ import { DAY, RULES_V1, TIERS, WEEK, advanceTo, applyEvent, initialState, type C
 import { runSoulScenarios } from "./soul.js";
 import { runMainScenarios } from "./main.js";
 import { runTribulationScenarios } from "./tribulation.js";
+import { runRealmScenarios } from "./realm.js";
 
 const T0 = Date.UTC(2026, 10, 2, 3); // Monday 00:00 in Buenos Aires
 const TRAINING_HOUR = 19 * 60 * 60 * 1000;
@@ -125,5 +126,7 @@ runSoulScenarios(outDir);
 runMainScenarios(outDir);
 // 5. Tribulations: failure, edit and deletion costs, item rolls, closed-door delay.
 runTribulationScenarios(outDir);
+// 6. Realms: time through Step 1, Qi waits and failure losses.
+runRealmScenarios(outDir);
 
 console.log(`\nCSV written to ${outDir}`);

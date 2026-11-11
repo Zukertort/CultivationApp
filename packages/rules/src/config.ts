@@ -125,20 +125,56 @@ export interface MainRules {
 export interface TribulationRules {
   minDeadlineHours: number;
   maxDeadlineDays: number;
-  /** What a failure takes from the balances (floored at 0, never debt; ruling 65). Part 3 sizes it from the level's Qi threshold. */
-  failure: { qi: number; gold: number };
+  /** The gold a failure takes (floored at 0, never debt; ruling 65); the Qi part comes from the next threshold (rulings 80, 92). */
+  failure: { gold: number };
   /** Edits are free this long after declaring (ruling 67). */
   freeEditMinutes: number;
-  /** An edit's price before `lateEditFrom` of the time span has passed; after it, the full failure cost. */
+  /** An edit's price before `lateEditFrom` of the time span has passed; after it, a failure's loss (ruling 93). */
   editQi: number;
   lateEditFrom: number;
-  /** Deleting an open tribulation costs this times the failure cost; a failed one costs `deleteFailedQi`. */
-  deleteOpenMultiplier: number;
+  /** Deleting an open tribulation costs a failure's loss plus this share, floored like a failure; a failed one costs `deleteFailedQi` (ruling 93). */
+  deleteOpenExtra: number;
   deleteFailedQi: number;
   /** A passed tribulation's item roll (ruling 68): its chance, and at most one roll per `cooldownDays`. */
   item: { chance: number; cooldownDays: number };
   /** Push alerts before a deadline, in hours. */
   alertHours: readonly number[];
+}
+
+/** The Step 1 realms built so far (ruling 73). */
+export const STEP_ONE_REALMS = ["qi_condensation", "foundation_establishment", "core_formation", "nascent_soul"] as const;
+export type StepOneRealm = (typeof STEP_ONE_REALMS)[number];
+
+/** Realms and levels, Step 1 (rulings 73-86). Every number is a simulator value. */
+export interface RealmRules {
+  /** Qi spent for each level-up within a realm (mid, late, great circle); Nascent Soul has no levels. */
+  levelQi: Record<Exclude<StepOneRealm, "nascent_soul">, number>;
+  /** Qi spent for the breakthrough out of each realm (Nascent Soul's is the transcendence to Spirit Realm). */
+  breakthroughQi: Record<StepOneRealm, number>;
+  /** Core Formation: the passed shares for mid, late and great circle; the breakthrough comes at 100% (ruling 78). */
+  coreShares: readonly [number, number, number];
+  /** Core Formation's percentage counts once its set holds this many tribulations. */
+  coreMinSet: number;
+  /** Nascent Soul's set is locked within this many days of entering, or locked as it stands (ruling 79). */
+  lockWithinDays: number;
+  /** A tribulation failure takes this share of the current threshold, and down to (1 - share) of it (ruling 80). */
+  failureShare: number;
+  /** Changing Body or Soul after Qi Condensation; changing Main in Foundation; changing the core discipline (rulings 88, 90, 91). */
+  prices: { areaChangeQi: number; foundationSwitchQi: number; coreChangeQi: number };
+  /** A legendary roll's base chance: every level-up's, and each realm breakthrough's by the realm entered (rulings 94, 111). */
+  legendaryBaseChance: { level: number; breakthrough: Record<"foundation_establishment" | "core_formation" | "nascent_soul" | "spirit_realm", number> };
+  /**
+   * Repent (rulings 101-106): the penalty for each repent in the same realm
+   * (the last applies to every later one), the repent count after which the
+   * integrity log flags cycling, and a revival quest's minimum work in days.
+   */
+  repent: {
+    penalties: readonly { items: number | "all"; gold: number; qi: number; death: boolean }[];
+    cyclingFlagAfter: number;
+    revivalWorkDays: number;
+  };
+  /** Closed-door rest started this close to an open tribulation's deadline is logged (ruling 86). */
+  closedDoorFlagHours: number;
 }
 
 export interface SoulRules {
@@ -235,7 +271,8 @@ export interface RulesConfig {
   repetition: RepetitionRules;
   /** Poses from Skill; the Qi bonus applies to every Qi gain (ruling 35). */
   poses: { name: string; minMastered: number; qiBonus: number }[];
-  halo: { visibleDays: number; ticketDays: number };
+  /** A halo ticket adds `legendaryBonus` to the next level-up or breakthrough's legendary roll (ruling 83). */
+  halo: { visibleDays: number; ticketDays: number; legendaryBonus: number };
   rest: {
     /** SIM: vacation price per day. */
     vacationGoldPerDay: number;
@@ -267,6 +304,7 @@ export interface RulesConfig {
   soul: SoulRules;
   main: MainRules;
   tribulations: TribulationRules;
+  realms: RealmRules;
   notifications: {
     /** Push notifications per local day; the most urgent are kept. */
     maxPerDay: number;
@@ -278,7 +316,7 @@ export interface RulesConfig {
 }
 
 export const RULES_V1: RulesConfig = Object.freeze({
-  version: "1.10.0",
+  version: "1.14.0",
   tiers: {
     turtle: { capacity: 30, weeklyLoss: 10, goldBonus: 0.01, coreQiBonus: 0, breakthroughLegendaryChance: 0 },
     panda: { capacity: 800, weeklyLoss: 200, goldBonus: 0.1, coreQiBonus: 0, breakthroughLegendaryChance: 0 },
@@ -298,7 +336,7 @@ export const RULES_V1: RulesConfig = Object.freeze({
     { name: "knight", minMastered: 6, qiBonus: 0.03 },
     { name: "king", minMastered: 10, qiBonus: 0.05 },
   ],
-  halo: { visibleDays: 30, ticketDays: 90 },
+  halo: { visibleDays: 30, ticketDays: 90, legendaryBonus: 0.1 },
   rest: {
     vacationGoldPerDay: 20,
     closedDoorMaxDays: 14,
@@ -431,14 +469,41 @@ export const RULES_V1: RulesConfig = Object.freeze({
   tribulations: {
     minDeadlineHours: 24,
     maxDeadlineDays: 365,
-    // About a week of an honest studier's Main income (276 Qi and 193 gold a month).
-    failure: { qi: 65, gold: 45 },
+    // About a week of an honest studier's Main gold (193 a month).
+    failure: { gold: 45 },
     freeEditMinutes: 60,
     editQi: 20,
     lateEditFrom: 0.75,
-    deleteOpenMultiplier: 1.5,
+    deleteOpenExtra: 0.02,
     deleteFailedQi: 40,
     item: { chance: 0.5, cooldownDays: 7 },
     alertHours: [72, 48, 24, 1],
+  },
+  realms: {
+    // Set against an honest studier earning about 276 Main Qi a month (ruling 62): Qi Condensation in 1-2 weeks,
+    // Foundation in about 4 months, Core Formation in 8-12 months, Nascent Soul in years.
+    levelQi: { qi_condensation: 0, foundation_establishment: 250, core_formation: 550 },
+    breakthroughQi: { qi_condensation: 60, foundation_establishment: 300, core_formation: 700, nascent_soul: 1500 },
+    coreShares: [0.3, 0.6, 0.9],
+    coreMinSet: 5,
+    lockWithinDays: 90,
+    failureShare: 0.25,
+    prices: { areaChangeQi: 30, foundationSwitchQi: 125, coreChangeQi: 275 },
+    legendaryBaseChance: {
+      level: 0.02,
+      breakthrough: { foundation_establishment: 0.05, core_formation: 0.1, nascent_soul: 0.2, spirit_realm: 0.3 },
+    },
+    repent: {
+      penalties: [
+        { items: 0, gold: 0, qi: 0, death: false },
+        { items: 1, gold: 0, qi: 0, death: false },
+        { items: 2, gold: 0.25, qi: 0, death: false },
+        { items: "all", gold: 0.5, qi: 0.3, death: false },
+        { items: "all", gold: 1, qi: 1, death: true },
+      ],
+      cyclingFlagAfter: 3,
+      revivalWorkDays: 7,
+    },
+    closedDoorFlagHours: 72,
   },
 } satisfies RulesConfig);
