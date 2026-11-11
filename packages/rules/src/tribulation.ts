@@ -4,8 +4,8 @@
  * edits and deletions cost Qi (and gold late in the attempt), a missed
  * deadline fails it and takes Qi and gold, and a sworn claim passes it.
  *
- * Settled rules live in docs/design.md, Rulings 64-71. Which tribulations a
- * breakthrough needs is decided by the realms (part 3). The only random
+ * Settled rules live in docs/design.md, Rulings 64-72 and 80-86. Which
+ * tribulations a breakthrough needs is decided in realm.ts (part 3). The only random
  * outcome is a passed tribulation's item roll, rolled by the server and
  * stored in the event.
  */
@@ -15,6 +15,7 @@ import type { CultivatorState } from "./engine.js";
 import { addPotion, potionKind } from "./economy.js";
 import { violate } from "./errors.js";
 import { effectiveDeadline, markActivity, type Due } from "./main.js";
+import { countsTowardRealm, failureQiLoss } from "./realm.js";
 import { DAY, MINUTE } from "./time.js";
 
 const HOUR = 60 * MINUTE;
@@ -28,6 +29,8 @@ export interface Tribulation {
   criteria: string;
   /** The realm it was declared in; part 3 decides what counts toward a breakthrough. */
   realm: Realm;
+  /** The discipline epoch it was declared under: a Main discipline change stops it counting (ruling 77). */
+  epoch: number;
   declaredAt: number;
   /** Start of the current attempt: the declaration or the last reschedule. Edit prices use it (ruling 67). */
   spanStart: number;
@@ -63,6 +66,8 @@ export interface TribulationState {
   drops: Record<MainQuestDrop, number>;
   /** What failures, edits and deletions actually took (failures are floored at the balances). */
   spent: { failures: Cost; edits: Cost; deletions: Cost };
+  /** The largest Qi a single failure took, for the simulator and the integrity view (ruling 80). */
+  largestFailureQi: number;
 }
 
 export function initialTribulations(): TribulationState {
@@ -73,6 +78,7 @@ export function initialTribulations(): TribulationState {
     pendingRolls: {},
     drops: { none: 0, gain_potion: 0, legendary_potion: 0 },
     spent: { failures: cost(), edits: cost(), deletions: cost() },
+    largestFailureQi: 0,
   };
 }
 
@@ -99,8 +105,9 @@ function statusAt(s: CultivatorState, t: Tribulation, at: number): TribulationSt
 /**
  * Apply a missed deadline (ruling 66): the tribulation fails, dated at its
  * effective deadline, and the failure cost is taken from the balances,
- * floored at 0, never as debt (ruling 65). Called at each midnight and before
- * any event about the tribulation.
+ * floored at 0, never as debt (ruling 65). The Qi part is measured against
+ * the current level's threshold (ruling 80). Called at each midnight and
+ * before any event about the tribulation.
  */
 function settleFailure(s: CultivatorState, t: Tribulation, at: number, rules: RulesConfig): void {
   if (t.status !== "open" || !t.due) return;
@@ -110,15 +117,15 @@ function settleFailure(s: CultivatorState, t: Tribulation, at: number, rules: Ru
   t.failedAt = deadline;
   t.failures += 1;
   t.due = null;
-  const f = rules.tribulations.failure;
-  const qi = Math.min(s.qi, f.qi);
-  const gold = Math.min(s.gold, f.gold);
+  const qi = Math.min(s.qi, failureQiLoss(s, rules));
+  const gold = Math.min(s.gold, rules.tribulations.failure.gold);
   s.qi -= qi;
   s.gold -= gold;
   const spent = s.tribulations.spent.failures;
   spent.qi += qi;
   spent.gold += gold;
   spent.count += 1;
+  s.tribulations.largestFailureQi = Math.max(s.tribulations.largestFailureQi, qi);
 }
 
 /** Take a price from the balances, or reject the change when they can't cover it (ruling 67). */
@@ -173,6 +180,7 @@ export function onTribulationDeclared(s: CultivatorState, e: EventOf<"Tribulatio
     title: e.title,
     criteria: e.criteria,
     realm: s.main.realm,
+    epoch: s.progress.epoch,
     declaredAt: e.at,
     spanStart: e.at,
     due: { deadline: e.deadline, definedAt: e.at, originalMs: e.deadline - e.at, extended: false },
@@ -222,20 +230,25 @@ export function onTribulationRescheduled(s: CultivatorState, e: EventOf<"Tribula
 
 /**
  * A sworn claim passes an open tribulation (ruling 69): it counts as Main
- * activity and earns one item roll, at most one per 7 days (ruling 68).
+ * activity. If it counts toward the current realm's breakthrough it earns one
+ * item roll, at most one per 7 days (rulings 68, 82), and a Foundation claim
+ * with evidence is logged as fast track (ruling 76).
  */
 export function onTribulationClaimed(s: CultivatorState, e: EventOf<"TribulationClaimed">, rules: RulesConfig): void {
   const t = get(s, e.tribulationId);
   settleFailure(s, t, e.at, rules);
   checkChangeable(t);
   if (t.status === "failed") violate("tribulation_failed", "the deadline has passed; set a new one to try again");
+  const counts = countsTowardRealm(s, e.tribulationId);
   t.status = "passed";
   t.passedAt = e.at;
   t.due = null;
   t.evidence = e.evidence?.length ?? 0;
   markActivity(s.main, "main", e.at);
   s.main.flags.push({ at: e.at, code: "tribulation_claimed", id: e.tribulationId, detail: e.llmReview === "done" ? "reviewed" : "self_reported" });
+  if (counts && s.main.realm === "foundation_establishment" && t.evidence > 0) s.main.flags.push({ at: e.at, code: "fast_track_claim", id: e.tribulationId });
 
+  if (!counts) return;
   const tr = s.tribulations;
   const cooldown = rules.tribulations.item.cooldownDays * DAY;
   if (tr.lastRollAt !== null && e.at - tr.lastRollAt < cooldown) return;
@@ -286,6 +299,16 @@ export function shiftTribulationsAfterRest(s: CultivatorState, rest: { kind: "va
     const due = t.due;
     if (t.status !== "open" || !due || due.deadline < rest.start) continue;
     due.deadline += Math.max(0, end - Math.max(rest.start, due.definedAt));
+  }
+}
+
+/** Closed-door rest started close to an open tribulation's deadline is logged, never penalized (ruling 86). */
+export function flagRestNearDeadlines(s: CultivatorState, at: number, rules: RulesConfig): void {
+  const window = rules.realms.closedDoorFlagHours * HOUR;
+  for (const [id, t] of Object.entries(s.tribulations.items)) {
+    if (statusAt(s, t, at) !== "open" || !t.due) continue;
+    const left = t.due.deadline - at;
+    if (left >= 0 && left <= window) s.main.flags.push({ at, code: "rest_near_tribulation", id });
   }
 }
 

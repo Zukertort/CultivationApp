@@ -18,12 +18,12 @@ Each path gets its own math because each grows differently: Main compounds, Body
 
 - [ ] &#91;v1\] Qi Condensation interview: the cultivator's interests for Main, Body and Soul
 - [ ] &#91;v1\] Exploration quests for undecided areas; research quests when the cultivator hits a bottleneck
-- [ ] &#91;v1\] Foundation Establishment: starter quests to begin practicing, plus dated tribulations for mid, late and great circle, sized to current abilities
-- [ ] &#91;v1\] Fast track: a cultivator already in the discipline defines Foundation tribulations and proves they are passed
-- [ ] Foundation switch rule: free right after a tribulation, costs Qi mid-level (discourages quitting too early)
+- [ ] &#91;v1\] Foundation Establishment: starter quests to begin practicing, plus dated tribulations for mid, late and great circle, sized to current abilities *(Main part 3 built the dated tribulations for mid, late and great circle (ruling 76); starter quests wait for the app's suggested quests.)*
+- [x] &#91;v1\] Fast track: a cultivator already in the discipline defines Foundation tribulations and proves they are passed *(Ruling 76: Foundation's Qi thresholds are waived for claims with evidence, logged as fast track.)*
+- [x] Foundation switch rule: free right after a tribulation, costs Qi mid-level (discourages quitting too early) *(Built as ruling 77: free only at the end of Foundation, Qi at any other time.)*
 - [ ] Class selection at the end of Foundation: ask whether the core discipline relates to Body, Soul, both or neither
-- [ ] Core Formation: guide tribulations that define "professional" in the discipline; levels advance at 30/60/90% of tribulations passed, Nascent Soul at 100%; adding a tribulation later lowers the percentage but never the level already reached
-- [ ] Nascent Soul: guide tribulations that define "expert"; offer a research quest when unsure; warn against changing them out of self-doubt or overconfidence
+- [x] Core Formation: guide tribulations that define "professional" in the discipline; levels advance at 30/60/90% of tribulations passed, Nascent Soul at 100%; adding a tribulation later lowers the percentage but never the level already reached *(Levels and the never-demote rule were built in Main part 3 (ruling 78); the guidance waits for the LLM.)*
+- [ ] Nascent Soul: guide tribulations that define "expert"; offer a research quest when unsure; warn against changing them out of self-doubt or overconfidence *(The sealed set and the transcendence were built in Main part 3 (ruling 79); the guidance, the research-quest offer and the warning wait for the app and the LLM.)*
 - [ ] Spirit Realm: force selecting a new discipline; tribulations are studies and combinations that may shift with findings
 - [ ] Realm intro screens stating each realm's purpose and its self-check question (e.g., "Am I an expert, or am I lacking something?")
 - [ ] Lore: Nascent Soul needs luck, realms above it need luck and destiny, and no one has demonstrably reached Immortal, which keeps the dream alive
@@ -103,7 +103,7 @@ Body splits into Skill, which unlocks poses that are never lost, and the fitness
 - [ ] Golden wings: wearing nine scales unlocks a creation cinematic; the scales merge into the wings and free their slots; the wings give +50% Qi gains and +100% gold gains, never break, and only one set can be worn
 - [ ] Anomaly flag: a second set of wings on one account is logged as a likely bug or exploit
 - [ ] Poses unlocked by number of skills mastered (Standing to King); never lost
-- [ ] Halo: one halo and one ticket per skill mastered; halo hidden 1 month after the last mastery; one ticket per breakthrough, extras saved until 3 months after their mastery
+- [ ] Halo: one halo and one ticket per skill mastered; halo hidden 1 month after the last mastery; one ticket per breakthrough, extras saved until 3 months after their mastery *(Main part 3 uses one ticket per level-up or breakthrough in the legendary roll (ruling 83).)*
 
 **Gaps**
 
@@ -195,7 +195,7 @@ Something must pay out every few minutes, every few weeks and every few years; t
 
 Qi pays for breakthroughs and gold buys gear and rest; repeated tasks pay less each time, so only harder, more complex quests keep Qi flowing, which is the anti-stagnation mechanic.
 
-- [ ] &#91;v1\] Qi is the breakthrough currency; each realm and level sets a Qi threshold *(Earning Qi was built in Main part 1. The thresholds come with realms in part 3.)*
+- [x] &#91;v1\] Qi is the breakthrough currency; each realm and level sets a Qi threshold *(Thresholds since Main part 3, spent at each step (rulings 74, 81).)*
 - [x] &#91;v1\] Tasks and quests created by the user; a quest bundles several tasks to raise complexity
 - [x] &#91;v1\] Quests and tasks expire at their deadline or when completed
 - [x] &#91;v1\] One paid extension per expired task or quest, for gold, no longer than its original duration; unpaid, it disappears
@@ -217,21 +217,21 @@ Qi pays for breakthroughs and gold buys gear and rest; repeated tasks pay less e
 
 **Gaps**
 
-- [ ] Numbers for the simulator: the Main tax's grace period and amount, extension prices, vacation lengths and prices, and the Qi cost of editing tribulations or changing discipline *(The Main tax and extension prices have been in the config since Main part 1, provisional per ruling 47. Vacation prices were already set. Step 1 tribulation costs came with part 2 (ruling 67); discipline costs come in part 3.)*
+- [ ] Numbers for the simulator: the Main tax's grace period and amount, extension prices, vacation lengths and prices, and the Qi cost of editing tribulations or changing discipline *(The Main tax and extension prices since Main part 1, Step 1 tribulation costs since part 2, and the realm thresholds and discipline costs since part 3; all provisional.)*
 
 ## Breakthroughs and tribulations
 
 A breakthrough is only claimable against criteria written before the attempt, which keeps faking possible but deliberate.
 
 - [x] &#91;v1\] Declare a tribulation: specific, checkable result plus a deadline, written before starting
-- [ ] &#91;v1\] A breakthrough needs both the realm/level Qi threshold and the tribulations passed
+- [x] &#91;v1\] A breakthrough needs both the realm/level Qi threshold and the tribulations passed
 - [ ] &#91;v1\] Lock criteria once declared; editing or deleting a tribulation costs Qi in every step and is logged visibly (a cultivator may discover a tribulation was wrong or needs to be more specific); adding one is free in Step 1; the only free change is switching the foundation discipline right after a Foundation tribulation *(Step 1 prices and the integrity log entries were built in Main part 2 (ruling 67). Step 2+ prices come with Step 2, and the free foundation switch with realms in part 3.)*
 - [x] &#91;v1\] Claim flow: optional LLM review that flags points the cultivator may have missed; the cultivator decides and confirms "I solemnly swear I have passed this tribulation"; optional evidence attachment (file, link, photo) *(Main part 2: the oath, evidence references and an LLM review marker, always "skipped" until the LLM review exists; see New to-dos.)*
 - [x] &#91;v1\] Missed deadline: no extensions; the tribulation fails, Qi is lost, and it stays in place for the cultivator to set a new date; extra tasks are required before the next attempt, even if the result is now within reach *(The Qi and gold lost are the extra tasks required: ruling 65.)*
-- [ ] &#91;v1\] Adding tribulations never demotes a level; changing the core discipline costs Qi and sends the cultivator back to early Core Formation, not Foundation
+- [x] &#91;v1\] Adding tribulations never demotes a level; changing the core discipline costs Qi and sends the cultivator back to early Core Formation, not Foundation *(Rulings 77, 78 and 85.)*
 - [ ] Verified vs. self-reported badge on each breakthrough
-- [ ] Manual override to advance any realm, logged as such (the game must remain finishable)
-- [ ] &#91;v1\] Tribulation passed with Qi short: marked "passed, waiting for Qi"; the breakthrough triggers once the threshold is reached
+- [x] Manual override to advance any realm, logged as such (the game must remain finishable) *(Ruling 84.)*
+- [x] &#91;v1\] Tribulation passed with Qi short: marked "passed, waiting for Qi"; the breakthrough triggers once the threshold is reached *(`realmStatus` reports `waitingForQi`.)*
 
 **Gaps**
 
@@ -384,8 +384,12 @@ Items found while implementing; each waits for a decision or a later part.
 - [ ] Revoking a false tribulation claim
 - [ ] The LLM review on tribulation claims, and the verified vs self-reported badge
 - [ ] Linking a quest to a tribulation as its preparation
-- [ ] Integrity-log entry when closed-door rest starts within 72 hours of a tribulation deadline (visible, not penalized)
-- [ ] Part 3 must restrict tribulation item rolls to tribulations that count toward the current realm (ruling 68); the daily-24h-tribulation persona earns 4x the honest rolls under the 7-day cap alone
+- [x] Integrity-log entry when closed-door rest starts within 72 hours of a tribulation deadline (visible, not penalized) *(Ruling 86.)*
+- [x] Part 3 must restrict tribulation item rolls to tribulations that count toward the current realm (ruling 68); the daily-24h-tribulation persona earns 4x the honest rolls under the 7-day cap alone *(Ruling 82.)*
+- [ ] Deleting or editing late should cost more than failing (ruling 67), but a failure under ruling 80 can now take far more than the flat delete and late-edit prices
+- [ ] Ruling 80's failure loss also hits tribulations that don't count toward the realm (e.g. in Qi Condensation it takes the balance down to 45)
+- [ ] Nascent Soul's 1,500 Qi takes an honest studier about 5 months when tribulations pass quickly; the design says years
+- [ ] Every level-up earns a legendary roll, but without the Lion or a halo ticket its chance is 0
 
 ## Rulings
 

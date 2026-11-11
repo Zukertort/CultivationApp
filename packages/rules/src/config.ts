@@ -141,6 +141,30 @@ export interface TribulationRules {
   alertHours: readonly number[];
 }
 
+/** The Step 1 realms built so far (ruling 73). */
+export const STEP_ONE_REALMS = ["qi_condensation", "foundation_establishment", "core_formation", "nascent_soul"] as const;
+export type StepOneRealm = (typeof STEP_ONE_REALMS)[number];
+
+/** Realms and levels, Step 1 (rulings 73-86). Every number is a simulator value. */
+export interface RealmRules {
+  /** Qi spent for each level-up within a realm (mid, late, great circle); Nascent Soul has no levels. */
+  levelQi: Record<Exclude<StepOneRealm, "nascent_soul">, number>;
+  /** Qi spent for the breakthrough out of each realm (Nascent Soul's is the transcendence to Spirit Realm). */
+  breakthroughQi: Record<StepOneRealm, number>;
+  /** Core Formation: the passed shares for mid, late and great circle; the breakthrough comes at 100% (ruling 78). */
+  coreShares: readonly [number, number, number];
+  /** Core Formation's percentage counts once its set holds this many tribulations. */
+  coreMinSet: number;
+  /** Nascent Soul's set must be sealed within this many days of entering (ruling 79). */
+  sealWithinDays: number;
+  /** A tribulation failure takes this share of the current threshold, and down to (1 - share) of it (ruling 80). */
+  failureShare: number;
+  /** Changing a decided area; switching foundation outside the end of Foundation; changing the core discipline (rulings 75, 77). */
+  prices: { areaChangeQi: number; foundationSwitchQi: number; coreChangeQi: number };
+  /** Closed-door rest started this close to an open tribulation's deadline is logged (ruling 86). */
+  closedDoorFlagHours: number;
+}
+
 export interface SoulRules {
   /** All HP values are percentages of a demon's maximum (0-100). */
   startHp: number;
@@ -235,7 +259,8 @@ export interface RulesConfig {
   repetition: RepetitionRules;
   /** Poses from Skill; the Qi bonus applies to every Qi gain (ruling 35). */
   poses: { name: string; minMastered: number; qiBonus: number }[];
-  halo: { visibleDays: number; ticketDays: number };
+  /** A halo ticket adds `legendaryBonus` to the next level-up or breakthrough's legendary roll (ruling 83). */
+  halo: { visibleDays: number; ticketDays: number; legendaryBonus: number };
   rest: {
     /** SIM: vacation price per day. */
     vacationGoldPerDay: number;
@@ -267,6 +292,7 @@ export interface RulesConfig {
   soul: SoulRules;
   main: MainRules;
   tribulations: TribulationRules;
+  realms: RealmRules;
   notifications: {
     /** Push notifications per local day; the most urgent are kept. */
     maxPerDay: number;
@@ -278,7 +304,7 @@ export interface RulesConfig {
 }
 
 export const RULES_V1: RulesConfig = Object.freeze({
-  version: "1.10.0",
+  version: "1.11.0",
   tiers: {
     turtle: { capacity: 30, weeklyLoss: 10, goldBonus: 0.01, coreQiBonus: 0, breakthroughLegendaryChance: 0 },
     panda: { capacity: 800, weeklyLoss: 200, goldBonus: 0.1, coreQiBonus: 0, breakthroughLegendaryChance: 0 },
@@ -298,7 +324,7 @@ export const RULES_V1: RulesConfig = Object.freeze({
     { name: "knight", minMastered: 6, qiBonus: 0.03 },
     { name: "king", minMastered: 10, qiBonus: 0.05 },
   ],
-  halo: { visibleDays: 30, ticketDays: 90 },
+  halo: { visibleDays: 30, ticketDays: 90, legendaryBonus: 0.1 },
   rest: {
     vacationGoldPerDay: 20,
     closedDoorMaxDays: 14,
@@ -440,5 +466,17 @@ export const RULES_V1: RulesConfig = Object.freeze({
     deleteFailedQi: 40,
     item: { chance: 0.5, cooldownDays: 7 },
     alertHours: [72, 48, 24, 1],
+  },
+  realms: {
+    // Set against an honest studier earning about 276 Main Qi a month (ruling 62): Qi Condensation in 1-2 weeks,
+    // Foundation in about 4 months, Core Formation in 8-12 months, Nascent Soul in years.
+    levelQi: { qi_condensation: 0, foundation_establishment: 250, core_formation: 550 },
+    breakthroughQi: { qi_condensation: 60, foundation_establishment: 300, core_formation: 700, nascent_soul: 1500 },
+    coreShares: [0.3, 0.6, 0.9],
+    coreMinSet: 5,
+    sealWithinDays: 90,
+    failureShare: 0.25,
+    prices: { areaChangeQi: 30, foundationSwitchQi: 125, coreChangeQi: 275 },
+    closedDoorFlagHours: 72,
   },
 } satisfies RulesConfig);

@@ -159,3 +159,19 @@ describe("tribulation events", () => {
     expect(parseEvent({ id: "e2", userId: "u1", at: 0, type: "TribulationDropRolled", eventId: "e1", drop: "none" }).type).toBe("TribulationDropRolled");
   });
 });
+
+describe("realm events", () => {
+  const base = { id: "e1", userId: "u1", at: 0 };
+
+  it("accepts area decisions for the three paths only", () => {
+    expect(parseEvent({ ...base, type: "AreaDecided", path: "body", choice: "BJJ" }).type).toBe("AreaDecided");
+    expect(() => parseEvent({ ...base, type: "AreaDecided", path: "class", choice: "Hybrid" })).toThrow();
+    expect(() => parseEvent({ ...base, type: "AreaDecided", path: "main", choice: "" })).toThrow();
+  });
+
+  it("accepts the core choice, the seal, the override and a breakthrough roll", () => {
+    for (const type of ["CoreFormed", "NascentSoulSealed", "RealmOverride"]) expect(parseEvent({ ...base, type }).type).toBe(type);
+    expect(parseEvent({ ...base, type: "BreakthroughRolled", step: 3, item: "legendary" }).type).toBe("BreakthroughRolled");
+    expect(() => parseEvent({ ...base, type: "BreakthroughRolled", step: 0, item: "none" })).toThrow();
+  });
+});

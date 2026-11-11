@@ -398,6 +398,50 @@ export const TribulationDropRolled = z.object({
   drop: MainQuestDrop,
 });
 
+// ---- Realms and levels ------------------------------------------------------
+
+/**
+ * Decides (or changes) the Main, Body or Soul area (ruling 75). Each area's
+ * first decision raises Qi Condensation one level; a change costs Qi, and a
+ * Main change is a discipline change (ruling 77).
+ */
+export const AreaDecided = z.object({
+  ...base,
+  type: z.literal("AreaDecided"),
+  path: z.enum(["main", "body", "soul"]),
+  choice: z.string().min(1).max(200),
+});
+
+/** At the end of Foundation, forms a core (the other choice is a free foundation switch with AreaDecided; ruling 74). */
+export const CoreFormed = z.object({
+  ...base,
+  type: z.literal("CoreFormed"),
+});
+
+/** Seals Nascent Soul's tribulation set, within 90 days of entering (ruling 79). */
+export const NascentSoulSealed = z.object({
+  ...base,
+  type: z.literal("NascentSoulSealed"),
+});
+
+/** Advances one level or realm, ignoring Qi and tribulations; logged (ruling 84). */
+export const RealmOverride = z.object({
+  ...base,
+  type: z.literal("RealmOverride"),
+});
+
+/**
+ * Appended by the server for a level-up or breakthrough's legendary-item roll
+ * (ruling 83). Level-ups are derived, so the roll names the progression step
+ * it belongs to; the server rolls it with `breakthroughRollOutcome(chance, u)`.
+ */
+export const BreakthroughRolled = z.object({
+  ...base,
+  type: z.literal("BreakthroughRolled"),
+  step: z.number().int().min(1),
+  item: z.enum(["none", "legendary"]),
+});
+
 // ---- Rest -------------------------------------------------------------------
 
 export const RestStarted = z.object({
@@ -470,6 +514,11 @@ export const GameEvent = z.discriminatedUnion("type", [
   TribulationRescheduled,
   TribulationClaimed,
   TribulationDropRolled,
+  AreaDecided,
+  CoreFormed,
+  NascentSoulSealed,
+  RealmOverride,
+  BreakthroughRolled,
 ]);
 
 export type GameEvent = z.infer<typeof GameEvent>;

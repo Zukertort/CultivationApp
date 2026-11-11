@@ -89,8 +89,10 @@ describe("claiming (rulings 68-69, 71)", () => {
     expect(code(() => applyEvent(apply(base(), claim(T0 + DAY)), claim(T0 + 2 * DAY)))).toBe("tribulation_passed");
   });
 
-  it("earns one item roll, stored or pending, at most once per 7 days", () => {
-    const s = replay([created, declare("a"), declare("b"), declare("c")]);
+  it("earns one item roll, stored or pending, at most once per 7 days, for tribulations that count", () => {
+    // In Core Formation every tribulation in the set counts (ruling 82); overrides get there.
+    const toCore = Array.from({ length: 8 }, (_, i) => ev("RealmOverride", T0 + i + 1, {}));
+    const s = replay([created, ...toCore, declare("a"), declare("b"), declare("c")]);
     const first = apply(s, claim(T0 + DAY, "a", { drop: "gain_potion" }));
     expect(first.inventory.gainPotions).toBe(1);
     // Six days later: inside the cooldown, so the stored outcome is ignored.
@@ -118,13 +120,14 @@ describe("claiming (rulings 68-69, 71)", () => {
 });
 
 describe("missed deadlines (rulings 65-66)", () => {
-  it("fails at the first midnight after the deadline, taking 65 Qi and 45 gold, dated at the deadline", () => {
+  it("fails at the first midnight after the deadline, dated at the deadline, taking Qi down to 75% of the threshold and 45 gold", () => {
     const s = advanceTo(base(), T0 + 11 * DAY - 1);
     expect(tribulationStatus(s, "x")).toBe("failed"); // derived at once
     expect(s.qi).toBe(1000); // not applied yet
     const failed = advanceTo(s, T0 + 11 * DAY);
     expect(failed.tribulations.items.x).toMatchObject({ status: "failed", failedAt: DEADLINE, failures: 1, due: null });
-    expect(failed.qi).toBe(935);
+    // Qi Condensation's threshold is its breakthrough, 60: the loss is the larger of 15 and the 955 above 45 (ruling 80).
+    expect(failed.qi).toBe(45);
     expect(failed.gold).toBe(955);
   });
 
@@ -139,20 +142,21 @@ describe("missed deadlines (rulings 65-66)", () => {
 
   it("applies the failure at the next event about the tribulation when that comes first", () => {
     const s = apply(base(), reschedule(DEADLINE + H, DEADLINE + 5 * DAY));
-    expect(s.qi).toBe(935);
+    expect(s.qi).toBe(45);
     expect(s.tribulations.items.x).toMatchObject({ status: "open", failures: 1, spanStart: DEADLINE + H });
   });
 
   it("keeps a failed tribulation without a deadline until rescheduled; each failure costs again", () => {
     let s = advanceTo(base(), T0 + 30 * DAY);
     expect(tribulationStatus(s, "x")).toBe("failed");
-    expect(s.qi).toBe(935);
+    expect(s.qi).toBe(45);
     expect(code(() => applyEvent(base(), reschedule(T0 + DAY, T0 + 20 * DAY)))).toBe("not_failed");
     expect(code(() => applyEvent(s, reschedule(T0 + 30 * DAY, T0 + 30 * DAY + H)))).toBe("deadline_too_soon");
     s = apply(s, reschedule(T0 + 30 * DAY, T0 + 40 * DAY));
     s = advanceTo(s, T0 + 41 * DAY);
     expect(s.tribulations.items.x!.failures).toBe(2);
-    expect(s.qi).toBe(870);
+    expect(s.qi).toBe(30); // already at 75%: a quarter of the threshold, 15
+
     s = apply(s, reschedule(T0 + 41 * DAY, T0 + 50 * DAY), claim(T0 + 45 * DAY));
     expect(tribulationStatus(s, "x")).toBe("passed");
   });
@@ -203,14 +207,16 @@ describe("editing and deleting (ruling 67)", () => {
     expect(code(() => applyEvent(s, claim(T0 + 2 * DAY)))).toBe("tribulation_deleted");
     // A failed one: the failure was already paid.
     const failed = apply(advanceTo(base(), T0 + 12 * DAY), del(T0 + 12 * DAY));
-    expect(failed.qi).toBe(1000 - 65 - 40);
+    expect(failed.qi).toBe(1000 - 955 - 40);
     expect(failed.gold).toBe(1000 - 45);
     expect(code(() => applyEvent(rich(replay([created, declare()]), 97, 100), del(T0 + DAY)))).toBe("insufficient_qi");
   });
 
-  it("makes deleting an open tribulation cost more than failing it", () => {
-    const deleted = apply(base(), del(T0 + DAY));
-    const failed = advanceTo(base(), T0 + 11 * DAY);
+  it("makes deleting an open tribulation cost more than failing it, with a balance near the threshold", () => {
+    // With savings far above the threshold a failure takes more than a deletion (ruling 80); reported as a gap in part 3.
+    const near = () => rich(replay([created, declare()]), 100, 1000);
+    const deleted = apply(near(), del(T0 + DAY));
+    const failed = advanceTo(near(), T0 + 11 * DAY);
     expect(deleted.qi).toBeLessThan(failed.qi);
     expect(deleted.gold).toBeLessThan(failed.gold);
   });
