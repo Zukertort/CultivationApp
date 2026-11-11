@@ -193,3 +193,15 @@ describe("class events", () => {
     expect(parseEvent({ ...task, alsoBody: true, alsoSoulDemonId: "d1" }).type).toBe("MainTaskDefined");
   });
 });
+
+describe("engine pass 5 events", () => {
+  const base = { id: "e1", userId: "u1", at: 0 };
+  it("accepts petting, the reminder time and quiet hours, and rejects an empty quiet window", () => {
+    expect(parseEvent({ ...base, type: "CompanionPetted" }).type).toBe("CompanionPetted");
+    expect(parseEvent({ ...base, type: "DailyReminderSet", minutes: 540 }).type).toBe("DailyReminderSet");
+    expect(() => parseEvent({ ...base, type: "DailyReminderSet", minutes: 1440 })).toThrow();
+    expect(parseEvent({ ...base, type: "QuietHoursSet", quiet: { start: 1320, end: 420 } }).type).toBe("QuietHoursSet");
+    expect(parseEvent({ ...base, type: "QuietHoursSet", quiet: null }).type).toBe("QuietHoursSet");
+    expect(() => parseEvent({ ...base, type: "QuietHoursSet", quiet: { start: 600, end: 600 } })).toThrow();
+  });
+});

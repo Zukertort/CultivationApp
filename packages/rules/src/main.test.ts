@@ -927,6 +927,12 @@ describe("postponed tax (ruling 59)", () => {
     expect(done.main.taxPaid.main.qi).toBe(0); // nothing charged
   });
 
+  it("shows each task's pending postponed tax in the forecast, charged the midnight after its extension window", () => {
+    const s = replay(worked, RULES_V1, T0 + 10 * DAY);
+    const at = T0 + (20 + RULES_V1.main.extension.windowDays + 1) * DAY;
+    expect(taxForecast(s).filter((c) => c.kind === "postponed")).toEqual([{ path: "main", kind: "postponed", at, qi: 35, gold: 35, taskId: "p" }]);
+  });
+
   it("charges all of it when the task is cancelled", () => {
     const s = replay([...worked, ev("MainTaskCancelled", T0 + 10 * DAY + H, { taskId: "p" })]);
     expect(s.main.postponed.charged).toEqual({ qi: 35, gold: 35, days: 7 });
@@ -1058,5 +1064,30 @@ describe("potions (ruling 58)", () => {
     const s = withPotions(replay([created]), 0, 2);
     expect(code(() => applyEvent(s, drink(T0 + H)))).toBe("no_potion");
     expect(s.inventory.legendaryPotions).toBe(2);
+  });
+});
+
+describe("quests preparing a tribulation (ruling 132)", () => {
+  const toFoundation = Array.from({ length: 4 }, (_, i) => ev("RealmOverride", T0 + i + 1, {}));
+  const declare = ev("TribulationDeclared", T0 + H, { tribulationId: "exam", title: "Exam", criteria: "Pass the exam", deadline: T0 + 30 * DAY });
+  const prep = (tribulationId?: string) =>
+    ev("MainQuestDefined", T0 + 2 * H, {
+      questId: "q",
+      name: "Exam prep",
+      deadline: T0 + 20 * DAY,
+      tasks: [
+        { taskId: "q1", name: "Chapter 1", difficulty: "mid", effort: "session" },
+        { taskId: "q2", name: "Chapter 2", difficulty: "mid", effort: "session" },
+      ],
+      ...(tribulationId ? { tribulationId } : {}),
+    });
+
+  it("records the link for display, rejects an unknown tribulation, and changes no reward", () => {
+    const base = [created, interview(), ...toFoundation, declare];
+    const linked = replay([...base, prep("exam"), complete("q1", T0 + DAY), complete("q2", T0 + 2 * DAY)]);
+    const plain = replay([...base, prep(), complete("q1", T0 + DAY), complete("q2", T0 + 2 * DAY)]);
+    expect(linked.main.quests.q!.preparesFor).toBe("exam");
+    expect([linked.qi, linked.gold]).toEqual([plain.qi, plain.gold]);
+    expect(code(() => replay([...base, prep("nope")]))).toBe("unknown_tribulation");
   });
 });

@@ -180,9 +180,14 @@ export function tribulationDeletePrice(
   tribulationId: string,
   at: number,
   rules: RulesConfig = RULES_V1,
-): { qi: number; gold: number; kind: "unlocked" | "open" | "failed" } {
+): { qi: number; gold: number; kind: "unlocked" | "open" | "failed" | "faked" } {
   const t = get(state, tribulationId);
   const r = rules.tribulations;
+  if (t.status === "passed") {
+    // A faked pass of the current realm is deleted at the open price (ruling 126).
+    const k = 1 + r.deleteOpenExtra;
+    return { qi: failureQiLoss(state, rules) * k, gold: r.failure.gold * k, kind: "faked" };
+  }
   if (isUnlockedNascent(state, t)) return { qi: 0, gold: 0, kind: "unlocked" };
   if (statusAt(state, t, at) === "failed") return { qi: r.deleteFailedQi, gold: 0, kind: "failed" };
   const k = 1 + r.deleteOpenExtra;
@@ -190,7 +195,7 @@ export function tribulationDeletePrice(
 }
 
 function checkChangeable(t: Tribulation): void {
-  if (t.status === "passed") violate("tribulation_passed", "a passed tribulation can't be changed");
+  if (t.status === "passed") violate("tribulation_passed", "a passed tribulation can't be edited");
   if (t.status === "deleted") violate("tribulation_deleted", "this tribulation was deleted");
   if (t.status === "closed") violate("tribulation_closed", "this tribulation was closed");
 }
@@ -236,14 +241,18 @@ export function onTribulationEdited(s: CultivatorState, e: EventOf<"TribulationE
 export function onTribulationDeleted(s: CultivatorState, e: EventOf<"TribulationDeleted">, rules: RulesConfig): void {
   const t = get(s, e.tribulationId);
   settleFailure(s, t, e.at, rules);
-  checkChangeable(t);
+  if (t.status === "passed") {
+    // Only a pass of the current realm, still counting, is deleted as faked; an earlier realm's is repented (rulings 101, 126).
+    if (t.realm !== s.main.realm || t.closedAt !== null) violate("tribulation_passed", "a passed tribulation of an earlier realm is repented, not deleted");
+  } else checkChangeable(t);
   const price = tribulationDeletePrice(s, e.tribulationId, e.at, rules);
   if (price.kind === "failed") pay(s, price.qi, price.gold, s.tribulations.spent.deletions);
   else take(s, price.qi, price.gold, s.tribulations.spent.deletions);
   t.status = "deleted";
   t.due = null;
-  // Every deletion is logged, free ones included (ruling 108).
+  // Every deletion is logged, free ones included (ruling 108); a faked pass also as faked (ruling 126).
   s.main.flags.push({ at: e.at, code: "tribulation_deleted", id: e.tribulationId, detail: price.kind });
+  if (price.kind === "faked") s.main.flags.push({ at: e.at, code: "tribulation_faked", id: e.tribulationId });
 }
 
 export function onTribulationRescheduled(s: CultivatorState, e: EventOf<"TribulationRescheduled">, rules: RulesConfig): void {

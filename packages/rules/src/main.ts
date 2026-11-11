@@ -82,6 +82,8 @@ export interface MainQuest {
   completedAt: number | null;
   /** Bonus Qi paid so far, before multipliers; paid in stages as members complete (ruling 60). */
   bonusQi: number;
+  /** The tribulation this quest prepares for: display only (ruling 132). */
+  preparesFor: string | null;
 }
 
 export interface Lineage {
@@ -127,7 +129,9 @@ export interface IntegrityFlag {
     | "repented"
     | "repent_cycling"
     | "died"
-    | "revived";
+    | "revived"
+    | "demon_deleted"
+    | "demon_renamed";
   /** The task or tribulation; the progression step for an override; the realm left for a repent or death; the quest for a revival. */
   id: string;
   /** Edits and deletions: the price kind. Closures: why. Repents and deaths: the repent count in that realm. */
@@ -512,6 +516,10 @@ function replacedTask(s: CultivatorState, taskId: string, at: number, schedule: 
 
 export function onMainQuestDefined(s: CultivatorState, e: EventOf<"MainQuestDefined">, rules: RulesConfig): void {
   if (s.main.quests[e.questId]) violate("duplicate_quest", `quest ${e.questId} already exists`);
+  if (e.tribulationId !== undefined) {
+    const t = s.tribulations.items[e.tribulationId];
+    if (!t || t.status === "deleted") violate("unknown_tribulation", `tribulation ${e.tribulationId} does not exist`);
+  }
   checkDeadline(e.deadline, e.at, rules);
   const keys = new Set<string>();
   for (const t of e.tasks) {
@@ -534,6 +542,7 @@ export function onMainQuestDefined(s: CultivatorState, e: EventOf<"MainQuestDefi
     forfeited: false,
     completedAt: null,
     bonusQi: 0,
+    preparesFor: e.tribulationId ?? null,
   };
   for (const t of e.tasks) {
     addTask(s, { ...t, at: e.at }, t.deadline === undefined ? null : { kind: "once", deadline: t.deadline }, e.questId);
@@ -988,9 +997,10 @@ export function periodProgress(state: CultivatorState, taskId: string): PeriodPr
 
 export interface TaxCharge {
   path: MainPath;
-  kind: "idle" | "missed";
-  /** When it is charged if nothing changes. */
-  at: number;
+  /** "postponed": idle tax a work-on moved onto a task, charged if it fails or is cancelled, cancelled by completing it (ruling 59). */
+  kind: "idle" | "missed" | "postponed";
+  /** When it is charged if nothing changes; null for postponed tax on a recurring task, charged only if it is cancelled. */
+  at: number | null;
   qi: number;
   gold: number;
   taskId?: string;
@@ -1029,7 +1039,19 @@ export function taxForecast(state: CultivatorState, rules: RulesConfig = RULES_V
       }
     }
   }
-  return out.sort((a, b) => a.at - b.at);
+  // Postponed tax per task (ruling 131): a one-time task charges it at the midnight after its extension window.
+  for (const [taskId, t] of Object.entries(m.tasks)) {
+    const p = t.postponed;
+    if (p.days === 0 || t.status !== "open" || t.failedAt !== null) continue;
+    const due = taskDue(m, t);
+    let at: number | null = null;
+    if (!t.recurring && due) {
+      const gone = effectiveDeadline(due, state.rest, now) + (due.extended ? 0 : rules.main.extension.windowDays * DAY);
+      at = nextLocalMidnight(gone, tz);
+    }
+    out.push({ path: "main", kind: "postponed", at, qi: p.qi, gold: p.gold, taskId });
+  }
+  return out.sort((a, b) => (a.at ?? Infinity) - (b.at ?? Infinity));
 }
 
 export interface DeviationStatus {

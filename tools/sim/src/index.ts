@@ -19,6 +19,7 @@ import { runMainScenarios } from "./main.js";
 import { runTribulationScenarios } from "./tribulation.js";
 import { runRealmScenarios } from "./realm.js";
 import { runClassScenarios } from "./classes.js";
+import { runCadenceScenarios } from "./cadence.js";
 
 const T0 = Date.UTC(2026, 10, 2, 3); // Monday 00:00 in Buenos Aires
 const TRAINING_HOUR = 19 * 60 * 60 * 1000;
@@ -130,5 +131,6 @@ runTribulationScenarios(outDir);
 // 6. Realms: time through Step 1, Qi waits and failure losses.
 runRealmScenarios(outDir);
 runClassScenarios(outDir);
+runCadenceScenarios(outDir);
 
 console.log(`\nCSV written to ${outDir}`);

@@ -12,6 +12,7 @@ const ALERT_LABEL: Record<PushKind, string> = {
   demon_near_revival: "A defeated demon nears revival",
   demon_near_violet: "A demon nears 70%",
   companion_hungry: "The companion nears empty",
+  daily_reminder: "Daily reminder to check the to-do list",
 };
 
 export default function Cultivator() {

@@ -529,3 +529,45 @@ describe("overrides, levels and closed-door flags (rulings 84-86)", () => {
     expect(flags(vacation, "rest_near_tribulation")).toEqual([]);
   });
 });
+
+describe("faked passes of the current realm (ruling 126)", () => {
+  it("in Foundation: the level stays, and a later pass takes the deleted one's place among the three", () => {
+    let s = withQi(foundation(), 10_000);
+    for (const id of ["a", "b", "c", "d"]) s = apply(s, declare(id, T0 + 3 * H));
+    s = apply(s, claim("a", T0 + DAY), claim("b", T0 + 2 * DAY), claim("c", T0 + 3 * DAY));
+    expect(where(s)).toEqual(["foundation_establishment", "great_circle"]);
+    const price = tribulationDeletePrice(s, "b", T0 + 4 * DAY);
+    expect(price).toEqual({ qi: failureQiLoss(s) * 1.02, gold: 45 * 1.02, kind: "faked" });
+    const qi = s.qi;
+    s = apply(s, del("b", T0 + 4 * DAY));
+    expect(s.qi).toBeCloseTo(qi - price.qi, 9);
+    expect(where(s)).toEqual(["foundation_establishment", "great_circle"]); // levels never drop (ruling 85)
+    expect(realmStatus(s).tribulations).toEqual({ passed: 2, total: 3 });
+    expect(s.main.flags.slice(-2).map((f) => [f.code, f.id, f.detail])).toEqual([
+      ["tribulation_deleted", "b", "faked"],
+      ["tribulation_faked", "b", undefined],
+    ]);
+    expect(code(() => applyEvent(s, formCore(T0 + 5 * DAY)))).toBe("not_end_of_foundation");
+    s = apply(withQi(s, 300), claim("d", T0 + 5 * DAY), formCore(T0 + 6 * DAY));
+    expect(where(s)).toEqual(["core_formation", "early"]);
+    expect(s.progress.steps.filter((x) => x.kind === "breakthrough").at(-1)!.tribulations).toEqual(["a", "c", "d"]);
+  });
+
+  it("in Core Formation: the percentage drops until the pass is replaced, and the level stays", () => {
+    let s = withQi(replay([created, interview, ...overrides(8)]), 5000);
+    for (const id of ["a", "b", "c", "d", "e"]) s = apply(s, declare(id, T0 + H));
+    s = apply(s, claim("a", T0 + DAY), claim("b", T0 + DAY + H), claim("c", T0 + DAY + 2 * H));
+    expect(where(s)).toEqual(["core_formation", "late"]); // 60%
+    s = withQi(apply(s, del("c", T0 + 2 * DAY)), 5000);
+    expect(realmStatus(s).tribulations).toEqual({ passed: 2, total: 4 });
+    expect(where(s)).toEqual(["core_formation", "late"]);
+    s = apply(s, declare("f", T0 + 3 * DAY), claim("d", T0 + 4 * DAY), claim("e", T0 + 5 * DAY));
+    expect(where(s)).toEqual(["core_formation", "late"]); // 4 of 5 = 80%
+    s = apply(s, claim("f", T0 + 6 * DAY));
+    expect(where(s)).toEqual(["nascent_soul", null]);
+  });
+
+  it("rejects deleting a pass of an earlier realm: that is a repent", () => {
+    expect(code(() => applyEvent(honestNascent(), del("a", T0 + 6 * DAY)))).toBe("tribulation_passed");
+  });
+});

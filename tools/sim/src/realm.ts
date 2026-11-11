@@ -39,7 +39,7 @@ import {
   type Realm,
 } from "@cultivation/rules";
 
-const T0 = Date.UTC(2026, 10, 2, 3); // Monday 00:00 in Buenos Aires
+export const T0 = Date.UTC(2026, 10, 2, 3); // Monday 00:00 in Buenos Aires
 const HOUR = 60 * 60 * 1000;
 const YEARS = 4;
 const DAYS = YEARS * 364;
@@ -59,7 +59,7 @@ function rng(seed: number): () => number {
 
 let seq = 0;
 
-class Cultivator {
+export class Cultivator {
   s: CultivatorState = initialState(RULES_V1);
   private roll = rng(23);
   private queue: GameEvent[] = [];
@@ -106,12 +106,12 @@ class Cultivator {
 
 // ---- Income habits ----------------------------------------------------------
 
-type Income = (c: Cultivator, day: number) => void;
+export type Income = (c: Cultivator, day: number) => void;
 
-const version = (day: number) => Math.floor(day / 28) + 1;
+export const version = (day: number) => Math.floor(day / 28) + 1;
 
 /** One mid study a day, a new linked version every 4 weeks (about 276 Main Qi a month). */
-const study: Income = (c, day) => {
+export const study: Income = (c, day) => {
   if (day % 28 === 0) {
     const v = version(day);
     c.ev("MainTaskDefined", c.at(day, 7), {
@@ -127,7 +127,7 @@ const study: Income = (c, day) => {
 };
 
 /** A hard, day-sized project each week, worked on Tuesday and Thursday, done on Saturday (about 541 a month). */
-const weeklyProject: Income = (c, day) => {
+export const weeklyProject: Income = (c, day) => {
   const w = Math.floor(day / 7);
   if (day % 7 === 0) {
     const at = c.at(day, 8);
@@ -168,7 +168,7 @@ const both: Income = (c, day) => {
 
 // ---- Tribulation habits -----------------------------------------------------
 
-interface Habits {
+export interface Habits {
   /** Lets each tribulation fail once, then reschedules it 21 days out and passes it 10 days later. */
   failFirst?: boolean;
   /** Fast track: Foundation tribulations claimed the day they're declared, with evidence. */
@@ -188,7 +188,7 @@ interface Plan {
   failedOnce: boolean;
 }
 
-function tribulationPlan(h: Habits) {
+export function tribulationPlan(h: Habits) {
   const plans = new Map<string, Plan>();
   let switched = false;
   let revivalDay: number | null = null;

@@ -11,6 +11,7 @@ import {
   companionAlertAt,
   haloVisible,
   pose,
+  qiMultiplier,
   repetitionMultiplier,
   replay,
   rouletteOutcome,
@@ -195,5 +196,45 @@ describe("determinism and ordering", () => {
     const s = replay([created, defineRoutine("bjj"), log("bjj", T0)]);
     // Panda at 400, alert at 5% = 40 treats -> 360 treats at 200/week.
     expect(companionAlertAt(s)).toBe(T0 + Math.ceil((360 * WEEK) / 200));
+  });
+});
+
+describe("Lion petting (ruling 127)", () => {
+  const H = 60 * 60 * 1000;
+  const pet = (at: number) => ev("CompanionPetted", at, {});
+  const lion = (): CultivatorState => {
+    const s = replay([created]);
+    return { ...s, companion: { ...s.companion, tier: "lion", food: 4000 } };
+  };
+
+  it("pays 3 Qi with multipliers once a local day, only at Lion, and isn't Body activity", () => {
+    const once = applyEvent(lion(), pet(T0 + H));
+    expect(once.qi).toBeCloseTo(3 * qiMultiplier(once), 9);
+    expect(once.main.paths.body.lastActivityAt).toBeNull();
+    expect(() => applyEvent(once, pet(T0 + 20 * H))).toThrow(RuleViolation);
+    expect(applyEvent(once, pet(T0 + DAY + H)).qi).toBeCloseTo(2 * 3 * qiMultiplier(once), 9);
+    expect(() => applyEvent(replay([created]), pet(T0 + H))).toThrow(RuleViolation);
+  });
+
+  it("pays nothing while dead", () => {
+    const s = lion();
+    const dead: CultivatorState = { ...s, progress: { ...s.progress, diedAt: T0 } };
+    expect(applyEvent(dead, pet(T0 + H)).qi).toBe(0);
+  });
+});
+
+describe("demon deletions and renames in the integrity log (ruling 130)", () => {
+  it("logs both", () => {
+    const demon = ev("HeartDemonCreated", T0, { demonId: "d", name: "Doubt", positiveTasks: [{ taskId: "p", name: "Write" }], negativeTasks: [] });
+    const s = replay([
+      created,
+      demon,
+      ev("HeartDemonRenamed", T0 + DAY, { demonId: "d", name: "Fear", positiveTasks: [{ taskId: "p2", name: "Speak" }], negativeTasks: [] }),
+      ev("HeartDemonDeleted", T0 + 8 * DAY, { demonId: "d" }),
+    ]);
+    expect(s.main.flags.map((f) => [f.code, f.id])).toEqual([
+      ["demon_renamed", "d"],
+      ["demon_deleted", "d"],
+    ]);
   });
 });

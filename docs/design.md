@@ -96,7 +96,7 @@ Body splits into Skill, which unlocks poses that are never lost, and the fitness
 - [ ] Avatar warning when equipment is close to breaking ("My equipment is almost broken; I should repair it before it's lost") *(Waits for gear and the app.)*
 - [ ] Failing a tribulation deals 20% damage to one random equipped item, while the gear reduces the Qi and gold lost *(Waits for gear.)*
 - [ ] Breakthrough attempt cinematic; the Horse never unequips during it *(Waits for the app.)*
-- [ ] Lion petting: once a day, a small amount of Qi *(Engine work not yet built.)*
+- [x] Lion petting: once a day, a small amount of Qi *(Ruling 127: CompanionPetted, 3 Qi with multipliers.)*
 - [x] Pet wearable that keeps the companion's tier (bonuses included) for 30 days; worn at Lion, it keeps the Lion *(Superseded by ruling 118: the keep pet wearable holds the current tier, Lion included, for 30 days.)*
 - [x] Golden ticket: with the Lion at 100% food, each completed routine earns a ticket for the roulette (odds table below) *(BodyActivityLogged; RouletteSpun with server-rolled prizes.)*
 - [x] Golden dragon scale: a wearable worth +5% Qi and +10% gold gains, compounding with each scale worn; the "legend of the nine scales" lore entry *(Roulette prize; the bonuses join the multipliers. The lore entry waits for the lore bible.)*
@@ -185,11 +185,22 @@ None open; renaming has no lock while the demon is undefeated.
 Something must pay out every few minutes, every few weeks and every few years; the middle loop is the one Habitica lacks.
 
 - [ ] &#91;v1\] Inner loop (minutes): one-tap task completion with instant Qi or gold, treats for the companion or damage to a demon, and a short System message *(Every logging event pays at once in the rules; the one-tap screen and the System message wait for the app.)*
-- [ ] &#91;v1\] Middle loop (1–3 weeks): a level, skill rank, companion tier or defeated demon at least every few weeks per active path *(Simulator work: a cadence report per path checking a level, rank, tier or defeated demon every few weeks.)*
+- [ ] &#91;v1\] Middle loop (1–3 weeks): a level, skill rank, companion tier or defeated demon at least every few weeks per active path *(Measured by the cadence report (`tools/sim/src/cadence.ts`): Main pays every 3-4 weeks except through Nascent Soul, Body every few weeks until Lion and then through golden tickets, and Soul only while the cultivator keeps up with their demons; see New to-dos.)*
 - [x] &#91;v1\] Outer loop (months to years): realm breakthroughs through tribulations *(Main parts 2 and 3.)*
 - [x] No combined character level: the realm is the headline, and Body and Soul show as the companion and the aura *(The rules have no character level; realm, companion tier and soul color are separate.)*
-- [ ] Target cadence table: expected time per layer and per realm for a consistent user, used to tune numbers *(Simulator work, with the middle loop report.)*
+- [x] Target cadence table: expected time per layer and per realm for a consistent user, used to tune numbers *(From the cadence report; see the table below. Simulator values.)*
 - [ ] Suggested quests from the cultivator's own paths (exploration, research, seek new demons); every other task and quest is created by the cultivator *(Waits for the LLM and the app.)*
+
+**Target cadence** (week each layer is first reached in the cadence report: daily mid study, gym and soul practice 3 times a week, a new demon every 4 weeks up to 7, the honest tribulation plan; simulator values)
+
+| Layer | Week reached |
+| --- | --- |
+| Foundation Establishment | 1 |
+| Core Formation | 17 (10 with a weekly hard project) |
+| Nascent Soul | 67 |
+| Spirit Realm | about 117 (27 months in the realm simulator) |
+| Panda, Horse, Tiger, Lion | 0.1, 1.4, 4.4, 12.7 (2 routines a week stops at Tiger, week 11) |
+| Green, Blue, Red | 3; 11 when practice focuses one demon at a time; Red at 83 with daily practice; Golden not within 2 years |
 
 ## Economy
 
@@ -325,9 +336,9 @@ Few and meaningful; guilt-trip spam is how Duolingo's notifications became a mem
   - A defeated demon within 5% of reviving, or any demon within 5% of 70% HP
   - The companion within 5% of empty
   - An equipped item within 5% of breaking
-- [ ] &#91;v1\] On a day with nothing urgent, one daily push reminding the cultivator to check the to-do list *(Engine work not yet built.)*
+- [x] &#91;v1\] On a day with nothing urgent, one daily push reminding the cultivator to check the to-do list *(Ruling 128: at a chosen local time, 9:00 by default, muted during rest.)*
 - [ ] &#91;v1\] Everything else (rewards, expiring tasks, tax, chronicle ready) goes to the in-app notification list, read on login *(Waits for the app.)*
-- [ ] Quiet hours *(Engine work not yet built.)*
+- [x] Quiet hours *(Ruling 129: alerts inside them move to just before they start, never dropped.)*
 - [x] During vacation, mute everything except tribulation deadlines (they keep running) and the return date; during closed-door cultivation, mute everything except the return date *(Main part 2: the push plan mutes the current rest and adds a return-date push.)*
 
 **Gaps**
@@ -342,7 +353,7 @@ The oath sets the tone; pre-commitment and visible logs do the actual work.
 - [x] &#91;v1\] The Qi Condensation interview is the onboarding: interests for Main, Body and Soul (see Main) *(InterviewAnswered.)*
 - [x] &#91;v1\] First companion: a Turtle at 50% food
 - [x] &#91;v1\] The soul starts Broken until the first heart demon and its counter tasks are identified
-- [ ] Integrity log: every override, criteria edit, demon deletion or rename, and self-reported claim on one screen *(The Main integrity log records overrides, tribulation edits, deletions, closures and claims, repents, deaths and archive churn; demon deletions and renames are only in the demon history, not the log yet. The screen waits for the app.)*
+- [ ] Integrity log: every override, criteria edit, demon deletion or rename, and self-reported claim on one screen *(Every one of these is in the integrity log since engine pass 5 (ruling 130 added demon deletions and renames), with tribulation closures, faked passes, repents, deaths and archive churn; the screen waits for the app.)*
 
 ## Data and architecture requirements
 
@@ -380,10 +391,10 @@ None open. Each decision is recorded in its section; the remaining numbers are l
 
 Items found while implementing; each waits for a decision or a later part.
 
-- [ ] `taxForecast` shows pending postponed tax per task
-- [ ] Revoking a false tribulation claim
+- [x] `taxForecast` shows pending postponed tax per task *(Ruling 131.)*
+- [x] Revoking a false tribulation claim *(Ruling 126 for the current realm; repent for earlier realms, rulings 101-107.)*
 - [ ] The LLM review on tribulation claims, and the verified vs self-reported badge
-- [ ] Linking a quest to a tribulation as its preparation
+- [x] Linking a quest to a tribulation as its preparation *(Ruling 132: display only.)*
 - [x] Integrity-log entry when closed-door rest starts within 72 hours of a tribulation deadline (visible, not penalized) *(Ruling 86.)*
 - [x] Part 3 must restrict tribulation item rolls to tribulations that count toward the current realm (ruling 68); the daily-24h-tribulation persona earns 4x the honest rolls under the 7-day cap alone *(Ruling 82.)*
 - [x] Deleting or editing late should cost more than failing (ruling 67), but a failure under ruling 80 can now take far more than the flat delete and late-edit prices *(Ruling 93.)*
@@ -399,6 +410,7 @@ Items found while implementing; each waits for a decision or a later part.
 - [x] Lion pet wearables can only be worn at Lion, so a Body or Hybrid cultivator below Lion holds them unused (a studier Warrior got 3 in a year and wore none); they are forfeited at a class change *(Ruling 118: the pet wearable keeps the current tier, at any tier.)*
 - [ ] Legendary versions of class wearables (visual plus bonus demon damage or gold) wait for gear
 - [ ] Set shop and gear prices against the physical-practice personas (about 3.5x a studier's gold), not the studier
+- [ ] Soul cadence: each demon needs a positive task about every 8 days just to hold (3-day grace, then 1% a day), so with several demons 3 practice sessions a week fall behind and the soul ends Broken in the cadence report; daily practice reaches Red at week 83
 - [ ] Dev-only scenario loader for testing: builds a cultivator by generating and replaying a real event log (the simulator personas as seeds), plus a time-travel control to advance the clock. It exists only in the development build profile and is excluded from release builds; no cheat events in the rules engine
 
 ## Rulings
@@ -479,7 +491,7 @@ Decisions made while implementing the rules engine. They are settled: future ses
 64. Part 2 builds the tribulation lifecycle: declare, lock, edit, delete, claim, fail and reschedule. Each tribulation records the realm it was declared in; Part 3 decides which tribulations a breakthrough needs and how they count.
 65. A failure costs Qi and gold (Step 1 simulator values: 65 Qi and 45 gold), taken from the balances, floored at 0, never debt and never a deviation trigger. The loss is the "extra tasks before the next attempt": there is no separate task counter. Part 3 sizes the loss as a share of the current level's Qi threshold, so a failure always means extra work, even with Qi above the threshold. Armor reduction and gear damage come with gear. *(Qi part amended by rulings 80 and 92.)*
 66. Deadlines are at least 24 hours and at most 365 days out, with no limit on open tribulations. A failure is applied at the first local midnight after the effective deadline, or at the next event about that tribulation if sooner, and is dated at the deadline; a claim is allowed up to the deadline. A failed tribulation has no deadline until the cultivator sets a new one; rescheduling is free and repeatable, and every failure costs again.
-67. The title and criteria can be edited, never the deadline. Step 1 prices: an edit is free within 1 hour of declaring (still logged), costs 20 Qi during the first three quarters of the time from declaration (or the last reschedule) to the deadline, and costs the full failure cost (Qi and gold) in the last quarter, so a late edit can't turn a hard tribulation into an easy one cheaply. Deleting an open tribulation costs 1.5 times the failure cost; deleting a failed one costs 40 Qi, since the failure was already paid. Without enough Qi or gold the change is rejected. A passed tribulation can't be edited or deleted. Adding is free in Step 1. From Step 2 on, adding is paid and editing and deleting cost the normal prices only, since tribulations become part of the discovery phase; those prices are set when Step 2 is built. All are simulator values. *(Late-edit and open-delete prices amended by ruling 93.)*
+67. The title and criteria can be edited, never the deadline. Step 1 prices: an edit is free within 1 hour of declaring (still logged), costs 20 Qi during the first three quarters of the time from declaration (or the last reschedule) to the deadline, and costs the full failure cost (Qi and gold) in the last quarter, so a late edit can't turn a hard tribulation into an easy one cheaply. Deleting an open tribulation costs 1.5 times the failure cost; deleting a failed one costs 40 Qi, since the failure was already paid. Without enough Qi or gold the change is rejected. A passed tribulation can't be edited; deleting one is only for a faked pass of the current realm (ruling 126). Adding is free in Step 1. From Step 2 on, adding is paid and editing and deleting cost the normal prices only, since tribulations become part of the discovery phase; those prices are set when Step 2 is built. All are simulator values. *(Late-edit and open-delete prices amended by ruling 93.)*
 68. Passing pays no Qi or gold. A passed tribulation earns one item roll at 50%, rolled by the server (a potion until gear exists, 50/50 by kind), outside the daily roll cap. Until Part 3, at most one tribulation item roll per 7 days; Part 3 limits rolls to tribulations that count toward the current realm's breakthrough, and Part 4 adds class drops.
 69. A claim counts as Main activity; declaring, editing and rescheduling don't. A claim carries the oath "I solemnly swear I have passed this tribulation.", optional evidence references (file, link or photo) and an LLM review marker. There is no LLM yet, so the marker is "skipped".
 70. Closed-door rest pushes tribulation deadlines back like any deadline (up to 14 days at a time and 30 days a quarter), with no extra limit; the simulator measures the maximum delay. Vacation keeps them.
@@ -522,7 +534,7 @@ Decisions made while implementing the rules engine. They are settled: future ses
 98. Foundation has no tribulation cap. The first three passed set mid, late and great circle; more can be declared, and each counts toward Foundation (item rolls under the 7-day cooldown, and the hall of fame at the breakthrough).
 99. Farming item rolls with daily short tribulations is accepted as lying to yourself; the 7-day cooldown stays the only limit.
 100. A late-quarter edit costs the same as a failure (the ruling 80 Qi loss plus the failure gold, floored at 0, never rejected) but is not a failure: the tribulation stays open with its deadline.
-101. Repent is available only from Nascent Soul upward, to admit that tribulations of the previous realm were faked; faked tribulations of the current realm aren't repented, they are deleted at the normal price. A Repented event carries the text "I acknowledge that at least one of my tribulations was faked and I solemnly swear I will not do it again." and the ids of the previous realm's tribulations marked as faked (at least one). Those become failed at no cost and need a new date. An override into the current realm can be repented the same way, with no tribulations to mark.
+101. Repent is available only from Nascent Soul upward, to admit that tribulations of the previous realm were faked; faked tribulations of the current realm aren't repented, they are deleted as faked at the open-deletion price (ruling 126). A Repented event carries the text "I acknowledge that at least one of my tribulations was faked and I solemnly swear I will not do it again." and the ids of the previous realm's tribulations marked as faked (at least one). Those become failed at no cost and need a new date. An override into the current realm can be repented the same way, with no tribulations to mark.
 102. A repent drops the cultivator, willingly, to the previous realm, at the level recalculated from that realm's tribulations still passed: the second exception to ruling 85, alongside discipline changes. The realm left closes its tribulations at no cost (they stay in the record) and resets its lock, so re-entering means defining a new set, as in ruling 91.
 103. A repent refunds no Qi. Legendary items earned by the repented breakthrough and its level-ups are removed if still held, and re-reaching those milestones earns no new legendary roll.
 104. Repent escalation, counted per realm over the cultivator's lifetime: the 1st has only the effects above; the 2nd loses 1 inventory item; the 3rd loses 2 items and 25% of gold; the 4th loses the whole inventory, 50% of gold and 30% of Qi; the 5th and later lose the whole inventory, all gold and all Qi, and the avatar dies. Each penalty takes what exists; missing items aren't converted into gold or Qi.
@@ -553,3 +565,13 @@ Decisions made while implementing the rules engine. They are settled: future ses
 123. The class locks when Spirit Realm is entered: ClassChosen is then rejected. A repent from Spirit Realm to Nascent Soul unlocks it.
 124. Tags the current class doesn't allow (after a class change) are ignored when the task completes, never rejected.
 125. Accepted choices from Main part 4: Soul classes' drop bonus by soul color is green +2%, blue +4%, red +6%, golden +8%, translucent +10% and rainbow +12%, and Body classes' by tier is Panda +2%, Horse +4%, Tiger +6% and Lion +8% (simulator values); Hybrid drops a soul wearable 50%, a keep pet wearable 25% and a halo pet wearable 25%; Body cross-credit is scaled by the Main task's repetition decay, and only a paying completion earns cross-credit; a second soul wearable on a frozen demon, or a second keep while one is active, is rejected; a class change forfeits only held wearables, and worn ones keep running; a repent takes wearables right after gain potions (soul, then halo, then keep); while dead, wearable gains and class drops are held back like other drops; ClassChosen is rejected before Core Formation.
+
+**Engine pass 5 (Nov 11, 2026)**
+
+126. A passed tribulation of the current realm, still counting, can be deleted as faked at the open-deletion price (ruling 93), taken like a failure, and is logged as tribulation_faked. The level reached stays (ruling 85), but the count toward the next step uses only tribulations still passed: in Foundation a later pass takes its place among the three; in Core Formation the percentage drops until it's replaced. A pass of an earlier realm is repented instead (rulings 101-107). Item and class drops the claim earned are kept.
+127. Petting the Lion (CompanionPetted) pays 3 Qi with the Qi multipliers, once a local day, only at Lion. It isn't Body activity, and while dead it pays nothing (simulator value).
+128. On a day with no other push, a daily reminder pushes at a local time the cultivator chooses (DailyReminderSet; 9:00 by default). It is muted during any rest; the rest's return date is that day's push.
+129. Quiet hours (QuietHoursSet, a local window that may wrap past midnight; null turns them off): a push that falls inside them moves to just before they start, never later and never dropped. When the window's start has already passed, it goes out at once.
+130. Demon deletions and renames are logged in the integrity log (demon_deleted, demon_renamed).
+131. `taxForecast` lists each task's pending postponed tax: a one-time task's is charged the midnight after its extension window; a recurring task's only if it is cancelled (no date).
+132. A quest may name a tribulation it prepares for (display only, no reward effect). The tribulation must exist and not be deleted.

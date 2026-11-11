@@ -258,6 +258,8 @@ export const MainQuestDefined = z.object({
   name: z.string().min(1).max(120),
   deadline: epochMs,
   tasks: z.array(z.object({ ...mainTaskFields, deadline: epochMs.optional() })).min(2).max(52),
+  /** The tribulation this quest prepares for: display only, no reward effect (ruling 132). */
+  tribulationId: id.optional(),
 });
 
 /** Outcome of a completed quest's item roll, rolled on the server with `questDropOutcome(chance, u)`. Until gear exists, an item is a potion. */
@@ -520,6 +522,32 @@ export const RestEnded = z.object({
 
 export const RoulettePrize = z.enum(["gold", "qi", "gain_potion", "legendary_potion", "legendary", "scale"]);
 
+/** Pets the Lion once a local day for a little Qi (ruling 127). */
+export const CompanionPetted = z.object({
+  ...base,
+  type: z.literal("CompanionPetted"),
+});
+
+/** Minutes after local midnight, 0-1439. */
+const localMinutes = z.number().int().min(0).max(1439);
+
+/** The daily reminder's local time (ruling 128); 9:00 until set. */
+export const DailyReminderSet = z.object({
+  ...base,
+  type: z.literal("DailyReminderSet"),
+  minutes: localMinutes,
+});
+
+/**
+ * Quiet hours (ruling 129), in local minutes; the window may wrap past
+ * midnight (22:00-07:00). Null turns them off.
+ */
+export const QuietHoursSet = z.object({
+  ...base,
+  type: z.literal("QuietHoursSet"),
+  quiet: z.object({ start: localMinutes, end: localMinutes }).refine((q) => q.start !== q.end, "an empty window").nullable(),
+});
+
 /**
  * Drinks a stored potion (ruling 58). Only gain potions are drunk for now: +10%
  * gold and Qi for 24 hours, one active at a time. Legendary potions are
@@ -557,6 +585,9 @@ export const GameEvent = z.discriminatedUnion("type", [
   RestEnded,
   RouletteSpun,
   PotionUsed,
+  CompanionPetted,
+  DailyReminderSet,
+  QuietHoursSet,
   InterviewAnswered,
   MainTaskDefined,
   MainQuestDefined,
