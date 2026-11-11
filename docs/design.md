@@ -16,7 +16,7 @@ Each path gets its own math because each grows differently: Main compounds, Body
 
 ### Main
 
-- [ ] &#91;v1\] Qi Condensation interview: the cultivator's interests for Main, Body and Soul
+- [x] &#91;v1\] Qi Condensation interview: the cultivator's interests for Main, Body and Soul *(The InterviewAnswered event (ruling 75); the screen waits for the app.)*
 - [ ] &#91;v1\] Exploration quests for undecided areas; research quests when the cultivator hits a bottleneck
 - [ ] &#91;v1\] Foundation Establishment: starter quests to begin practicing, plus dated tribulations for mid, late and great circle, sized to current abilities *(Main part 3 built the dated tribulations for mid, late and great circle (ruling 76); starter quests wait for the app's suggested quests.)*
 - [x] &#91;v1\] Fast track: a cultivator already in the discipline defines Foundation tribulations and proves they are passed *(Ruling 76: Foundation's Qi thresholds are waived for claims with evidence, logged as fast track.)*
@@ -36,7 +36,7 @@ Each path gets its own math because each grows differently: Main compounds, Body
 | 1 | Qi Condensation | Discover interests in Main, Body and Soul | Early: interview answered. Mid: 1 area decided. Late: 2. Great circle: 3 | First tribulation: all three areas chosen (free to change until the breakthrough, then for a price) |
 | 1 | Foundation Establishment | Start practicing and test the chosen path | One dated tribulation per level (mid, late, great circle) | All passed; then form a core, picking the core discipline for free, and choose a class |
 | 1 | Core Formation (Golden Core) | Become a professional; consistency over single wins | 30% of tribulations: mid. 60%: late. 90%: great circle | 100%: "I consider myself a professional" |
-| 1 | Nascent Soul | Become an expert; needs some luck | Tribulations set on entry | All passed: "I consider myself an expert" |
+| 1 | Nascent Soul | Become an expert; needs some luck | No levels: a set defined and locked within 90 days of entering (ruling 79) | All passed: "I consider myself an expert" |
 | 2 | Spirit Realm | Study new disciplines and combine them into your own dao | Exploratory tribulations that may shift with findings | You know the bases to create a new discipline |
 | 3 | Void God | Forge your own discipline and earn recognition | Tribulations for the discipline to count as real | Discipline recognized |
 | 4 | Golden God | Turn recognition into real-world achievements | Real-world achievement tribulations | Followers appear |
@@ -80,30 +80,30 @@ None open.
 
 Body splits into Skill, which unlocks poses that are never lost, and the fitness tier, a companion animal fed by consistent training that leaves if neglected. The avatar's body shape never changes.
 
-- [ ] &#91;v1\] Skill: user-defined disciplines with user-defined ranks; the user decides what mastery means (e.g., blue belt in BJJ, clean deadlift technique past a bodyweight threshold); ranks are never lost
-- [ ] &#91;v1\] Mastery evidence: a photo (belt, credential) or a link (video); editable when the skill improves further
-- [ ] &#91;v1\] Exercises and routines defined and adjusted by the user; show average values for their bodyweight and age group as reference only
-- [ ] &#91;v1\] Each logged exercise or routine pays gold to the cultivator and treats to the companion: an exercise gives 10, a routine (dance class, BJJ session, gym routine) gives 200; at most 2 routines a day count
-- [ ] &#91;v1\] Turtle can be fed with single exercises; from Panda on, the user creates routines, since exercises alone can't keep up with daily food loss
-- [ ] &#91;v1\] Companion food meter: 100% promotes to the next animal, 0% demotes; the new animal starts at 50% in both directions
-- [ ] &#91;v1\] The Turtle never leaves: at 0% it stays hungry until fed
-- [ ] &#91;v1\] Daily food loss scaled by tier, sized so each tier holds at its target cadence (food economy table below)
-- [ ] &#91;v1\] Food repetition decay penalizes stagnation, not consistency: a version of an exercise or routine pays full treats and gold for 4 weeks after its first completion, however often it is done, then loses 15% a week down to 25% until the cultivator levels it up ("BJJ" → "BJJ II")
-- [ ] &#91;v1\] Companion animal per tier, with behavior animations; the avatar's body never changes
-- [ ] Companion behaviors fire once a day (tier table below)
-- [ ] Equipment durability: damage accumulates on one random equipped item; at 100% the item is lost; repair with gold, cost scaled by the item's tier
-- [ ] Pricing rule: repairing one item always costs less than the Qi and gold a failed tribulation takes without gear, legendary items included
-- [ ] Avatar warning when equipment is close to breaking ("My equipment is almost broken; I should repair it before it's lost")
-- [ ] Failing a tribulation deals 20% damage to one random equipped item, while the gear reduces the Qi and gold lost
-- [ ] Breakthrough attempt cinematic; the Horse never unequips during it
-- [ ] Lion petting: once a day, a small amount of Qi
-- [ ] Lion pet wearable keeps the Lion tier (bonuses included) for a month
-- [ ] Golden ticket: with the Lion at 100% food, each completed routine earns a ticket for the roulette (odds table below)
-- [ ] Golden dragon scale: a wearable worth +5% Qi and +10% gold gains, compounding with each scale worn; the "legend of the nine scales" lore entry
-- [ ] Golden wings: wearing nine scales unlocks a creation cinematic; the scales merge into the wings and free their slots; the wings give +50% Qi gains and +100% gold gains, never break, and only one set can be worn
-- [ ] Anomaly flag: a second set of wings on one account is logged as a likely bug or exploit
-- [ ] Poses unlocked by number of skills mastered (Standing to King); never lost
-- [ ] Halo: one halo and one ticket per skill mastered; halo hidden 1 month after the last mastery; one ticket per breakthrough, extras saved until 3 months after their mastery *(Main part 3 uses one ticket per level-up or breakthrough in the legendary roll (ruling 83).)*
+- [x] &#91;v1\] Skill: user-defined disciplines with user-defined ranks; the user decides what mastery means (e.g., blue belt in BJJ, clean deadlift technique past a bodyweight threshold); ranks are never lost *(SkillDefined and SkillRankAchieved; a lower rank is rejected.)*
+- [x] &#91;v1\] Mastery evidence: a photo (belt, credential) or a link (video); editable when the skill improves further *(Evidence on SkillRankAchieved; the same rank can be recorded again with new evidence.)*
+- [ ] &#91;v1\] Exercises and routines defined and adjusted by the user; show average values for their bodyweight and age group as reference only *(Defining and versioning are built (BodyActivityDefined); the reference averages need data and the app.)*
+- [x] &#91;v1\] Each logged exercise or routine pays gold to the cultivator and treats to the companion: an exercise gives 10, a routine (dance class, BJJ session, gym routine) gives 200; at most 2 routines a day count *(BodyActivityLogged; the 2-routine cap also covers class cross-credit (ruling 116).)*
+- [x] &#91;v1\] Turtle can be fed with single exercises; from Panda on, the user creates routines, since exercises alone can't keep up with daily food loss *(Set by the food economy numbers and checked in the simulator.)*
+- [x] &#91;v1\] Companion food meter: 100% promotes to the next animal, 0% demotes; the new animal starts at 50% in both directions *(`tierStartFraction` 0.5.)*
+- [x] &#91;v1\] The Turtle never leaves: at 0% it stays hungry until fed
+- [x] &#91;v1\] Daily food loss scaled by tier, sized so each tier holds at its target cadence (food economy table below) *(`weeklyLoss` per tier, checked in the simulator.)*
+- [x] &#91;v1\] Food repetition decay penalizes stagnation, not consistency: a version of an exercise or routine pays full treats and gold for 4 weeks after its first completion, however often it is done, then loses 15% a week down to 25% until the cultivator levels it up ("BJJ" → "BJJ II") *(Rulings 18 and 19.)*
+- [ ] &#91;v1\] Companion animal per tier, with behavior animations; the avatar's body never changes *(The tier is in the rules; the animals and animations wait for the app.)*
+- [ ] Companion behaviors fire once a day (tier table below) *(Cosmetic, for the app; the Horse unequipping gear waits for gear.)*
+- [ ] Equipment durability: damage accumulates on one random equipped item; at 100% the item is lost; repair with gold, cost scaled by the item's tier *(Waits for gear.)*
+- [ ] Pricing rule: repairing one item always costs less than the Qi and gold a failed tribulation takes without gear, legendary items included *(Waits for gear.)*
+- [ ] Avatar warning when equipment is close to breaking ("My equipment is almost broken; I should repair it before it's lost") *(Waits for gear and the app.)*
+- [ ] Failing a tribulation deals 20% damage to one random equipped item, while the gear reduces the Qi and gold lost *(Waits for gear.)*
+- [ ] Breakthrough attempt cinematic; the Horse never unequips during it *(Waits for the app.)*
+- [ ] Lion petting: once a day, a small amount of Qi *(Engine work not yet built.)*
+- [x] Pet wearable that keeps the companion's tier (bonuses included) for 30 days; worn at Lion, it keeps the Lion *(Superseded by ruling 118: the keep pet wearable holds the current tier, Lion included, for 30 days.)*
+- [x] Golden ticket: with the Lion at 100% food, each completed routine earns a ticket for the roulette (odds table below) *(BodyActivityLogged; RouletteSpun with server-rolled prizes.)*
+- [x] Golden dragon scale: a wearable worth +5% Qi and +10% gold gains, compounding with each scale worn; the "legend of the nine scales" lore entry *(Roulette prize; the bonuses join the multipliers. The lore entry waits for the lore bible.)*
+- [x] Golden wings: wearing nine scales unlocks a creation cinematic; the scales merge into the wings and free their slots; the wings give +50% Qi gains and +100% gold gains, never break, and only one set can be worn *(Nine scales merge into wings; the cinematic waits for the app.)*
+- [x] Anomaly flag: a second set of wings on one account is logged as a likely bug or exploit *(`second_wings` anomaly.)*
+- [x] Poses unlocked by number of skills mastered (Standing to King); never lost *(`poses` config; masteries are never lost.)*
+- [x] Halo: one halo and one ticket per skill mastered; halo hidden 1 month after the last mastery; one ticket per breakthrough, extras saved until 3 months after their mastery *(Visible 30 days after the last mastery, tickets for 90 days; since Main part 3 a ticket adds to a level-up's or breakthrough's legendary roll, the one expiring first (rulings 83, 97).)*
 
 **Gaps**
 
@@ -117,7 +117,7 @@ None open.
 | Panda | Sits on you | 3% | Low | +10% | — | — |
 | Horse | Throws you off and unequips gear and weapons (never during a breakthrough attempt) | 2% | Medium | +20% | +10% | — |
 | Tiger | Scares you with its claws | 1% | High | +30% | +15% | — |
-| Lion | Protects you; pet it once a day for a little Qi | — | Highest | +35% | +15% | 2% legendary item chance after a breakthrough |
+| Lion | Protects you; pet it once a day for a little Qi | — | Highest | +35% | +15% | +2% legendary item chance on every level-up and breakthrough (ruling 111) |
 
 **Food economy** (exercise = 10 treats, routine = 200, at most 2 routines a day; verify in the economy simulator)
 
@@ -149,19 +149,19 @@ None open.
 | Knight | 6 skills mastered | +3% |
 | King | 10 skills mastered | +5% |
 
-**Halo** (an adornment above the avatar, not a pose): each skill mastered grants a halo and one halo ticket. The halo stays visible for 1 month after the last mastery. A ticket from a mastery in the last 3 months adds +10% legendary item chance to the next breakthrough; one ticket per breakthrough, extras saved.
+**Halo** (an adornment above the avatar, not a pose): each skill mastered grants a halo and one halo ticket. The halo stays visible for 1 month after the last mastery. A ticket from a mastery in the last 3 months adds +10% legendary item chance to the next level-up or breakthrough; one ticket per roll, extras saved (rulings 83, 97).
 
 ### Soul
 
 Soul training is exploring and expressing yourself. Soul tasks fight heart demons, and the demons' HP sets the Soul color, which changes game rewards only, never breakthroughs.
 
-- [ ] &#91;v1\] Soul tasks: meditation, journaling, therapy, artistic work; every completed soul task damages its linked heart demon
-- [ ] &#91;v1\] Weakening colors trigger on any single demon: Violet above 70% HP, Black above 80%, Broken above 90% (or no demon defined); more demons means more ways to fall
-- [ ] &#91;v1\] Soul color evaluated at the end of the day, so a demon that crosses 70% can still be pushed back before the drop
-- [ ] &#91;v1\] Growth colors require no demon above 70%, plus minimums of demons created and defeated: Green 1 and 1, Blue 3 and 3, Red 6 and 6, Golden all defeated with at least 7
-- [ ] &#91;v1\] Identifying the first demon moves the cultivator from Broken to White
-- [ ] &#91;v1\] One drop roll per completed soul task, at the current color's rates
-- [ ] &#91;v1\] Translucent and Rainbow clocks reset when any defeated demon revives
+- [x] &#91;v1\] Soul tasks: meditation, journaling, therapy, artistic work; every completed soul task damages its linked heart demon *(SoulTaskLogged; class cross-credit can also hit a demon (ruling 116).)*
+- [x] &#91;v1\] Weakening colors trigger on any single demon: Violet above 70% HP, Black above 80%, Broken above 90% (or no demon defined); more demons means more ways to fall *(`evaluateSoulColor`.)*
+- [x] &#91;v1\] Soul color evaluated at the end of the day, so a demon that crosses 70% can still be pushed back before the drop *(`endOfDay`; rest freezes it (ruling 8).)*
+- [x] &#91;v1\] Growth colors require no demon above 70%, plus minimums of demons created and defeated: Green 1 and 1, Blue 3 and 3, Red 6 and 6, Golden all defeated with at least 7 *(Rulings 2 and 5.)*
+- [x] &#91;v1\] Identifying the first demon moves the cultivator from Broken to White *(`first_demon` color change.)*
+- [x] &#91;v1\] One drop roll per completed soul task, at the current color's rates *(Server-rolled by polarity, at most 3 a day (rulings 9-11).)*
+- [x] &#91;v1\] Translucent and Rainbow clocks reset when any defeated demon revives *(The Golden clock (ruling 2).)*
 
 **Gaps**
 
@@ -184,12 +184,12 @@ None open; renaming has no lock while the demon is undefeated.
 
 Something must pay out every few minutes, every few weeks and every few years; the middle loop is the one Habitica lacks.
 
-- [ ] &#91;v1\] Inner loop (minutes): one-tap task completion with instant Qi or gold, treats for the companion or damage to a demon, and a short System message
-- [ ] &#91;v1\] Middle loop (1–3 weeks): a level, skill rank, companion tier or defeated demon at least every few weeks per active path
-- [ ] &#91;v1\] Outer loop (months to years): realm breakthroughs through tribulations
-- [ ] No combined character level: the realm is the headline, and Body and Soul show as the companion and the aura
-- [ ] Target cadence table: expected time per layer and per realm for a consistent user, used to tune numbers
-- [ ] Suggested quests from the cultivator's own paths (exploration, research, seek new demons); every other task and quest is created by the cultivator
+- [ ] &#91;v1\] Inner loop (minutes): one-tap task completion with instant Qi or gold, treats for the companion or damage to a demon, and a short System message *(Every logging event pays at once in the rules; the one-tap screen and the System message wait for the app.)*
+- [ ] &#91;v1\] Middle loop (1–3 weeks): a level, skill rank, companion tier or defeated demon at least every few weeks per active path *(Simulator work: a cadence report per path checking a level, rank, tier or defeated demon every few weeks.)*
+- [x] &#91;v1\] Outer loop (months to years): realm breakthroughs through tribulations *(Main parts 2 and 3.)*
+- [x] No combined character level: the realm is the headline, and Body and Soul show as the companion and the aura *(The rules have no character level; realm, companion tier and soul color are separate.)*
+- [ ] Target cadence table: expected time per layer and per realm for a consistent user, used to tune numbers *(Simulator work, with the middle loop report.)*
+- [ ] Suggested quests from the cultivator's own paths (exploration, research, seek new demons); every other task and quest is created by the cultivator *(Waits for the LLM and the app.)*
 
 ## Economy
 
@@ -203,17 +203,17 @@ Qi pays for breakthroughs and gold buys gear and rest; repeated tasks pay less e
 - [x] &#91;v1\] Qi scales with difficulty and complexity; simple tasks pay well in the first two realms and taper off above *(The taper is applied by realm; until part 3 adds realms, every cultivator is in Qi Condensation.)*
 - [x] &#91;v1\] Repetition decay: the first two repeats within a level pay full Qi; each later repeat loses 15% of the base, down to a 25% floor *(Built age-based instead, like Body, with no reset at levels; see Rulings 18, 19 and 37.)*
 - [x] &#91;v1\] Raising a task's difficulty requires a new named version (Math exercise → Math exercise II)
-- [ ] Avatar warning on heavy repetition: "I've completed 'Math exercise' too many times; I need to make it harder to keep growing" *(The rules engine lists stale tasks with `staleTasks`; the avatar message waits for the app.)*
+- [ ] Avatar warning on heavy repetition: "I've completed 'Math exercise' too many times; I need to make it harder to keep growing" *(`staleTasks` lists them; the avatar message waits for the app.)*
 - [x] &#91;v1\] Gold scales with difficulty, number of tasks and duration
-- [ ] &#91;v1\] Procrastination tax on every path (Main, Body, Soul) after a set number of days without activity there; a class's cross-credit counts as activity on the paths it covers; the tax hits Qi and gold only, never realm progress, and debt is capped; the Body and Soul taxes are 1/5 of the Main tax *(Built in Main part 1 except class cross-credit, which comes with classes in part 4.)*
-- [ ] &#91;v1\] Bonus stacking: every percentage bonus (fitness tier, pose, soul color, class with its Spirit Realm multiplier, items, potions) adds into one pool; scales and wings multiply the total *(Part 1 added the pose Qi bonus and the tier's core Qi bonus, and limited the tier gold bonus to Body and Main gold. Gain potions joined the pool with ruling 58. Classes joined it in part 4 (ruling 115); soul color and items come later.)*
+- [x] &#91;v1\] Procrastination tax on every path (Main, Body, Soul) after a set number of days without activity there; a class's cross-credit counts as activity on the paths it covers; the tax hits Qi and gold only, never realm progress, and debt is capped; the Body and Soul taxes are 1/5 of the Main tax *(Main part 1; class cross-credit counts as activity since part 4 (ruling 116).)*
+- [x] &#91;v1\] Bonus stacking: every percentage bonus (fitness tier, pose, class with its Spirit Realm multiplier, items, potions) adds into one pool; scales and wings multiply the total *(Fitness tier, pose, class and gain potions share the pool, scales and wings multiply it (rulings 35, 58, 115). Gear items join when gear exists, and the class's Spirit Realm multiplier with Step 2. Soul color changes drop chances, not percentage bonuses.)*
 - [ ] Legendary chances add when several apply to the same event (e.g., a breakthrough into Nascent Soul: 20% base + Lion 2% + halo ticket 10% = 32%); each realm has its own pool of legendary items that can drop, since gear is realm-locked *(The chances add since Main part 3 (rulings 94, 111). The Unique class's 2% is its own roll on each passed tribulation (ruling 120). The realm pools wait for gear (ruling 121).)*
-- [ ] Gold shop: vacations, wearables, armor, weapons, potions, class changes, repairs, extensions *(Class changes have a gold price since Main part 4 (ruling 114).)*
+- [ ] Gold shop: vacations, wearables, armor, weapons, potions, class changes, repairs, extensions *(Vacation and class-change prices are in the rules (rulings 114 and the rest config); the shop screen waits for the app, and wearables, armor, weapons and repairs for gear.)*
 - [ ] Armor reduces Qi losses (e.g., 10 fewer lost); weapons add to Qi gains (e.g., +10); potions boost gold and Qi gains; legendary items boost more *(Gain potions work since ruling 58: +10% gold and Qi for 24 hours. Armor, weapons and legendary items come with gear.)*
 - [ ] Items are locked to the current realm; on breakthrough, equipped gear levels up with the cultivator
 - [ ] Potions that raise the chance of gear turning legendary when it levels up at a breakthrough *(Legendary potions drop and are stored since ruling 58; their effect comes with gear.)*
 - [x] Rare drops on quest completion to keep a variable-reward element *(Main part 1: one server-rolled item roll per completed quest, scaled by its effort; an item is a potion until gear exists. See Ruling 52.)*
-- [ ] Economy simulator: a year of synthetic behavior to check inflation, pacing and the numbers flagged across this doc
+- [x] Economy simulator: a year of synthetic behavior to check inflation, pacing and the numbers flagged across this doc *(`tools/sim`: Body food, Soul, Main, tribulations, realms and classes.)*
 
 **Gaps**
 
@@ -225,11 +225,11 @@ A breakthrough is only claimable against criteria written before the attempt, wh
 
 - [x] &#91;v1\] Declare a tribulation: specific, checkable result plus a deadline, written before starting
 - [x] &#91;v1\] A breakthrough needs both the realm/level Qi threshold and the tribulations passed
-- [ ] &#91;v1\] Lock criteria once declared; editing or deleting a tribulation costs Qi in every step and is logged visibly (a cultivator may discover a tribulation was wrong or needs to be more specific); adding one is free in Step 1; the only free change is switching the foundation discipline right after a Foundation tribulation *(Step 1 prices and the integrity log entries were built in Main part 2 (ruling 67); since part 3, late edits and deletions are priced from the failure loss (ruling 93) and the core discipline is picked for free at the end of Foundation (ruling 90). Step 2+ prices come with Step 2.)*
+- [ ] &#91;v1\] Lock criteria once declared; editing or deleting a tribulation costs Qi in every step and is logged visibly (a cultivator may discover a tribulation was wrong or needs to be more specific); adding one is free in Step 1; the core discipline is picked for free at the end of Foundation (ruling 90) and Nascent Soul's set is free to change until it's locked (ruling 79) *(Step 1 prices and integrity-log entries since Main part 2 (ruling 67); late edits and deletions priced from the failure loss since part 3 (ruling 93); free edits and deletions before the Nascent Soul lock (ruling 79). Step 2+ prices come with Step 2.)*
 - [x] &#91;v1\] Claim flow: optional LLM review that flags points the cultivator may have missed; the cultivator decides and confirms "I solemnly swear I have passed this tribulation"; optional evidence attachment (file, link, photo) *(Main part 2: the oath, evidence references and an LLM review marker, always "skipped" until the LLM review exists; see New to-dos.)*
 - [x] &#91;v1\] Missed deadline: no extensions; the tribulation fails, Qi is lost, and it stays in place for the cultivator to set a new date; extra tasks are required before the next attempt, even if the result is now within reach *(The Qi and gold lost are the extra tasks required: ruling 65.)*
 - [x] &#91;v1\] Adding tribulations never demotes a level; changing the core discipline costs Qi and sends the cultivator back to early Core Formation, not Foundation *(Rulings 77, 78 and 85.)*
-- [ ] Verified vs. self-reported badge on each breakthrough
+- [ ] Verified vs. self-reported badge on each breakthrough *(Claims record evidence and the LLM review marker; the badge waits for the LLM review.)*
 - [x] Manual override to advance any realm, logged as such (the game must remain finishable) *(Ruling 84.)*
 - [x] &#91;v1\] Tribulation passed with Qi short: marked "passed, waiting for Qi"; the breakthrough triggers once the threshold is reached *(`realmStatus` reports `waitingForQi`.)*
 
@@ -241,9 +241,9 @@ None open.
 
 The comeback after a bad week must cost less than quitting the app, or users leave.
 
-- [ ] &#91;v1\] Vacations: rest periods bought with gold; the avatar travels to visit the Nine Marvels; tribulation deadlines keep their dates, and the request screen says so *(The deadline rule was built in Main part 2; the screens and the avatar wait for the app.)*
-- [ ] &#91;v1\] Closed-door cultivation: a free "feeling ill / burnout" button; the avatar enters a cave; up to 14 days at a time and 30 days per quarter; tribulation deadlines extend by the days spent inside, and the request screen says so *(The deadline rule was built in Main part 2; the screens and the avatar wait for the app.)*
-- [ ] &#91;v1\] While resting (vacation or closed-door): no tax, the companion sleeps (no food loss) and the soul is frozen (no demon growth)
+- [x] &#91;v1\] Vacations: rest periods bought with gold; the avatar travels to visit the Nine Marvels; tribulation deadlines keep their dates, and the request screen says so *(RestStarted at 20 gold a day; deadlines keep their dates (ruling 70). The screens and the avatar wait for the app.)*
+- [x] &#91;v1\] Closed-door cultivation: a free "feeling ill / burnout" button; the avatar enters a cave; up to 14 days at a time and 30 days per quarter; tribulation deadlines extend by the days spent inside, and the request screen says so *(RestStarted, free, 14 days at a time and 30 a quarter; deadlines extend (ruling 70). The screens and the avatar wait for the app.)*
+- [x] &#91;v1\] While resting (vacation or closed-door): no tax, the companion sleeps (no food loss) and the soul is frozen (no demon growth) *(Rest skips the tax, food loss and demon growth (ruling 8).)*
 - [x] &#91;v1\] Qi deviation: entered when procrastination-tax debt hits its cap; a short comeback quest clears both the state and the debt
 
 **Gaps**
@@ -254,20 +254,20 @@ None open.
 
 A heart demon is a thought, feeling, mood or behavior the cultivator wants to change. Demons grow on their own unless fought, so ignoring Soul never protects you from them.
 
-- [ ] &#91;v1\] Create a heart demon: what to change, one or more positive tasks that counter it, and negative tasks (habits) that feed it; every demon starts at 50% HP
-- [ ] &#91;v1\] Creation warning: make sure you want to fight this demon, because deleting one has a cost
-- [ ] &#91;v1\] A soul task links to exactly one demon; a soul quest can link to several (one meditation session can attack several demons)
-- [ ] &#91;v1\] Completing a positive task damages its demon by 5% HP; logging a negative task heals it by 10%
-- [ ] &#91;v1\] Passive growth: after 3 days without a positive task, a demon heals 1% a day; the rate rises with soul color, up to twice as fast at Rainbow
-- [ ] &#91;v1\] Defeated demons keep growing passively; a defeated demon that climbs back to 50% HP revives
-- [ ] &#91;v1\] At most one new demon per week
-- [ ] &#91;v1\] Deletion lock: a demon can't be deleted in its first week, so nobody stays White forever by deleting demons before they reach 70%
-- [ ] &#91;v1\] Deleting with a growth color: the soul drops to White, with a warning first
-- [ ] &#91;v1\] Deleting at White: allowed, but with no demon left at the end of the day the soul drops to Broken
-- [ ] &#91;v1\] Deleting with a weakening color: the last demon can't be deleted, and each deletion feeds the remaining demons until at least one is at 80% HP
-- [ ] &#91;v1\] Renaming: an undefeated demon can be renamed and its tasks redefined, for a cultivator who wants to fight a different demon first; locked while defeated, allowed again after revival (as is deletion); a renamed demon below 50% HP goes to 50%, one above keeps its HP
-- [ ] "Seek new demons" flow when the cultivator lacks enough to advance (guided reflection, LLM prompts)
-- [ ] Awakening alert before a demon's HP crosses 70%, 80% and 90%, and at day's end if one is above 70%
+- [x] &#91;v1\] Create a heart demon: what to change, one or more positive tasks that counter it, and negative tasks (habits) that feed it; every demon starts at 50% HP *(HeartDemonCreated, at 50% HP.)*
+- [ ] &#91;v1\] Creation warning: make sure you want to fight this demon, because deleting one has a cost *(Waits for the app.)*
+- [x] &#91;v1\] A soul task links to exactly one demon; a soul quest can link to several (one meditation session can attack several demons) *(Task ids are unique across demons; a soul quest links at least 2 (ruling 14).)*
+- [x] &#91;v1\] Completing a positive task damages its demon by 5% HP; logging a negative task heals it by 10% *(`positiveDamage` 5, `negativeHeal` 10.)*
+- [x] &#91;v1\] Passive growth: after 3 days without a positive task, a demon heals 1% a day; the rate rises with soul color, up to twice as fast at Rainbow *(Ruling 3; a soul wearable can freeze it (ruling 118).)*
+- [x] &#91;v1\] Defeated demons keep growing passively; a defeated demon that climbs back to 50% HP revives
+- [x] &#91;v1\] At most one new demon per week *(Ruling 4.)*
+- [x] &#91;v1\] Deletion lock: a demon can't be deleted in its first week, so nobody stays White forever by deleting demons before they reach 70% *(`demon_deletion_locked`.)*
+- [x] &#91;v1\] Deleting with a growth color: the soul drops to White, with a warning first *(Ruling 1; the warning waits for the app.)*
+- [x] &#91;v1\] Deleting at White: allowed, but with no demon left at the end of the day the soul drops to Broken
+- [x] &#91;v1\] Deleting with a weakening color: the last demon can't be deleted, and each deletion feeds the remaining demons until at least one is at 80% HP *(Ruling 7.)*
+- [x] &#91;v1\] Renaming: an undefeated demon can be renamed and its tasks redefined, for a cultivator who wants to fight a different demon first; locked while defeated, allowed again after revival (as is deletion); a renamed demon below 50% HP goes to 50%, one above keeps its HP *(HeartDemonRenamed.)*
+- [ ] "Seek new demons" flow when the cultivator lacks enough to advance (guided reflection, LLM prompts) *(Waits for the LLM and the app.)*
+- [x] Awakening alert before a demon's HP crosses 70%, 80% and 90%, and at day's end if one is above 70% *(`demonAlerts` projects each crossing; showing them waits for the app.)*
 
 **Gaps**
 
@@ -309,7 +309,7 @@ The avatar shows the cultivator's whole state at a glance: class look, pose, com
 - [ ] Spirit Realm: the avatar becomes a spirit in its class avatar's form
 - [ ] Layered 2D sprites so class look, pose, aura, halo, gear, wearables, wings and companion combine independently
 - [ ] Cinematics: breakthrough attempt, realm breakthroughs, golden wings creation; animations for levels, poses and soul color changes
-- [ ] Items are only obtained (shop, drops, roulette), never crafted
+- [x] Items are only obtained (shop, drops, roulette), never crafted *(The rules have no crafting; every item comes from a server-rolled drop or the roulette.)*
 
 **Gaps**
 
@@ -319,15 +319,15 @@ None open; alchemy and techniques are dropped.
 
 Few and meaningful; guilt-trip spam is how Duolingo's notifications became a meme.
 
-- [ ] &#91;v1\] Push notifications only for losses that are close, at most 3 a day, most urgent first:
+- [x] &#91;v1\] Push notifications only for losses that are close, at most 3 a day, most urgent first: *(`pushAlertPlan`; the equipment alert waits for gear.)*
   - Tribulation and core quest deadlines at 72, 48, 24 and 1 hour left *(in the push plan since Main parts 1 and 2, tribulations first)*
   - The soul turning Broken (a demon above 90% HP)
   - A defeated demon within 5% of reviving, or any demon within 5% of 70% HP
   - The companion within 5% of empty
   - An equipped item within 5% of breaking
-- [ ] &#91;v1\] On a day with nothing urgent, one daily push reminding the cultivator to check the to-do list
-- [ ] &#91;v1\] Everything else (rewards, expiring tasks, tax, chronicle ready) goes to the in-app notification list, read on login
-- [ ] Quiet hours
+- [ ] &#91;v1\] On a day with nothing urgent, one daily push reminding the cultivator to check the to-do list *(Engine work not yet built.)*
+- [ ] &#91;v1\] Everything else (rewards, expiring tasks, tax, chronicle ready) goes to the in-app notification list, read on login *(Waits for the app.)*
+- [ ] Quiet hours *(Engine work not yet built.)*
 - [x] During vacation, mute everything except tribulation deadlines (they keep running) and the return date; during closed-door cultivation, mute everything except the return date *(Main part 2: the push plan mutes the current rest and adds a return-date push.)*
 
 **Gaps**
@@ -338,24 +338,24 @@ None open.
 
 The oath sets the tone; pre-commitment and visible logs do the actual work.
 
-- [ ] &#91;v1\] Oath screen: the user types "I will not fake my achievements and I will cultivate with all my heart."
-- [ ] &#91;v1\] The Qi Condensation interview is the onboarding: interests for Main, Body and Soul (see Main)
-- [ ] &#91;v1\] First companion: a Turtle at 50% food
-- [ ] &#91;v1\] The soul starts Broken until the first heart demon and its counter tasks are identified
-- [ ] Integrity log: every override, criteria edit, demon deletion or rename, and self-reported claim on one screen *(Main part 1 records repeated archive-and-restore as `archive_churn` flags, and part 2 records tribulation edits, deletions and claims; the screen waits for the app.)*
+- [x] &#91;v1\] Oath screen: the user types "I will not fake my achievements and I will cultivate with all my heart." *(CultivatorCreated requires the exact text; the screen waits for the app.)*
+- [x] &#91;v1\] The Qi Condensation interview is the onboarding: interests for Main, Body and Soul (see Main) *(InterviewAnswered.)*
+- [x] &#91;v1\] First companion: a Turtle at 50% food
+- [x] &#91;v1\] The soul starts Broken until the first heart demon and its counter tasks are identified
+- [ ] Integrity log: every override, criteria edit, demon deletion or rename, and self-reported claim on one screen *(The Main integrity log records overrides, tribulation edits, deletions, closures and claims, repents, deaths and archive churn; demon deletions and renames are only in the demon history, not the log yet. The screen waits for the app.)*
 
 ## Data and architecture requirements
 
 Stack: TypeScript end to end, with React Native (Expo) for iOS, Android and web, and one rules package shared by the app, the server and the economy simulator.
 
-- [ ] &#91;v1\] Event-sourced store: only raw events are saved; Qi, gold, realms, companion food, demon HP, soul color and item durability are derived
-- [ ] &#91;v1\] A user ID on every event, so multi-user and social need no redesign
-- [ ] &#91;v1\] Versioned rules engine, so rebalancing replays history instead of migrating balances
-- [ ] &#91;v1\] Offline-first logging that takes under 2 seconds
-- [ ] &#91;v1\] Mobile app with push notifications; engagement lives on the phone
-- [ ] Rules engine shared between client and server (one implementation of the game math)
-- [ ] &#91;v1\] Random outcomes (drops, roulette, companion behaviors) are stored as events, so replaying history under new rules never re-rolls them
-- [ ] Export of all events (JSON/CSV) so the user owns the record
+- [x] &#91;v1\] Event-sourced store: only raw events are saved; Qi, gold, realms, companion food, demon HP, soul color and item durability are derived *(`@cultivation/rules` derives everything by replay.)*
+- [x] &#91;v1\] A user ID on every event, so multi-user and social need no redesign
+- [x] &#91;v1\] Versioned rules engine, so rebalancing replays history instead of migrating balances *(`rulesVersion` in the config.)*
+- [ ] &#91;v1\] Offline-first logging that takes under 2 seconds *(Waits for the app.)*
+- [ ] &#91;v1\] Mobile app with push notifications; engagement lives on the phone *(The push plan is in the rules; the app is not started.)*
+- [x] Rules engine shared between client and server (one implementation of the game math) *(The simulator uses it; the app and server will import the same package.)*
+- [x] &#91;v1\] Random outcomes (drops, roulette, companion behaviors) are stored as events, so replaying history under new rules never re-rolls them *(Every roll is a server-rolled outcome in an event; companion behaviors are cosmetic and need none.)*
+- [ ] Export of all events (JSON/CSV) so the user owns the record *(Waits for the server and the app.)*
 - [ ] Web client synced with the mobile app, plus multi-user and auth when friends join; possibly published as an open-source repo (MIT or similar)
 
 ## Later: social layer
@@ -399,6 +399,7 @@ Items found while implementing; each waits for a decision or a later part.
 - [x] Lion pet wearables can only be worn at Lion, so a Body or Hybrid cultivator below Lion holds them unused (a studier Warrior got 3 in a year and wore none); they are forfeited at a class change *(Ruling 118: the pet wearable keeps the current tier, at any tier.)*
 - [ ] Legendary versions of class wearables (visual plus bonus demon damage or gold) wait for gear
 - [ ] Set shop and gear prices against the physical-practice personas (about 3.5x a studier's gold), not the studier
+- [ ] Dev-only scenario loader for testing: builds a cultivator by generating and replaying a real event log (the simulator personas as seeds), plus a time-travel control to advance the clock. It exists only in the development build profile and is excluded from release builds; no cheat events in the rules engine
 
 ## Rulings
 
