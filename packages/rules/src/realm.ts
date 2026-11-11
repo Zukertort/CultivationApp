@@ -3,11 +3,16 @@
  * Establishment, Core Formation, Nascent Soul; then Spirit Realm, where
  * progression stops until Step 2 is built).
  *
- * Settled rules live in docs/design.md, Rulings 73-86. Level-ups and
+ * Settled rules live in docs/design.md, Rulings 73-97. Level-ups and
  * breakthroughs are derived: once a step's conditions hold, its Qi threshold
  * is spent from the balance and the cultivator advances, with no event. The
  * only random outcome is each step's legendary-item roll, which the server
  * appends as a BreakthroughRolled event.
+ *
+ * Every tribulation counts toward the realm it was declared in (ruling 89):
+ * where one couldn't count, declaring or claiming it is rejected, and
+ * tribulations left behind by a breakthrough or a discipline change are
+ * closed at no cost.
  */
 import type { EventOf } from "@cultivation/schema";
 import { RULES_V1, type MainPath, type Realm, type RulesConfig, type StepOneRealm } from "./config.js";
@@ -26,6 +31,16 @@ const NEXT_REALM: Partial<Record<Realm, Realm>> = {
   nascent_soul: "spirit_realm",
 };
 
+/** What each Step 1 realm's tribulations are for, shown on the declaration screen (ruling 87). */
+export const REALM_TRIBULATION_PURPOSE: Record<StepOneRealm, string> = {
+  qi_condensation: "No tribulations: choosing your three areas is this realm's tribulation.",
+  foundation_establishment:
+    "Explore and start practicing. Set goals you can reach with your current abilities; they may span different fields.",
+  core_formation: "Become a professional: exams, certifications, courses, research, consistent practice.",
+  nascent_soul:
+    "Become an expert: tangible achievements others recognize, such as publications, teaching at a recognized institution, or becoming a reference in your field. It takes years and needs some luck.",
+};
+
 // ---- State ------------------------------------------------------------------
 
 export interface ProgressStep {
@@ -33,11 +48,14 @@ export interface ProgressStep {
   step: number;
   at: number;
   kind: "level" | "breakthrough" | "override" | "restart";
+  /** The realm and level reached. */
   realm: Realm;
   level: Level | null;
   qiSpent: number;
   /** Fast track: Foundation's threshold was waived (ruling 76). */
   waived: boolean;
+  /** A breakthrough's consumed tribulations, for the hall of fame (ruling 96). */
+  tribulations: string[];
 }
 
 /** A level-up or breakthrough's legendary roll with no recorded outcome yet; the server rolls it. */
@@ -51,8 +69,6 @@ export interface ProgressState {
   /** The level within the realm; null in Nascent Soul and Spirit Realm, which have none. The realm is `main.realm`. */
   level: Level | null;
   areas: Record<MainPath, string | null>;
-  /** Discipline epoch: a Main change starts a new one; tribulations declared under an older one never count (ruling 77). */
-  epoch: number;
   /** When the current realm was entered (or restarted). */
   enteredAt: number;
   /** End of Foundation: the cultivator chose to form a core (ruling 74). */
@@ -69,7 +85,6 @@ export function initialProgress(): ProgressState {
   return {
     level: "early",
     areas: { main: null, body: null, soul: null },
-    epoch: 0,
     enteredAt: 0,
     coreChosen: false,
     sealedAt: null,
@@ -82,21 +97,34 @@ export function initialProgress(): ProgressState {
 
 // ---- Tribulation sets -------------------------------------------------------
 
-function inCurrentRealm(s: CultivatorState, t: Tribulation): boolean {
-  return t.realm === s.main.realm && t.epoch === s.progress.epoch;
+type Entry = [id: string, t: Tribulation];
+
+function entries(s: CultivatorState, realm: Realm): Entry[] {
+  return Object.entries(s.tribulations.items).filter(([, t]) => t.realm === realm);
 }
 
-/** Foundation's counted tribulations: the first three passed, in passing order (ruling 76). */
-export function foundationPasses(s: CultivatorState): Tribulation[] {
-  return Object.values(s.tribulations.items)
-    .filter((t) => t.realm === "foundation_establishment" && t.epoch === s.progress.epoch && t.status === "passed")
-    .sort((a, b) => a.passedAt! - b.passedAt!)
+const live = ([, t]: Entry) => t.closedAt === null && t.status !== "deleted";
+const ids = (list: Entry[]) => list.map(([id]) => id);
+
+/** Foundation's counted tribulations: the first three passed, in passing order (ruling 76). Never wiped (ruling 90). */
+function foundationEntries(s: CultivatorState): Entry[] {
+  return entries(s, "foundation_establishment")
+    .filter(([, t]) => t.status === "passed")
+    .sort(([, a], [, b]) => a.passedAt! - b.passedAt!)
     .slice(0, 3);
 }
 
-/** Core Formation's set: declared in it under the current discipline, deleted ones left out (ruling 78). */
+export function foundationPasses(s: CultivatorState): Tribulation[] {
+  return foundationEntries(s).map(([, t]) => t);
+}
+
+/** Core Formation's set: declared in it under the current discipline, deleted ones left out (rulings 78, 91). */
+function coreEntries(s: CultivatorState): Entry[] {
+  return entries(s, "core_formation").filter(live);
+}
+
 export function coreSet(s: CultivatorState): Tribulation[] {
-  return Object.values(s.tribulations.items).filter((t) => t.realm === "core_formation" && t.epoch === s.progress.epoch && t.status !== "deleted");
+  return coreEntries(s).map(([, t]) => t);
 }
 
 /** The share of Core Formation's set passed, or null while the set is below the minimum. */
@@ -107,35 +135,58 @@ export function coreShare(s: CultivatorState, rules: RulesConfig = RULES_V1): nu
 }
 
 /** Nascent Soul's sealed set, deleted ones left out (ruling 79). */
-function sealedSet(s: CultivatorState): Tribulation[] {
-  return s.progress.sealedSet.map((id) => s.tribulations.items[id]!).filter((t) => t.status !== "deleted");
+function sealedEntries(s: CultivatorState): Entry[] {
+  return s.progress.sealedSet.map((id): Entry => [id, s.tribulations.items[id]!]).filter(live);
 }
 
-/** Nascent Soul tribulations that would be sealed now: declared in it, not yet passed or deleted. */
+/** Nascent Soul tribulations that would be sealed now: every open or failed one (claims wait for the seal; ruling 89). */
 function unsealedCandidates(s: CultivatorState): string[] {
-  return Object.entries(s.tribulations.items)
-    .filter(([, t]) => t.realm === "nascent_soul" && t.epoch === s.progress.epoch && (t.status === "open" || t.status === "failed"))
-    .map(([id]) => id);
+  return ids(entries(s, "nascent_soul").filter((e) => live(e) && (e[1].status === "open" || e[1].status === "failed")));
+}
+
+/** Close tribulations at no cost (rulings 89, 91): open and failed ones become "closed"; passed ones stay passed, in the record. */
+function close(s: CultivatorState, list: Entry[], at: number): void {
+  for (const entry of list) {
+    if (!live(entry)) continue;
+    const t = entry[1];
+    t.closedAt = at;
+    if (t.status === "open" || t.status === "failed") {
+      t.status = "closed";
+      t.due = null;
+    }
+  }
+}
+
+/** Open or failed tribulations of a realm, which can no longer count once it is complete or left. */
+function leftovers(s: CultivatorState, realm: Realm): Entry[] {
+  return entries(s, realm).filter((e) => live(e) && (e[1].status === "open" || e[1].status === "failed"));
 }
 
 /**
- * Whether passing this tribulation now counts toward the current realm's
- * breakthrough: only those earn item rolls (ruling 82). Checked before the
- * claim is applied.
+ * Whether a tribulation can be declared now (ruling 89): never in Qi
+ * Condensation, in a complete Foundation, after Nascent Soul's set is sealed,
+ * or in Spirit Realm until Step 2.
  */
-export function countsTowardRealm(s: CultivatorState, tribulationId: string): boolean {
-  const t = s.tribulations.items[tribulationId];
-  if (!t || !inCurrentRealm(s, t)) return false;
+export function checkDeclarable(s: CultivatorState): void {
   switch (s.main.realm) {
+    case "qi_condensation":
+      violate("no_tribulations_here", "Qi Condensation has no tribulations: choosing your three areas is its tribulation");
     case "foundation_establishment":
-      return foundationPasses(s).length < 3;
-    case "core_formation":
-      return t.status !== "deleted";
+      if (foundationPasses(s).length >= 3) violate("foundation_complete", "Foundation's three tribulations are already passed");
+      return;
     case "nascent_soul":
-      return s.progress.sealedAt !== null && s.progress.sealedSet.includes(tribulationId);
+      if (s.progress.sealedAt !== null) violate("set_sealed", "Nascent Soul's set is sealed; nothing added now would count");
+      return;
+    case "core_formation":
+      return;
     default:
-      return false;
+      violate("not_built", "tribulations in Spirit Realm come with Step 2");
   }
+}
+
+/** Whether a tribulation can be claimed now: Nascent Soul's only after the seal (rulings 79, 89). */
+export function checkClaimable(s: CultivatorState, t: Tribulation): void {
+  if (t.realm === "nascent_soul" && s.progress.sealedAt === null) violate("not_sealed", "Nascent Soul's claims count once the set is sealed");
 }
 
 // ---- The next step ----------------------------------------------------------
@@ -184,8 +235,9 @@ export function nextStep(s: CultivatorState, rules: RulesConfig = RULES_V1): Nex
     }
     case "nascent_soul": {
       if (p.sealedAt === null) return step("breakthrough", r.breakthroughQi.nascent_soul, false, "seal");
-      const set = sealedSet(s);
-      const done = set.length > 0 && set.every((t) => t.status === "passed" && t.passedAt! >= p.sealedAt!);
+      const set = sealedEntries(s);
+      // At least one passed tribulation (ruling 95): a set emptied by deletions never transcends.
+      const done = set.length > 0 && set.every(([, t]) => t.status === "passed");
       return step("breakthrough", r.breakthroughQi.nascent_soul, done, "tribulations");
     }
     default:
@@ -194,46 +246,51 @@ export function nextStep(s: CultivatorState, rules: RulesConfig = RULES_V1): Nex
 }
 
 /**
- * The Qi threshold a tribulation failure is measured against (ruling 80):
- * the next step's, or the next one that costs Qi (Qi Condensation's levels
- * are free, so its breakthrough). Spirit Realm keeps the flat failure cost
- * until Step 2 is built.
- */
-function failureThreshold(s: CultivatorState, rules: RulesConfig): number | null {
-  const next = nextStep(s, rules);
-  if (!next) return null;
-  if (next.qi > 0) return next.qi;
-  return rules.realms.breakthroughQi[s.main.realm as StepOneRealm] ?? null;
-}
-
-/**
- * The Qi a tribulation failure takes (ruling 80): 25% of the current
- * threshold, and down to 75% of it when the balance would stay above that, so
- * a failure always means extra work. Floored at the balance by the caller.
+ * The Qi a tribulation failure takes (ruling 80, for every tribulation; ruling
+ * 92): 25% of the next step's threshold, and down to 75% of it when the
+ * balance would stay above that, so a failure always means extra work.
+ * Floored at the balance by the caller. Tribulations exist only in
+ * Foundation, Core Formation and Nascent Soul, whose next steps all cost Qi;
+ * anywhere else Nascent Soul's threshold stands in.
  */
 export function failureQiLoss(s: CultivatorState, rules: RulesConfig = RULES_V1): number {
-  const t = failureThreshold(s, rules);
-  if (t === null) return rules.tribulations.failure.qi;
+  const next = nextStep(s, rules);
+  const t = next && next.qi > 0 ? next.qi : rules.realms.breakthroughQi.nascent_soul;
   const share = rules.realms.failureShare;
   return Math.max(share * t, s.qi - (1 - share) * t);
 }
 
 // ---- Advancing --------------------------------------------------------------
 
-function record(s: CultivatorState, at: number, kind: ProgressStep["kind"], qiSpent: number, waived: boolean): ProgressStep {
+function record(s: CultivatorState, at: number, kind: ProgressStep["kind"], qiSpent: number, waived: boolean, tribulations: string[] = []): ProgressStep {
   const p = s.progress;
-  const entry: ProgressStep = { step: p.steps.length + 1, at, kind, realm: s.main.realm, level: p.level, qiSpent, waived };
+  const entry: ProgressStep = { step: p.steps.length + 1, at, kind, realm: s.main.realm, level: p.level, qiSpent, waived, tribulations };
   p.steps.push(entry);
   return entry;
 }
 
-/** Move to the next level, or break through into the next realm. */
+/** The tribulations a breakthrough out of the current realm consumes (ruling 96). */
+function consumed(s: CultivatorState): string[] {
+  switch (s.main.realm) {
+    case "foundation_establishment":
+      return ids(foundationEntries(s));
+    case "core_formation":
+      return ids(coreEntries(s).filter(([, t]) => t.status === "passed"));
+    case "nascent_soul":
+      return ids(sealedEntries(s));
+    default:
+      return [];
+  }
+}
+
+/** Move to the next level, or break through into the next realm, closing what the old realm left open. */
 function moveOn(s: CultivatorState, kind: NextStep["kind"], at: number): void {
   const p = s.progress;
   if (kind === "level") {
     p.level = LEVELS[LEVELS.indexOf(p.level!) + 1]!;
     return;
   }
+  close(s, leftovers(s, s.main.realm), at);
   const next = NEXT_REALM[s.main.realm]!;
   s.main.realm = next;
   p.level = next === "nascent_soul" || next === "spirit_realm" ? null : "early";
@@ -244,12 +301,12 @@ function moveOn(s: CultivatorState, kind: NextStep["kind"], at: number): void {
 }
 
 /**
- * Every level-up and breakthrough earns one legendary-item roll (ruling 83):
- * the tier's breakthrough chance (the Lion's 2%) plus one halo ticket, used
- * up, if one is active. A roll with no chance at all is skipped.
+ * Every level-up and breakthrough earns one legendary-item roll (rulings 83,
+ * 94): a 2% base, plus the tier's breakthrough chance (the Lion's 2%), plus
+ * one halo ticket, used up, if one is active (the one expiring first).
  */
 function earnLegendaryRoll(s: CultivatorState, step: number, at: number, rules: RulesConfig): void {
-  let chance = rules.tiers[s.companion.tier].breakthroughLegendaryChance;
+  let chance = rules.realms.legendaryBaseChance + rules.tiers[s.companion.tier].breakthroughLegendaryChance;
   const tickets = s.haloTickets.filter((t) => at < t.expiresAt).sort((a, b) => a.expiresAt - b.expiresAt);
   if (tickets.length > 0) {
     chance += rules.halo.legendaryBonus;
@@ -264,14 +321,17 @@ function earnLegendaryRoll(s: CultivatorState, step: number, at: number, rules: 
  * ("passed, waiting for Qi") happens at the event that brings the Qi.
  */
 export function advanceProgress(s: CultivatorState, at: number, rules: RulesConfig): void {
+  // Foundation's third pass completes its set: the rest can't count, so they close (ruling 89).
+  if (s.main.realm === "foundation_establishment" && foundationPasses(s).length >= 3) close(s, leftovers(s, "foundation_establishment"), at);
   for (let guard = 0; guard < 32; guard++) {
     const next = nextStep(s, rules);
     if (!next || !next.ready) return;
     const cost = next.waived ? 0 : next.qi;
     if (s.qi < cost) return;
     s.qi -= cost;
+    const used = next.kind === "breakthrough" ? consumed(s) : [];
     moveOn(s, next.kind, at);
-    const entry = record(s, at, next.kind, cost, next.waived);
+    const entry = record(s, at, next.kind, cost, next.waived, used);
     earnLegendaryRoll(s, entry.step, at, rules);
   }
 }
@@ -298,50 +358,54 @@ function payQi(s: CultivatorState, qi: number): void {
   s.qi -= qi;
 }
 
-/** A Main change restarts Foundation (ruling 77) or Core Formation, under a new discipline epoch. */
-function restart(s: CultivatorState, realm: Realm, at: number): void {
+/**
+ * A core discipline change (ruling 91): the old discipline's Core Formation
+ * and Nascent Soul tribulations close at no cost, passed ones staying in the
+ * record, and the cultivator returns to early Core Formation.
+ */
+function changeCoreDiscipline(s: CultivatorState, at: number): void {
   const p = s.progress;
-  s.main.realm = realm;
+  close(s, [...entries(s, "core_formation"), ...entries(s, "nascent_soul")], at);
+  s.main.realm = "core_formation";
   p.level = "early";
-  p.epoch += 1;
   p.enteredAt = at;
-  p.coreChosen = false;
   p.sealedAt = null;
   p.sealedSet = [];
   record(s, at, "restart", 0, false);
 }
 
+/**
+ * Decide or change an area (rulings 75, 88, 90, 91). Changes are free until
+ * Qi Condensation's breakthrough locks all three; then Body and Soul cost Qi,
+ * a Main change costs Qi in Foundation (nothing restarts), and from Core
+ * Formation on it is a core discipline change.
+ */
 export function onAreaDecided(s: CultivatorState, e: EventOf<"AreaDecided">, rules: RulesConfig): void {
   if (s.main.interview === null) violate("interview_first", "answer the Qi Condensation interview first");
   const p = s.progress;
   const prev = p.areas[e.path];
   if (prev === e.choice) violate("area_unchanged", "this area already has that choice");
   const prices = rules.realms.prices;
-  if (prev !== null) {
-    const realm = s.main.realm;
-    if (e.path !== "main" || realm === "qi_condensation") {
-      payQi(s, prices.areaChangeQi);
-    } else if (realm === "foundation_establishment") {
-      // Free only at the end of Foundation, as the alternative to forming a core (rulings 74, 77).
-      const endOfFoundation = p.level === "great_circle" && foundationPasses(s).length === 3 && !p.coreChosen;
-      if (!endOfFoundation) payQi(s, prices.foundationSwitchQi);
-      restart(s, "foundation_establishment", e.at);
-    } else if (realm === "core_formation" || realm === "nascent_soul") {
+  const realm = s.main.realm;
+  if (prev !== null && realm !== "qi_condensation") {
+    if (e.path !== "main") payQi(s, prices.areaChangeQi);
+    else if (realm === "foundation_establishment") payQi(s, prices.foundationSwitchQi);
+    else if (realm === "core_formation" || realm === "nascent_soul") {
       payQi(s, prices.coreChangeQi);
-      restart(s, "core_formation", e.at);
-    } else {
-      violate("not_built", "changing discipline in Spirit Realm comes with Step 2");
-    }
+      changeCoreDiscipline(s, e.at);
+    } else violate("not_built", "changing discipline in Spirit Realm comes with Step 2");
   }
   p.areas[e.path] = e.choice;
 }
 
-export function onCoreFormed(s: CultivatorState): void {
+/** The end-of-Foundation choice (rulings 74, 90): form a core in the chosen discipline, picked for free. */
+export function onCoreFormed(s: CultivatorState, e: EventOf<"CoreFormed">): void {
   const p = s.progress;
   const end = s.main.realm === "foundation_establishment" && p.level === "great_circle" && foundationPasses(s).length === 3;
   if (!end) violate("not_end_of_foundation", "a core is formed once Foundation's three tribulations are passed");
   if (p.coreChosen) violate("core_already_chosen", "the core is already chosen");
   p.coreChosen = true;
+  p.areas.main = e.choice;
 }
 
 export function onNascentSoulSealed(s: CultivatorState, e: EventOf<"NascentSoulSealed">, rules: RulesConfig): void {
@@ -388,6 +452,36 @@ export function pendingBreakthroughRolls(state: CultivatorState): PendingBreakth
   return Object.values(state.progress.pendingRolls).sort((a, b) => a.step - b.step);
 }
 
+export interface ConqueredTribulation {
+  tribulationId: string;
+  title: string;
+  criteria: string;
+  /** The realm it was declared in and broken through. */
+  realm: Realm;
+  passedAt: number;
+  evidence: number;
+  /** The breakthrough that consumed it. */
+  step: number;
+  brokeThroughAt: number;
+}
+
+/**
+ * The hall of fame (ruling 96): every tribulation a breakthrough consumed,
+ * oldest first, optionally for one realm. The Spirit Realm spirit quotes a
+ * `nascent_soul` entry.
+ */
+export function conqueredTribulations(state: CultivatorState, realm?: Realm): ConqueredTribulation[] {
+  const out: ConqueredTribulation[] = [];
+  for (const step of state.progress.steps) {
+    for (const id of step.tribulations) {
+      const t = state.tribulations.items[id]!;
+      if (realm !== undefined && t.realm !== realm) continue;
+      out.push({ tribulationId: id, title: t.title, criteria: t.criteria, realm: t.realm, passedAt: t.passedAt!, evidence: t.evidence, step: step.step, brokeThroughAt: step.at });
+    }
+  }
+  return out;
+}
+
 export interface RealmStatus {
   realm: Realm;
   level: Level | null;
@@ -400,16 +494,11 @@ export interface RealmStatus {
 export function realmStatus(state: CultivatorState, rules: RulesConfig = RULES_V1): RealmStatus {
   const next = nextStep(state, rules);
   const realm = state.main.realm;
+  const passed = (list: Entry[]) => ({ passed: list.filter(([, t]) => t.status === "passed").length, total: list.length });
   let tribulations: RealmStatus["tribulations"] = null;
   if (realm === "foundation_establishment") tribulations = { passed: foundationPasses(state).length, total: 3 };
-  if (realm === "core_formation") {
-    const set = coreSet(state);
-    tribulations = { passed: set.filter((t) => t.status === "passed").length, total: set.length };
-  }
-  if (realm === "nascent_soul") {
-    const set = sealedSet(state);
-    tribulations = { passed: set.filter((t) => t.status === "passed").length, total: set.length };
-  }
+  if (realm === "core_formation") tribulations = passed(coreEntries(state));
+  if (realm === "nascent_soul") tribulations = passed(sealedEntries(state));
   return {
     realm,
     level: state.progress.level,

@@ -8,6 +8,13 @@
  * only the tribulation habits differ. Claims are logged offline; the server
  * rolls their items on sync.
  *
+ * Tribulations exist from Foundation on (ruling 89), and Foundation allows
+ * only three, so every persona starts in early Core Formation (by override)
+ * with one long-term tribulation due after the year: the set never reaches
+ * 100%, so the persona stays in Core Formation and the losses are measured
+ * against its thresholds (550 for each level, 700 for the breakthrough).
+ * The realm simulator covers progression.
+ *
  * Output: a summary on stdout and a CSV row per persona in tools/sim/out/.
  */
 import { writeFileSync } from "node:fs";
@@ -102,7 +109,7 @@ interface Persona {
 function makeDelayer(): Persona["plan"] {
   const original = new Map<string, number>();
   return (c, day) => {
-    const open = Object.entries(c.s.tribulations.items).find(([id]) => tribulationStatus(c.s, id) === "open");
+    const open = Object.entries(c.s.tribulations.items).find(([id]) => id !== LONG_TERM && tribulationStatus(c.s, id) === "open");
     const at = c.at(day, 22);
     if (!open) {
       c.declare(`d${day}`, day, 28);
@@ -120,6 +127,9 @@ function makeDelayer(): Persona["plan"] {
     c.claim(id, day);
   };
 }
+
+/** The long-term Core Formation tribulation every persona keeps open all year. */
+const LONG_TERM = "long-term";
 
 const PERSONAS: Persona[] = [
   {
@@ -171,6 +181,8 @@ function simulate(p: Persona): Cultivator {
   c.apply("InterviewAnswered", T0, { interests: { main: "Mathematics", body: "Gym", soul: "Calm" } });
   c.apply("BodyActivityDefined", T0, { activityId: "gym-1", name: "Gym v1", kind: "routine" });
   c.apply("HeartDemonCreated", T0, { demonId: "d", name: "Impatience", positiveTasks: [{ taskId: "breathe", name: "Breathe" }], negativeTasks: [] });
+  for (let i = 1; i <= 8; i++) c.apply("RealmOverride", T0 + i, {});
+  c.apply("TribulationDeclared", T0 + HOUR, { tribulationId: LONG_TERM, title: "Long-term goal", criteria: "Due after the simulated year", deadline: T0 + 365 * DAY });
   const v = (day: number) => Math.floor(day / 28) + 1;
   for (let day = 0; day < WEEKS * 7; day++) {
     // The routine: a daily mid study (a new linked version every 4 weeks), Body and Soul twice a week.
@@ -200,6 +212,7 @@ export function runTribulationScenarios(outDir: string): void {
     "persona",
     "Main Qi/mo",
     "passed",
+    "end",
     "failed",
     "Qi lost to failures",
     "gold lost to failures",
@@ -227,6 +240,7 @@ export function runTribulationScenarios(outDir: string): void {
       p.label,
       n(mainQi / MONTHS),
       String(items.filter((i) => i.status === "passed").length),
+      `${c.s.main.realm.replace("_", " ")} ${c.s.progress.level ?? ""}`.trim(),
       String(sp.failures.count),
       n(sp.failures.qi),
       n(sp.failures.gold),

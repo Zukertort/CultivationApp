@@ -125,15 +125,15 @@ export interface MainRules {
 export interface TribulationRules {
   minDeadlineHours: number;
   maxDeadlineDays: number;
-  /** What a failure takes from the balances (floored at 0, never debt; ruling 65). Part 3 sizes it from the level's Qi threshold. */
-  failure: { qi: number; gold: number };
+  /** The gold a failure takes (floored at 0, never debt; ruling 65); the Qi part comes from the next threshold (rulings 80, 92). */
+  failure: { gold: number };
   /** Edits are free this long after declaring (ruling 67). */
   freeEditMinutes: number;
-  /** An edit's price before `lateEditFrom` of the time span has passed; after it, the full failure cost. */
+  /** An edit's price before `lateEditFrom` of the time span has passed; after it, a failure's loss (ruling 93). */
   editQi: number;
   lateEditFrom: number;
-  /** Deleting an open tribulation costs this times the failure cost; a failed one costs `deleteFailedQi`. */
-  deleteOpenMultiplier: number;
+  /** Deleting an open tribulation costs a failure's loss plus this share, floored like a failure; a failed one costs `deleteFailedQi` (ruling 93). */
+  deleteOpenExtra: number;
   deleteFailedQi: number;
   /** A passed tribulation's item roll (ruling 68): its chance, and at most one roll per `cooldownDays`. */
   item: { chance: number; cooldownDays: number };
@@ -159,8 +159,10 @@ export interface RealmRules {
   sealWithinDays: number;
   /** A tribulation failure takes this share of the current threshold, and down to (1 - share) of it (ruling 80). */
   failureShare: number;
-  /** Changing a decided area; switching foundation outside the end of Foundation; changing the core discipline (rulings 75, 77). */
+  /** Changing Body or Soul after Qi Condensation; changing Main in Foundation; changing the core discipline (rulings 88, 90, 91). */
   prices: { areaChangeQi: number; foundationSwitchQi: number; coreChangeQi: number };
+  /** Every level-up and breakthrough's legendary roll starts at this chance (ruling 94). */
+  legendaryBaseChance: number;
   /** Closed-door rest started this close to an open tribulation's deadline is logged (ruling 86). */
   closedDoorFlagHours: number;
 }
@@ -304,7 +306,7 @@ export interface RulesConfig {
 }
 
 export const RULES_V1: RulesConfig = Object.freeze({
-  version: "1.11.0",
+  version: "1.12.0",
   tiers: {
     turtle: { capacity: 30, weeklyLoss: 10, goldBonus: 0.01, coreQiBonus: 0, breakthroughLegendaryChance: 0 },
     panda: { capacity: 800, weeklyLoss: 200, goldBonus: 0.1, coreQiBonus: 0, breakthroughLegendaryChance: 0 },
@@ -457,12 +459,12 @@ export const RULES_V1: RulesConfig = Object.freeze({
   tribulations: {
     minDeadlineHours: 24,
     maxDeadlineDays: 365,
-    // About a week of an honest studier's Main income (276 Qi and 193 gold a month).
-    failure: { qi: 65, gold: 45 },
+    // About a week of an honest studier's Main gold (193 a month).
+    failure: { gold: 45 },
     freeEditMinutes: 60,
     editQi: 20,
     lateEditFrom: 0.75,
-    deleteOpenMultiplier: 1.5,
+    deleteOpenExtra: 0.02,
     deleteFailedQi: 40,
     item: { chance: 0.5, cooldownDays: 7 },
     alertHours: [72, 48, 24, 1],
@@ -477,6 +479,7 @@ export const RULES_V1: RulesConfig = Object.freeze({
     sealWithinDays: 90,
     failureShare: 0.25,
     prices: { areaChangeQi: 30, foundationSwitchQi: 125, coreChangeQi: 275 },
+    legendaryBaseChance: 0.02,
     closedDoorFlagHours: 72,
   },
 } satisfies RulesConfig);

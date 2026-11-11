@@ -25,6 +25,9 @@ const ev = <T extends GameEvent["type"]>(type: T, at: number, rest: Omit<Extract
 
 const created = ev("CultivatorCreated", T0, { name: "Ricardo", tzOffsetMinutes: -180, oath: OATH_TEXT });
 const interview = ev("InterviewAnswered", T0, { interests: { main: "Mathematics", body: "BJJ", soul: "" } });
+// Tribulations exist from Foundation on (ruling 89); overrides reach early Core Formation, whose next threshold is 550 Qi.
+const toCore = Array.from({ length: 8 }, (_, i) => ev("RealmOverride", T0 + i + 1, {}));
+const start = [created, ...toCore];
 /** Declared at day 0 08:00 with a 10-day span: the last quarter starts at day 7 20:00. */
 const DECLARED = T0 + 8 * H;
 const DEADLINE = DECLARED + 10 * DAY;
@@ -48,21 +51,21 @@ function code(fn: () => unknown): string | undefined {
 
 const apply = (s: CultivatorState, ...events: GameEvent[]) => events.reduce((acc, e) => applyEvent(acc, e), s);
 const rich = (s: CultivatorState, qi = 1000, gold = 1000): CultivatorState => ({ ...s, qi, gold });
-const base = () => rich(replay([created, declare()]));
+const base = () => rich(replay([...start, declare()]));
 
 describe("declaring (rulings 64, 66)", () => {
   it("records the realm and takes deadlines from 24 hours to 365 days out", () => {
-    const s = replay([created, declare()]);
-    expect(s.tribulations.items.x).toMatchObject({ realm: "qi_condensation", status: "open", failures: 0 });
+    const s = replay([...start, declare()]);
+    expect(s.tribulations.items.x).toMatchObject({ realm: "core_formation", status: "open", failures: 0, closedAt: null });
     const at = T0 + H;
-    expect(code(() => replay([created, declare("y", at, at + 24 * H - 1)]))).toBe("deadline_too_soon");
-    expect(code(() => replay([created, declare("y", at, at + 24 * H)]))).toBeUndefined();
-    expect(code(() => replay([created, declare("y", at, at + 365 * DAY + 1)]))).toBe("deadline_too_far");
+    expect(code(() => replay([...start, declare("y", at, at + 24 * H - 1)]))).toBe("deadline_too_soon");
+    expect(code(() => replay([...start, declare("y", at, at + 24 * H)]))).toBeUndefined();
+    expect(code(() => replay([...start, declare("y", at, at + 365 * DAY + 1)]))).toBe("deadline_too_far");
     expect(code(() => applyEvent(s, declare("x", T0 + 9 * H)))).toBe("duplicate_tribulation");
   });
 
   it("costs nothing to add in Step 1, and allows any number open", () => {
-    const s = replay([created, ...Array.from({ length: 5 }, (_, i) => declare(`t${i}`))]);
+    const s = replay([...start, ...Array.from({ length: 5 }, (_, i) => declare(`t${i}`))]);
     expect(Object.keys(s.tribulations.items)).toHaveLength(5);
     expect(s.qi).toBe(0);
   });
@@ -70,7 +73,7 @@ describe("declaring (rulings 64, 66)", () => {
 
 describe("claiming (rulings 68-69, 71)", () => {
   it("passes an open tribulation with the oath, counts as Main activity, and logs a self-reported claim", () => {
-    const evs = [created, interview, declare()];
+    const evs = [created, interview, ...toCore, declare()];
     const idle = replay(evs, RULES_V1, T0 + 5 * DAY);
     const claimed = replay([...evs, claim(T0 + 2 * DAY, "x", { evidence: [{ kind: "link", ref: "https://example.com/grade" }] })], RULES_V1, T0 + 5 * DAY);
     expect(idle.main.taxPaid.main.idleDays).toBe(2);
@@ -89,10 +92,8 @@ describe("claiming (rulings 68-69, 71)", () => {
     expect(code(() => applyEvent(apply(base(), claim(T0 + DAY)), claim(T0 + 2 * DAY)))).toBe("tribulation_passed");
   });
 
-  it("earns one item roll, stored or pending, at most once per 7 days, for tribulations that count", () => {
-    // In Core Formation every tribulation in the set counts (ruling 82); overrides get there.
-    const toCore = Array.from({ length: 8 }, (_, i) => ev("RealmOverride", T0 + i + 1, {}));
-    const s = replay([created, ...toCore, declare("a"), declare("b"), declare("c")]);
+  it("earns one item roll, stored or pending, at most once per 7 days", () => {
+    const s = replay([...start, declare("a"), declare("b"), declare("c")]);
     const first = apply(s, claim(T0 + DAY, "a", { drop: "gain_potion" }));
     expect(first.inventory.gainPotions).toBe(1);
     // Six days later: inside the cooldown, so the stored outcome is ignored.
@@ -126,14 +127,14 @@ describe("missed deadlines (rulings 65-66)", () => {
     expect(s.qi).toBe(1000); // not applied yet
     const failed = advanceTo(s, T0 + 11 * DAY);
     expect(failed.tribulations.items.x).toMatchObject({ status: "failed", failedAt: DEADLINE, failures: 1, due: null });
-    // Qi Condensation's threshold is its breakthrough, 60: the loss is the larger of 15 and the 955 above 45 (ruling 80).
-    expect(failed.qi).toBe(45);
+    // The next threshold is 550: the loss is the larger of 137.5 and the 587.5 above 412.5 (ruling 80).
+    expect(failed.qi).toBe(412.5);
     expect(failed.gold).toBe(955);
   });
 
   it("floors the loss at the balances and never makes debt or deviation", () => {
     // No interview, so no tax clock: only the failure touches the balances.
-    const s = advanceTo(rich(replay([created, declare()]), 10, 0), T0 + 11 * DAY);
+    const s = advanceTo(rich(replay([...start, declare()]), 10, 0), T0 + 11 * DAY);
     expect(s.qi).toBe(0);
     expect(s.tribulations.spent.failures).toEqual({ qi: 10, gold: 0, count: 1 });
     expect(s.main.debt).toEqual({ qi: 0, gold: 0 });
@@ -142,20 +143,20 @@ describe("missed deadlines (rulings 65-66)", () => {
 
   it("applies the failure at the next event about the tribulation when that comes first", () => {
     const s = apply(base(), reschedule(DEADLINE + H, DEADLINE + 5 * DAY));
-    expect(s.qi).toBe(45);
+    expect(s.qi).toBe(412.5);
     expect(s.tribulations.items.x).toMatchObject({ status: "open", failures: 1, spanStart: DEADLINE + H });
   });
 
   it("keeps a failed tribulation without a deadline until rescheduled; each failure costs again", () => {
     let s = advanceTo(base(), T0 + 30 * DAY);
     expect(tribulationStatus(s, "x")).toBe("failed");
-    expect(s.qi).toBe(45);
+    expect(s.qi).toBe(412.5);
     expect(code(() => applyEvent(base(), reschedule(T0 + DAY, T0 + 20 * DAY)))).toBe("not_failed");
     expect(code(() => applyEvent(s, reschedule(T0 + 30 * DAY, T0 + 30 * DAY + H)))).toBe("deadline_too_soon");
     s = apply(s, reschedule(T0 + 30 * DAY, T0 + 40 * DAY));
     s = advanceTo(s, T0 + 41 * DAY);
     expect(s.tribulations.items.x!.failures).toBe(2);
-    expect(s.qi).toBe(30); // already at 75%: a quarter of the threshold, 15
+    expect(s.qi).toBe(275); // already at 75%: a quarter of the threshold, 137.5
 
     s = apply(s, reschedule(T0 + 41 * DAY, T0 + 50 * DAY), claim(T0 + 45 * DAY));
     expect(tribulationStatus(s, "x")).toBe("passed");
@@ -163,16 +164,16 @@ describe("missed deadlines (rulings 65-66)", () => {
 });
 
 describe("editing and deleting (ruling 67)", () => {
-  it("edits free within the first hour, 20 Qi in the first three quarters, and the failure cost in the last quarter", () => {
+  it("edits free within the first hour, 20 Qi in the first three quarters, and a failure's loss in the last quarter (ruling 93)", () => {
     expect(tribulationEditPrice(base(), "x", DECLARED + H)).toEqual({ qi: 0, gold: 0, kind: "free" });
     expect(tribulationEditPrice(base(), "x", DECLARED + H + 1)).toEqual({ qi: 20, gold: 0, kind: "early" });
     expect(tribulationEditPrice(base(), "x", DECLARED + 7.5 * DAY - 1).kind).toBe("early");
-    expect(tribulationEditPrice(base(), "x", DECLARED + 7.5 * DAY)).toEqual({ qi: 65, gold: 45, kind: "late" });
+    expect(tribulationEditPrice(base(), "x", DECLARED + 7.5 * DAY)).toEqual({ qi: 587.5, gold: 45, kind: "late" });
     const s = apply(base(), edit(DECLARED + 30 * 60 * 1000), edit(DECLARED + DAY), edit(DECLARED + 8 * DAY));
-    expect(s.qi).toBe(1000 - 20 - 65);
+    expect(s.qi).toBe(412.5); // 20, then the 567.5 above 412.5
     expect(s.gold).toBe(1000 - 45);
     expect(s.tribulations.items.x!.criteria).toBe("Score at least 70");
-    expect(s.main.flags.map((f) => [f.code, f.detail])).toEqual([
+    expect(s.main.flags.filter((f) => f.code !== "realm_override").map((f) => [f.code, f.detail])).toEqual([
       ["tribulation_edited", "free"],
       ["tribulation_edited", "early"],
       ["tribulation_edited", "late"],
@@ -188,37 +189,41 @@ describe("editing and deleting (ruling 67)", () => {
   });
 
   it("rejects an edit it can't afford, an empty edit, and any change to a passed tribulation", () => {
-    const poor = rich(replay([created, declare()]), 19, 0);
+    const poor = rich(replay([...start, declare()]), 19, 0);
     expect(code(() => applyEvent(poor, edit(DECLARED + DAY)))).toBe("insufficient_qi");
-    expect(code(() => applyEvent(rich(replay([created, declare()]), 100, 10), edit(DECLARED + 8 * DAY)))).toBe("insufficient_gold");
+    expect(code(() => applyEvent(rich(replay([...start, declare()]), 100, 1000), edit(DECLARED + 8 * DAY)))).toBe("insufficient_qi"); // a quarter of 550
+    expect(code(() => applyEvent(rich(replay([...start, declare()]), 1000, 10), edit(DECLARED + 8 * DAY)))).toBe("insufficient_gold");
     expect(code(() => applyEvent(base(), ev("TribulationEdited", DECLARED + DAY, { tribulationId: "x" })))).toBe("nothing_to_edit");
     const passed = apply(base(), claim(T0 + DAY));
     expect(code(() => applyEvent(passed, edit(T0 + 2 * DAY)))).toBe("tribulation_passed");
     expect(code(() => applyEvent(passed, del(T0 + 2 * DAY)))).toBe("tribulation_passed");
   });
 
-  it("deletes an open tribulation for 1.5x the failure cost and a failed one for 40 Qi", () => {
-    expect(tribulationDeletePrice(base(), "x", T0 + DAY)).toEqual({ qi: 97.5, gold: 67.5 });
+  it("deletes an open tribulation for a failure's loss plus 2%, and a failed one for 40 Qi (ruling 93)", () => {
+    expect(tribulationDeletePrice(base(), "x", T0 + DAY)).toEqual({ qi: 587.5 * 1.02, gold: 45 * 1.02, kind: "open" });
     const s = apply(base(), del(T0 + DAY));
-    expect(s.qi).toBe(902.5);
-    expect(s.gold).toBe(932.5);
+    expect(s.qi).toBeCloseTo(1000 - 587.5 * 1.02, 9);
+    expect(s.gold).toBeCloseTo(1000 - 45 * 1.02, 9);
     expect(tribulationStatus(s, "x")).toBe("deleted");
     expect(s.main.flags).toContainEqual({ at: T0 + DAY, code: "tribulation_deleted", id: "x" });
     expect(code(() => applyEvent(s, claim(T0 + 2 * DAY)))).toBe("tribulation_deleted");
     // A failed one: the failure was already paid.
     const failed = apply(advanceTo(base(), T0 + 12 * DAY), del(T0 + 12 * DAY));
-    expect(failed.qi).toBe(1000 - 955 - 40);
+    expect(failed.qi).toBe(1000 - 587.5 - 40);
     expect(failed.gold).toBe(1000 - 45);
-    expect(code(() => applyEvent(rich(replay([created, declare()]), 97, 100), del(T0 + DAY)))).toBe("insufficient_qi");
+    expect(code(() => applyEvent(advanceTo(rich(replay([...start, declare()]), 30), T0 + 12 * DAY), del(T0 + 12 * DAY)))).toBe("insufficient_qi");
+    // An open one is never rejected: like a failure, the loss is floored at the balances.
+    const poor = apply(rich(replay([...start, declare()]), 97, 10), del(T0 + DAY));
+    expect([poor.qi, poor.gold, tribulationStatus(poor, "x")]).toEqual([0, 0, "deleted"]);
   });
 
-  it("makes deleting an open tribulation cost more than failing it, with a balance near the threshold", () => {
-    // With savings far above the threshold a failure takes more than a deletion (ruling 80); reported as a gap in part 3.
-    const near = () => rich(replay([created, declare()]), 100, 1000);
-    const deleted = apply(near(), del(T0 + DAY));
-    const failed = advanceTo(near(), T0 + 11 * DAY);
-    expect(deleted.qi).toBeLessThan(failed.qi);
-    expect(deleted.gold).toBeLessThan(failed.gold);
+  it("makes deleting an open tribulation cost more than failing it, with savings or without", () => {
+    for (const qi of [300, 1000, 5000]) {
+      const deleted = apply(rich(replay([...start, declare()]), qi), del(T0 + DAY));
+      const failed = advanceTo(rich(replay([...start, declare()]), qi), T0 + 11 * DAY);
+      expect(deleted.qi).toBeLessThan(failed.qi);
+      expect(deleted.gold).toBeLessThan(failed.gold);
+    }
   });
 });
 
@@ -249,12 +254,12 @@ describe("rest (ruling 70)", () => {
 
 describe("push alerts (rulings 69-70)", () => {
   it("pushes at 72, 48, 24 and 1 hour left, ahead of every other alert", () => {
-    const s = replay([created, declare("x", T0 + 8 * H, T0 + 8 * H + 5 * DAY)]);
+    const s = replay([...start, declare("x", T0 + 8 * H, T0 + 8 * H + 5 * DAY)]);
     const plan = pushAlertPlan(s, T0 + 8 * H);
     expect(plan.filter((a) => a.kind === "tribulation_deadline").map((a) => a.hoursLeft)).toEqual([72, 48, 24, 1]);
     // A day with 4 alerts keeps the tribulation's (at most 3 a day, most urgent first).
     const crowded = replay([
-      created,
+      ...start,
       declare("x", T0 + 8 * H, T0 + 20 * H + 3 * DAY),
       ...["a", "b", "c"].map((id) =>
         ev("MainQuestDefined", T0 + 8 * H, {
@@ -283,7 +288,7 @@ describe("push alerts (rulings 69-70)", () => {
           { taskId: `${id}2`, name: `${id}2`, difficulty: "mid", effort: "session" },
         ],
       });
-    const s = rich(replay([created, declare("x", T0 + 8 * H, T0 + 8 * H + 4 * DAY), quests("q")]));
+    const s = rich(replay([...start, declare("x", T0 + 8 * H, T0 + 8 * H + 4 * DAY), quests("q")]));
     const vacation = apply(s, ev("RestStarted", T0 + 9 * H, { kind: "vacation", until: T0 + 10 * DAY }));
     const vplan = pushAlertPlan(vacation, T0 + 9 * H);
     expect(new Set(vplan.map((a) => a.kind))).toEqual(new Set(["tribulation_deadline", "rest_ending"]));

@@ -590,7 +590,7 @@ const handlers: { [T in GameEvent["type"]]: Handler<T> } = {
     if (!onTribulationDropRolled(s, e)) s.anomalies.push({ at: e.at, code: "orphan_tribulation_drop_roll" });
   },
   AreaDecided: onAreaDecided,
-  CoreFormed: (s) => onCoreFormed(s),
+  CoreFormed: (s, e) => onCoreFormed(s, e),
   NascentSoulSealed: onNascentSoulSealed,
   RealmOverride: onRealmOverride,
   BreakthroughRolled: (s, e) => {

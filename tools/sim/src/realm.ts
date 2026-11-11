@@ -1,7 +1,7 @@
 /**
  * Realm simulator (Main part 3): how long honest cultivators take through
  * the Step 1 realms and levels with the provisional Qi thresholds, how long
- * they wait for Qi, and what a failure takes (rulings 62, 73-86).
+ * they wait for Qi, and what a failure takes (rulings 62, 73-97).
  *
  * Every persona answers the interview on day 0 and decides its three areas
  * in the first week. Its income comes from Main tasks (the study, project or
@@ -24,6 +24,7 @@ import {
   RuleViolation,
   applyEvent,
   breakthroughRollOutcome,
+  conqueredTribulations,
   initialState,
   pendingBreakthroughRolls,
   pendingTribulationRolls,
@@ -165,7 +166,7 @@ interface Habits {
   failFirst?: boolean;
   /** Fast track: Foundation tribulations claimed the day they're declared, with evidence. */
   fastTrack?: boolean;
-  /** Switches the Main discipline once, at Foundation's mid level (paying the price). */
+  /** Switches the Main discipline once, at Foundation's mid level (paying the price; nothing restarts, ruling 90). */
   switchMidFoundation?: boolean;
   /** Declares the fewest tribulations with 1-day deadlines and passes them the next day, so only Qi sets the pace. */
   eager?: boolean;
@@ -208,7 +209,7 @@ function tribulationPlan(h: Habits) {
 
     const open = [...plans.keys()].filter((id) => {
       const t = c.s.tribulations.items[id]!;
-      return t.realm === c.s.main.realm && t.epoch === c.s.progress.epoch && (t.status === "open" || t.status === "failed");
+      return t.realm === c.s.main.realm && t.closedAt === null && (t.status === "open" || t.status === "failed");
     });
     const status = realmStatus(c.s);
     if (realm === "foundation_establishment") {
@@ -216,7 +217,7 @@ function tribulationPlan(h: Habits) {
         switched = c.now("AreaDecided", at, { path: "main", choice: "a second discipline" });
         return;
       }
-      if (status.level === "great_circle" && status.next?.missing === "choice") c.now("CoreFormed", at, {});
+      if (status.level === "great_circle" && status.next?.missing === "choice") c.now("CoreFormed", at, { choice: "main discipline" });
       else if (open.length === 0 && (status.tribulations?.passed ?? 0) < 3) {
         if (h.eager) declare(c, `fe${day}`, day, 1, day + 1);
         else declare(c, `fe${day}`, day, 28, h.fastTrack ? day : day + 20);
@@ -290,6 +291,8 @@ function simulate(p: Persona) {
     largestFailure: c.s.tribulations.largestFailureQi,
     tribulationRolls: c.s.tribulations.drops.none + c.s.tribulations.drops.gain_potion + c.s.tribulations.drops.legendary_potion,
     legendaryRolls: c.s.progress.legendaryRolls.none + c.s.progress.legendaryRolls.legendary,
+    legendaryItems: c.s.progress.legendaryRolls.legendary,
+    conquered: conqueredTribulations(c.s).length,
   };
 }
 
@@ -308,6 +311,8 @@ export function runRealmScenarios(outDir: string): void {
     "largest single failure",
     "tribulation item rolls",
     "legendary rolls",
+    "legendary items",
+    "conquered tribulations",
   ];
   const rows = PERSONAS.map(simulate).map((r) => [
     r.label,
@@ -320,6 +325,8 @@ export function runRealmScenarios(outDir: string): void {
     String(Math.round(r.largestFailure)),
     String(r.tribulationRolls),
     String(r.legendaryRolls),
+    String(r.legendaryItems),
+    String(r.conquered),
   ]);
   console.log(`\nRealms: month each realm was reached, Qi waits and failure losses (up to ${YEARS} years)\n`);
   console.log(header.join("\t"));

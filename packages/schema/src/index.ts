@@ -402,8 +402,8 @@ export const TribulationDropRolled = z.object({
 
 /**
  * Decides (or changes) the Main, Body or Soul area (ruling 75). Each area's
- * first decision raises Qi Condensation one level; a change costs Qi, and a
- * Main change is a discipline change (ruling 77).
+ * first decision raises Qi Condensation one level. Changes are free until
+ * Qi Condensation's breakthrough, then cost Qi (rulings 88, 90, 91).
  */
 export const AreaDecided = z.object({
   ...base,
@@ -412,10 +412,11 @@ export const AreaDecided = z.object({
   choice: z.string().min(1).max(200),
 });
 
-/** At the end of Foundation, forms a core (the other choice is a free foundation switch with AreaDecided; ruling 74). */
+/** At the end of Foundation, forms a core in the chosen discipline, picked for free (rulings 74, 90). */
 export const CoreFormed = z.object({
   ...base,
   type: z.literal("CoreFormed"),
+  choice: z.string().min(1).max(200),
 });
 
 /** Seals Nascent Soul's tribulation set, within 90 days of entering (ruling 79). */

@@ -4,7 +4,7 @@
  * edits and deletions cost Qi (and gold late in the attempt), a missed
  * deadline fails it and takes Qi and gold, and a sworn claim passes it.
  *
- * Settled rules live in docs/design.md, Rulings 64-72 and 80-86. Which
+ * Settled rules live in docs/design.md, Rulings 64-72 and 80-97. Which
  * tribulations a breakthrough needs is decided in realm.ts (part 3). The only random
  * outcome is a passed tribulation's item roll, rolled by the server and
  * stored in the event.
@@ -15,22 +15,23 @@ import type { CultivatorState } from "./engine.js";
 import { addPotion, potionKind } from "./economy.js";
 import { violate } from "./errors.js";
 import { effectiveDeadline, markActivity, type Due } from "./main.js";
-import { countsTowardRealm, failureQiLoss } from "./realm.js";
+import { checkClaimable, checkDeclarable, failureQiLoss } from "./realm.js";
 import { DAY, MINUTE } from "./time.js";
 
 const HOUR = 60 * MINUTE;
 
 // ---- State ------------------------------------------------------------------
 
-export type TribulationStatus = "open" | "passed" | "failed" | "deleted";
+/** "closed": left open or failed by a breakthrough or a discipline change, at no cost (rulings 89, 91). */
+export type TribulationStatus = "open" | "passed" | "failed" | "deleted" | "closed";
 
 export interface Tribulation {
   title: string;
   criteria: string;
-  /** The realm it was declared in; part 3 decides what counts toward a breakthrough. */
+  /** The realm it was declared in; it counts toward that realm's breakthrough (ruling 89). */
   realm: Realm;
-  /** The discipline epoch it was declared under: a Main discipline change stops it counting (ruling 77). */
-  epoch: number;
+  /** When a breakthrough or a discipline change closed it; a passed one keeps its status (rulings 89, 91). */
+  closedAt: number | null;
   declaredAt: number;
   /** Start of the current attempt: the declaration or the last reschedule. Edit prices use it (ruling 67). */
   spanStart: number;
@@ -117,15 +118,19 @@ function settleFailure(s: CultivatorState, t: Tribulation, at: number, rules: Ru
   t.failedAt = deadline;
   t.failures += 1;
   t.due = null;
-  const qi = Math.min(s.qi, failureQiLoss(s, rules));
-  const gold = Math.min(s.gold, rules.tribulations.failure.gold);
-  s.qi -= qi;
-  s.gold -= gold;
-  const spent = s.tribulations.spent.failures;
-  spent.qi += qi;
-  spent.gold += gold;
-  spent.count += 1;
-  s.tribulations.largestFailureQi = Math.max(s.tribulations.largestFailureQi, qi);
+  const taken = take(s, failureQiLoss(s, rules), rules.tribulations.failure.gold, s.tribulations.spent.failures);
+  s.tribulations.largestFailureQi = Math.max(s.tribulations.largestFailureQi, taken.qi);
+}
+
+/** Take a loss from the balances, floored at 0, never as debt (rulings 65, 93). */
+function take(s: CultivatorState, qi: number, gold: number, into: Cost): { qi: number; gold: number } {
+  const taken = { qi: Math.min(s.qi, qi), gold: Math.min(s.gold, gold) };
+  s.qi -= taken.qi;
+  s.gold -= taken.gold;
+  into.qi += taken.qi;
+  into.gold += taken.gold;
+  into.count += 1;
+  return taken;
 }
 
 /** Take a price from the balances, or reject the change when they can't cover it (ruling 67). */
@@ -154,33 +159,47 @@ export function tribulationEditPrice(state: CultivatorState, tribulationId: stri
   if (statusAt(state, t, at) === "failed" || !t.due) return { qi: r.editQi, gold: 0, kind: "failed" };
   const span = effectiveDeadline(t.due, state.rest, at) - t.spanStart;
   if (at - t.spanStart < r.lateEditFrom * span) return { qi: r.editQi, gold: 0, kind: "early" };
-  return { qi: r.failure.qi, gold: r.failure.gold, kind: "late" };
+  // The last quarter costs a failure (ruling 93).
+  return { qi: failureQiLoss(state, rules), gold: r.failure.gold, kind: "late" };
 }
 
-/** What deleting a tribulation costs at `at` (ruling 67): 1.5x the failure cost while open, 40 Qi once failed. */
-export function tribulationDeletePrice(state: CultivatorState, tribulationId: string, at: number, rules: RulesConfig = RULES_V1): { qi: number; gold: number } {
+/**
+ * What deleting a tribulation costs at `at` (ruling 93): an open one, the
+ * failure loss plus 2% in Qi and gold, taken like a failure (floored at the
+ * balances, never rejected); a failed one, 40 Qi, since the failure was
+ * already paid.
+ */
+export function tribulationDeletePrice(
+  state: CultivatorState,
+  tribulationId: string,
+  at: number,
+  rules: RulesConfig = RULES_V1,
+): { qi: number; gold: number; kind: "open" | "failed" } {
   const t = get(state, tribulationId);
   const r = rules.tribulations;
-  if (statusAt(state, t, at) === "failed") return { qi: r.deleteFailedQi, gold: 0 };
-  return { qi: r.failure.qi * r.deleteOpenMultiplier, gold: r.failure.gold * r.deleteOpenMultiplier };
+  if (statusAt(state, t, at) === "failed") return { qi: r.deleteFailedQi, gold: 0, kind: "failed" };
+  const k = 1 + r.deleteOpenExtra;
+  return { qi: failureQiLoss(state, rules) * k, gold: r.failure.gold * k, kind: "open" };
 }
 
 function checkChangeable(t: Tribulation): void {
   if (t.status === "passed") violate("tribulation_passed", "a passed tribulation can't be changed");
   if (t.status === "deleted") violate("tribulation_deleted", "this tribulation was deleted");
+  if (t.status === "closed") violate("tribulation_closed", "this tribulation was closed");
 }
 
 // ---- Handlers ---------------------------------------------------------------
 
 export function onTribulationDeclared(s: CultivatorState, e: EventOf<"TribulationDeclared">, rules: RulesConfig): void {
   if (s.tribulations.items[e.tribulationId]) violate("duplicate_tribulation", `tribulation ${e.tribulationId} already exists`);
+  checkDeclarable(s);
   checkDeadline(e.deadline, e.at, rules);
   // Adding is free in Step 1 (ruling 67); Step 2+ prices come with Step 2.
   s.tribulations.items[e.tribulationId] = {
     title: e.title,
     criteria: e.criteria,
     realm: s.main.realm,
-    epoch: s.progress.epoch,
+    closedAt: null,
     declaredAt: e.at,
     spanStart: e.at,
     due: { deadline: e.deadline, definedAt: e.at, originalMs: e.deadline - e.at, extended: false },
@@ -211,7 +230,8 @@ export function onTribulationDeleted(s: CultivatorState, e: EventOf<"Tribulation
   settleFailure(s, t, e.at, rules);
   checkChangeable(t);
   const price = tribulationDeletePrice(s, e.tribulationId, e.at, rules);
-  pay(s, price.qi, price.gold, s.tribulations.spent.deletions);
+  if (price.kind === "failed") pay(s, price.qi, price.gold, s.tribulations.spent.deletions);
+  else take(s, price.qi, price.gold, s.tribulations.spent.deletions);
   t.status = "deleted";
   t.due = null;
   s.main.flags.push({ at: e.at, code: "tribulation_deleted", id: e.tribulationId });
@@ -230,8 +250,8 @@ export function onTribulationRescheduled(s: CultivatorState, e: EventOf<"Tribula
 
 /**
  * A sworn claim passes an open tribulation (ruling 69): it counts as Main
- * activity. If it counts toward the current realm's breakthrough it earns one
- * item roll, at most one per 7 days (rulings 68, 82), and a Foundation claim
+ * activity and earns one item roll, at most one per 7 days (rulings 68, 82;
+ * every tribulation counts toward its realm, ruling 89). A Foundation claim
  * with evidence is logged as fast track (ruling 76).
  */
 export function onTribulationClaimed(s: CultivatorState, e: EventOf<"TribulationClaimed">, rules: RulesConfig): void {
@@ -239,16 +259,15 @@ export function onTribulationClaimed(s: CultivatorState, e: EventOf<"Tribulation
   settleFailure(s, t, e.at, rules);
   checkChangeable(t);
   if (t.status === "failed") violate("tribulation_failed", "the deadline has passed; set a new one to try again");
-  const counts = countsTowardRealm(s, e.tribulationId);
+  checkClaimable(s, t);
   t.status = "passed";
   t.passedAt = e.at;
   t.due = null;
   t.evidence = e.evidence?.length ?? 0;
   markActivity(s.main, "main", e.at);
   s.main.flags.push({ at: e.at, code: "tribulation_claimed", id: e.tribulationId, detail: e.llmReview === "done" ? "reviewed" : "self_reported" });
-  if (counts && s.main.realm === "foundation_establishment" && t.evidence > 0) s.main.flags.push({ at: e.at, code: "fast_track_claim", id: e.tribulationId });
+  if (t.realm === "foundation_establishment" && t.evidence > 0) s.main.flags.push({ at: e.at, code: "fast_track_claim", id: e.tribulationId });
 
-  if (!counts) return;
   const tr = s.tribulations;
   const cooldown = rules.tribulations.item.cooldownDays * DAY;
   if (tr.lastRollAt !== null && e.at - tr.lastRollAt < cooldown) return;
