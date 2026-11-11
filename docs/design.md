@@ -25,7 +25,7 @@ Each path gets its own math because each grows differently: Main compounds, Body
 - [x] Core Formation: guide tribulations that define "professional" in the discipline; levels advance at 30/60/90% of tribulations passed, Nascent Soul at 100%; adding a tribulation later lowers the percentage but never the level already reached *(Levels and the never-demote rule were built in Main part 3 (ruling 78); the guidance waits for the LLM.)*
 - [ ] Nascent Soul: guide tribulations that define "expert"; offer a research quest when unsure; warn against changing them out of self-doubt or overconfidence *(The locked set and the transcendence were built in Main part 3 (ruling 79); the guidance, the research-quest offer and the warning wait for the app and the LLM.)*
 - [ ] Spirit Realm: force selecting a new discipline; tribulations are studies and combinations that may shift with findings
-- [ ] Realm intro screens stating each realm's purpose and its self-check question (e.g., "Am I an expert, or am I lacking something?") *(Each Step 1 realm's tribulation purpose, with good and bad examples, is in the rules since Main part 3 (ruling 87); the screens wait for the app.)*
+- [x] Realm intro screens stating each realm's purpose and its self-check question (e.g., "Am I an expert, or am I lacking something?") *(After any breakthrough the app opens the Trials tab on the new realm: its purpose, good and bad examples (ruling 87), what to do next and its self-check question.)*
 - [ ] Lore: Nascent Soul needs luck, realms above it need luck and destiny, and no one has demonstrably reached Immortal, which keeps the dream alive
 - [ ] Write example tribulations for each realm from Void God to Immortal
 
@@ -33,7 +33,7 @@ Each path gets its own math because each grows differently: Main compounds, Body
 
 | Step | Realm | Purpose | Levels | Breakthrough |
 | --- | --- | --- | --- | --- |
-| 1 | Qi Condensation | Discover interests in Main, Body and Soul | Early: interview answered. Mid: 1 area decided. Late: 2. Great circle: 3 | First tribulation: all three areas chosen (free to change until the breakthrough, then for a price) |
+| 1 | Qi Condensation | Discover interests in Main, Body and Soul | Early: interview answered. Mid: 1 area decided. Late: 2. Great circle: 3 | First tribulation: all three areas chosen, then locked by the cultivator (free to change until the lock, then for a price) |
 | 1 | Foundation Establishment | Start practicing and test the chosen path | One dated tribulation per level (mid, late, great circle) | All passed; then form a core, picking the core discipline for free, and choose a class |
 | 1 | Core Formation (Golden Core) | Become a professional; consistency over single wins | 30% of tribulations: mid. 60%: late. 90%: great circle | 100%: "I consider myself a professional" |
 | 1 | Nascent Soul | Become an expert; needs some luck | No levels: a set defined and locked within 90 days of entering (ruling 79) | All passed: "I consider myself an expert" |
@@ -200,7 +200,7 @@ Something must pay out every few minutes, every few weeks and every few years; t
 | Nascent Soul | 67 |
 | Spirit Realm | about 117 (27 months in the realm simulator) |
 | Panda, Horse, Tiger, Lion | 0.1, 1.4, 4.4, 12.7 (2 routines a week stops at Tiger, week 11) |
-| Green, Blue, Red | 3; 11 when practice focuses one demon at a time; Red at 83 with daily practice; Golden not within 2 years |
+| Green, Blue, Red, Golden | Green at 3. Hitting one demon per session: Blue at 11 when focused, Red at 83 with daily practice, never Golden. With soul quests (each session hits every demon, ruling 14), 3 a week: Blue 11, Red 23, Golden 28; 2 a week: Golden 31, and Rainbow by the end |
 
 ## Economy
 
@@ -410,7 +410,8 @@ Items found while implementing; each waits for a decision or a later part.
 - [x] Lion pet wearables can only be worn at Lion, so a Body or Hybrid cultivator below Lion holds them unused (a studier Warrior got 3 in a year and wore none); they are forfeited at a class change *(Ruling 118: the pet wearable keeps the current tier, at any tier.)*
 - [ ] Legendary versions of class wearables (visual plus bonus demon damage or gold) wait for gear
 - [ ] Set shop and gear prices against the physical-practice personas (about 3.5x a studier's gold), not the studier
-- [ ] Soul cadence: each demon needs a positive task about every 8 days just to hold (3-day grace, then 1% a day), so with several demons 3 practice sessions a week fall behind and the soul ends Broken in the cadence report; daily practice reaches Red at week 83
+- [ ] Soul cadence: each demon needs a positive task about every 8 days just to hold (3-day grace, then 1% a day). Hitting one demon per session, 3 sessions a week fall behind with several demons and the soul ends Broken; daily practice reaches Red at week 83. With soul quests (one session hitting every demon, ruling 14), 2 sessions a week reach Golden by week 31 and end Rainbow, and after the 7 defeats the Soul middle loop has no payoff but the color clocks (longest gap 74 weeks). No retuning proposed yet
+- [ ] Remove the temporary on-device roller (`apps/mobile/src/lib/roller.ts`) once the server rolls; it writes the same roll events, so the log needs no migration
 - [ ] Dev-only scenario loader for testing: builds a cultivator by generating and replaying a real event log (the simulator personas as seeds), plus a time-travel control to advance the clock. It exists only in the development build profile and is excluded from release builds; no cheat events in the rules engine
 
 ## Rulings
@@ -502,13 +503,13 @@ Decisions made while implementing the rules engine. They are settled: future ses
 
 73. Part 3 builds Step 1 only: Qi Condensation, Foundation Establishment, Core Formation and Nascent Soul. Passing Nascent Soul enters Spirit Realm, where progression stops until Step 2 is built.
 74. Qi is spent at each level-up and realm breakthrough: the threshold is taken from the balance. Level-ups and breakthroughs happen automatically once their conditions hold, except Foundation to Core Formation, which waits for the cultivator's choice: form a core, or change foundation for free. *(The end choice amended by ruling 90.)*
-75. An AreaDecided event records the choice for Main, Body or Soul. Each area's first decision raises Qi Condensation one level (mid, late, great circle), and the breakthrough to Foundation happens once all three are chosen and the Qi is there; it needs no tribulation claim. Changing a decided area costs Qi; changing the Main area follows ruling 77. *(Change prices amended by ruling 88.)*
+75. An AreaDecided event records the choice for Main, Body or Soul. Each area's first decision raises Qi Condensation one level (mid, late, great circle). The breakthrough to Foundation needs no tribulation claim and no Qi: it happens when the cultivator, with all three decided, confirms the lock (ruling 133). Changing a decided area follows ruling 88.
 76. Tribulations declared while in Foundation count in the order they're passed: the first passed reaches mid, the second late, the third great circle. Rescheduled ones still count; deleted ones don't. Fast track: Foundation's Qi thresholds are waived for Foundation tribulations claimed with evidence, and those claims are logged in the integrity log.
 77. A foundation switch is free only at the end of Foundation (the choice in ruling 74) and costs Qi at any other time. It restarts Foundation at early, and the old Foundation tribulations stop counting. Changing the core discipline from Core Formation on costs Qi, returns the cultivator to early Core Formation, and starts a new tribulation set. *(Amended by rulings 90 and 91.)*
 78. Core Formation's set is the tribulations declared in it under the current discipline. Its percentage counts once the set holds at least 5; deleted tribulations leave the set, failed ones stay as not passed. Levels come at 30, 60 and 90% passed, and the breakthrough to Nascent Soul at 100%. Adding a tribulation lowers the percentage but never a level already reached.
 79. Nascent Soul has no levels: passing every tribulation in its set transcends to Spirit Realm. On entering, the cultivator defines the set and locks it with an explicit event within 90 days (time for a research quest on what "expert" means); a set left unlocked is locked as it stands at the first midnight after day 90. Until the lock, edits and deletions are free (still logged) and claims are rejected. After it, adding is allowed and free in Step 1 (ruling 67; adding only makes the breakthrough harder), and edits and deletions cost the normal prices (rulings 67 and 93).
 80. A tribulation failure takes 25% of the current level's Qi threshold; if the balance would still be above 75% of the threshold, it takes enough to bring it down to 75%, so a failure always means extra work. The gold loss stays flat at 45. The simulator reports the largest single failure loss. *(Applies to every tribulation: ruling 92.)*
-81. Qi thresholds (simulator values): Qi Condensation levels 0 and its breakthrough 60; Foundation levels 250 each and its breakthrough 300; Core Formation levels 550 each and its breakthrough 700; Nascent Soul's transcendence 1,500.
+81. Qi thresholds (simulator values): Qi Condensation levels and breakthrough 0 (ruling 133); Foundation levels 250 each and its breakthrough 300; Core Formation levels 550 each and its breakthrough 700; Nascent Soul's transcendence 1,500.
 82. A passed tribulation earns its item roll only if it counts toward the current realm's breakthrough (rulings 76, 78, 79); the 7-day cooldown stays. *(Every tribulation counts since ruling 89.)*
 83. Every level-up and realm breakthrough earns one server-rolled legendary-item roll. The Lion's 2% and one halo ticket (if one is available, +10%, used up) add to its chance. The legendary potion is not part of this roll: it raises the chance of gear turning legendary at a breakthrough and comes with gear. Until gear exists, a legendary item is stored in the inventory. *(Base chance added by ruling 94.)*
 84. A RealmOverride event advances one level or realm, ignoring Qi and tribulations. It costs nothing and is logged in the integrity log.
@@ -575,3 +576,9 @@ Decisions made while implementing the rules engine. They are settled: future ses
 130. Demon deletions and renames are logged in the integrity log (demon_deleted, demon_renamed).
 131. `taxForecast` lists each task's pending postponed tax: a one-time task's is charged the midnight after its extension window; a recurring task's only if it is cancelled (no date).
 132. A quest may name a tribulation it prepares for (display only, no reward effect). The tribulation must exist and not be deleted.
+
+**Dogfooding changes (Nov 11, 2026)**
+
+133. Qi Condensation is only for cultivators undecided in at least one path. Its breakthrough threshold is 0. Once all three areas are decided, the app asks "Lock these areas and break through?"; confirming logs an AreasLocked event and breaks through at once. Before it, areas change for free (ruling 88). Choosing "decide later" keeps the cultivator in Qi Condensation, with the message: "Not sure yet? Create tasks and quests to explore this path. When you've decided, lock your areas to break through."
+134. In Qi Condensation, Main tasks and quests pay gold but no Qi (and record no Qi toward a quest's bonus), so an undecided cultivator can't bank Qi and everyone enters Foundation on equal footing. Other Qi sources (soul drops, Lion petting, roulette) are unchanged.
+135. App forms: a deadline is a calendar date, due at 23:59 local time that day, shown with the days left. Effort keeps its options (Quick, Session, Full day, Project) as its own field, "Effort: how much work this takes", with a description under each (under 30 min, 1-2 h, a day's work, several days of work); it stays self-rated and locked at creation (ruling 25). The due date is a separate section. After any breakthrough the app opens the Trials tab on the new realm's purpose, examples, next steps and self-check question.

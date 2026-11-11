@@ -34,6 +34,8 @@ interface Persona {
   soul: number[];
   /** Which demon a practice session hits: the one with the most HP, or the undefeated one closest to defeat. */
   focus?: boolean;
+  /** Each practice session is a soul quest hitting every demon at once (ruling 14). */
+  quests?: boolean;
 }
 
 const PERSONAS: Persona[] = [
@@ -41,6 +43,8 @@ const PERSONAS: Persona[] = [
   { label: "minimum: daily study, gym 2x and soul 2x a week", income: study, gym: [1, 4], soul: [2, 6] },
   { label: "consistent, soul focused on one demon at a time", income: study, gym: [0, 2, 4], soul: [1, 3, 5], focus: true },
   { label: "daily soul practice (7x a week), spread", income: study, gym: [0, 2, 4], soul: [0, 1, 2, 3, 4, 5, 6] },
+  { label: "soul quests: 3 sessions a week, each hitting every demon", income: study, gym: [0, 2, 4], soul: [1, 3, 5], quests: true },
+  { label: "soul quests: 2 sessions a week, each hitting every demon", income: study, gym: [0, 2, 4], soul: [2, 6], quests: true },
   { label: "weekly project, gym 3x and soul 3x a week", income: weeklyProject, gym: [0, 2, 4], soul: [1, 3, 5] },
 ];
 
@@ -81,7 +85,12 @@ function simulate(p: Persona) {
     if (day % 28 === 0) c.ev("BodyActivityDefined", c.at(day, 6), { activityId: `gym-${v}`, name: `Gym v${v}`, kind: "routine" });
     if (p.gym.includes(day % 7)) c.ev("BodyActivityLogged", c.at(day, 20), { activityId: `gym-${v}` });
     c.flush();
-    if (p.soul.includes(day % 7) && demons.length > 0) {
+    if (p.quests && p.soul.includes(day % 7) && demons.length >= 2) {
+      // One session against several demons is a soul quest: defined and completed at once (ruling 14).
+      const questId = `sq${day}`;
+      c.now("SoulQuestDefined", c.at(day, 21), { questId, name: "Practice", demonIds: [...demons] });
+      c.now("SoulQuestCompleted", c.at(day, 21), { questId });
+    } else if (p.soul.includes(day % 7) && demons.length > 0) {
       const hp = (id: string) => c.s.soul.demons[id]!.hp;
       const open = demons.filter((id) => !c.s.soul.demons[id]!.defeated);
       const target = p.focus && open.length > 0 ? [...open].sort((a, b) => hp(a) - hp(b))[0]! : [...demons].sort((a, b) => hp(b) - hp(a))[0]!;

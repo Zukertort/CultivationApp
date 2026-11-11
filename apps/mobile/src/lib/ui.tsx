@@ -125,6 +125,46 @@ export function relative(at: number, now: number): string {
 
 export const cap = (w: string) => w.charAt(0).toUpperCase() + w.slice(1);
 
+/** "core_formation" -> "Core formation". */
+export const words = (id: string) => cap(id.replace(/_/g, " "));
+
+/** A small toggle, for picking one of many options that don't fit a segmented control. */
+export function Chip({ label, on, onPress }: { label: string; on?: boolean; onPress: () => void }) {
+  return (
+    <Pressable accessibilityRole="button" onPress={onPress} style={[s.chip, on && s.chipOn]}>
+      <Text style={[s.chipText, on && { color: C.bg }]}>{label}</Text>
+    </Pressable>
+  );
+}
+
+/** A local date and time, short. */
+export const when = (at: number) => new Date(at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+
+/** The end of the local day `days` days from now (a deadline the user reads as "in N days"). */
+export function endOfDayIn(days: number, now = Date.now()): number {
+  const d = new Date(now);
+  d.setDate(d.getDate() + days);
+  d.setHours(23, 59, 0, 0);
+  return d.getTime();
+}
+
+/** A positive whole number typed into a field, or null. */
+export function wholeNumber(text: string): number | null {
+  const n = Number(text.trim());
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+/** "HH:MM" to minutes after midnight, or null. */
+export function parseClock(text: string): number | null {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(text.trim());
+  if (!m) return null;
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  return h < 24 && min < 60 ? h * 60 + min : null;
+}
+
+export const clock = (minutes: number) => `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+
 const s = StyleSheet.create({
   safe: { flex: 1, backgroundColor: C.bg },
   scroll: { padding: 16, gap: 14, maxWidth: 640, width: "100%", alignSelf: "center" },
@@ -145,4 +185,7 @@ const s = StyleSheet.create({
   seg: { flexDirection: "row", borderWidth: 1, borderColor: C.border, borderRadius: 10, overflow: "hidden" },
   segItem: { flex: 1, paddingVertical: 8, alignItems: "center" },
   segActive: { backgroundColor: C.gold },
+  chip: { borderWidth: 1, borderColor: C.border, borderRadius: 16, paddingVertical: 6, paddingHorizontal: 12 },
+  chipOn: { backgroundColor: C.gold, borderColor: C.gold },
+  chipText: { color: C.text, fontSize: 13, fontWeight: "600" },
 });

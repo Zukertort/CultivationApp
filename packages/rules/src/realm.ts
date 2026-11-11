@@ -110,6 +110,8 @@ export interface ProgressState {
   areas: Record<MainPath, string | null>;
   /** When the current realm was entered (or restarted). */
   enteredAt: number;
+  /** When the cultivator confirmed "Lock these areas and break through?" (ruling 133). */
+  areasLockedAt: number | null;
   /** End of Foundation: the cultivator chose to form a core (ruling 74). */
   coreChosen: boolean;
   /** When Nascent Soul's set was locked (ruling 79); kept while in Spirit Realm. */
@@ -131,6 +133,7 @@ export function initialProgress(): ProgressState {
     level: "early",
     areas: { main: null, body: null, soul: null },
     enteredAt: 0,
+    areasLockedAt: null,
     coreChosen: false,
     lockedAt: null,
     steps: [],
@@ -243,7 +246,8 @@ export interface NextStep {
   /** Everything but the Qi holds (areas decided, tribulations passed, choice made, set locked). */
   ready: boolean;
   /** What's still missing besides Qi, for the character screen. */
-  missing: "areas" | "tribulations" | "choice" | "lock" | null;
+  /** "lock_areas": all three decided, waiting for the cultivator to lock them (ruling 133). */
+  missing: "areas" | "lock_areas" | "tribulations" | "choice" | "lock" | null;
 }
 
 /** The highest Core Formation level its set's share reaches (rulings 78, 102). */
@@ -269,7 +273,7 @@ export function nextStep(s: CultivatorState, rules: RulesConfig = RULES_V1): Nex
     case "qi_condensation": {
       const decided = Object.values(p.areas).filter((a) => a !== null).length;
       if (i < 3) return step("level", r.levelQi.qi_condensation, decided >= i + 1, "areas");
-      return step("breakthrough", r.breakthroughQi.qi_condensation, decided === 3, "areas");
+      return step("breakthrough", r.breakthroughQi.qi_condensation, decided === 3 && p.areasLockedAt !== null, decided === 3 ? "lock_areas" : "areas");
     }
     case "foundation_establishment": {
       const passes = foundationPasses(s);
@@ -525,6 +529,13 @@ export function onAreaDecided(s: CultivatorState, e: EventOf<"AreaDecided">, rul
     } else violate("not_built", "changing discipline in Spirit Realm comes with Step 2");
   }
   p.areas[e.path] = e.choice;
+}
+
+/** Lock the three areas and break through to Foundation (ruling 133): only in Qi Condensation, with all three decided. */
+export function onAreasLocked(s: CultivatorState, e: EventOf<"AreasLocked">): void {
+  if (s.main.realm !== "qi_condensation") violate("not_qi_condensation", "the areas are locked when leaving Qi Condensation");
+  if (Object.values(s.progress.areas).some((a) => a === null)) violate("areas_undecided", "decide all three areas first");
+  s.progress.areasLockedAt = e.at;
 }
 
 /** The end-of-Foundation choice (rulings 74, 90): form a core in the chosen discipline, picked for free. */

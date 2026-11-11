@@ -205,6 +205,8 @@ export function tribulationPlan(h: Habits) {
     // Areas in the first week.
     const area = ({ 1: "main", 3: "body", 6: "soul" } as Record<number, "main" | "body" | "soul">)[day];
     if (area) c.now("AreaDecided", at, { path: area, choice: `${area} discipline` });
+    // All three decided: lock them and break through (ruling 133).
+    if (realm === "qi_condensation" && Object.values(s.progress.areas).every((a) => a !== null)) c.now("AreasLocked", at, {});
 
     // Claims and reschedules.
     for (const [id, p] of plans) {

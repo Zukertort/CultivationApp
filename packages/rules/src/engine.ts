@@ -44,6 +44,7 @@ import {
   advanceProgress,
   initialProgress,
   onAreaDecided,
+  onAreasLocked,
   onBreakthroughRolled,
   onCoreFormed,
   onNascentSoulLocked,
@@ -645,6 +646,7 @@ const handlers: { [T in GameEvent["type"]]: Handler<T> } = {
     s.main.flags.push({ at: e.at, code: "demon_deleted", id: e.demonId });
   },
   CompanionPetted: onCompanionPetted,
+  AreasLocked: (s, e) => onAreasLocked(s, e),
   DailyReminderSet: (s, e) => {
     s.prefs.reminderMinutes = e.minutes;
   },

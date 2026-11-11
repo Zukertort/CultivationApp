@@ -1,7 +1,8 @@
 /**
  * App state: the event log plus the cultivator state derived from it. New
  * events are checked by the rules engine before they are written, so the log
- * never holds an event the rules reject.
+ * never holds an event the rules reject. Random outcomes an event earns are
+ * rolled right after it by the temporary on-device roller (./roller).
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import * as Crypto from "expo-crypto";
@@ -9,6 +10,7 @@ import { useSQLiteContext } from "expo-sqlite";
 import { parseEvent, type GameEvent } from "@cultivation/schema";
 import { RULES_V1, RuleViolation, advanceTo, applyEvent, initialState, replay, type CultivatorState } from "@cultivation/rules";
 import { appendEvent, getUserId, loadEvents } from "./db";
+import { rollPending } from "./roller";
 
 /** An event as the UI builds it: the store adds id, userId and timestamp. */
 export type EventInput = GameEvent extends infer E ? (E extends GameEvent ? Omit<E, "id" | "userId" | "at"> : never) : never;
@@ -28,6 +30,23 @@ const StoreContext = createContext<Store | null>(null);
 
 const TICK_MS = 60_000;
 
+/** Apply an event and then the rolls it earned; returns the new state and every event to write, in order. */
+function withRolls(state: CultivatorState, first: GameEvent, userId: string): { state: CultivatorState; written: GameEvent[] } {
+  let s = applyEvent(state, first, RULES_V1);
+  const written = [first];
+  // Rolled events earn nothing new, but loop a few times in case a future rule chains them.
+  for (let pass = 0; pass < 3; pass++) {
+    const rolls = rollPending(s);
+    if (rolls.length === 0) break;
+    for (const input of rolls) {
+      const e = parseEvent({ ...input, id: Crypto.randomUUID(), userId, at: s.clock });
+      s = applyEvent(s, e, RULES_V1);
+      written.push(e);
+    }
+  }
+  return { state: s, written };
+}
+
 export function StoreProvider({ children }: { children: ReactNode }) {
   const db = useSQLiteContext();
   const [ready, setReady] = useState(false);
@@ -42,9 +61,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     (async () => {
       const [id, log] = await Promise.all([getUserId(db), loadEvents(db)]);
       if (cancelled) return;
+      let state = replay(log, RULES_V1);
+      // Rolls still pending from an interrupted write (or an older build) are rolled now.
+      const all = [...log];
+      for (const input of state.created ? rollPending(state) : []) {
+        const e = parseEvent({ ...input, id: Crypto.randomUUID(), userId: id, at: state.clock });
+        state = applyEvent(state, e, RULES_V1);
+        await appendEvent(db, e);
+        all.push(e);
+      }
+      if (cancelled) return;
       setUserId(id);
-      setEvents(log);
-      setBase(replay(log, RULES_V1));
+      setEvents(all);
+      setBase(state);
       setReady(true);
     })();
     return () => {
@@ -66,9 +95,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       try {
         const event = parseEvent({ ...input, id: Crypto.randomUUID(), userId, at });
         const before = advanceTo(base, at, RULES_V1);
-        const after = applyEvent(base, event, RULES_V1);
-        await appendEvent(db, event);
-        setEvents((prev) => [...prev, event]);
+        const { state: after, written } = withRolls(base, event, userId);
+        for (const e of written) await appendEvent(db, e);
+        setEvents((prev) => [...prev, ...written]);
         setBase(after);
         setNow(Date.now());
         return { ok: true, before, after };

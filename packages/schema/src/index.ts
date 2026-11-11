@@ -483,6 +483,12 @@ export const Repented = z.object({
   faked: z.array(id).max(200),
 });
 
+/** Confirms "Lock these areas and break through?" once all three are decided (ruling 133). */
+export const AreasLocked = z.object({
+  ...base,
+  type: z.literal("AreasLocked"),
+});
+
 /** Advances one level or realm, ignoring Qi and tribulations; logged (ruling 84). */
 export const RealmOverride = z.object({
   /** Required on the override out of Foundation, which picks the class (ruling 113); ignored on the others. */
@@ -606,6 +612,7 @@ export const GameEvent = z.discriminatedUnion("type", [
   TribulationDropRolled,
   AreaDecided,
   CoreFormed,
+  AreasLocked,
   ClassChosen,
   ClassDropRolled,
   WearableUsed,

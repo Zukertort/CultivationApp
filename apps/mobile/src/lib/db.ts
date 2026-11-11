@@ -74,3 +74,16 @@ export async function recentDeliveries(db: SQLiteDatabase, limit = 10): Promise<
     [limit],
   );
 }
+
+/**
+ * Device-only flags for one-time screens and prompts (the onboarding's area
+ * step, the battery prompt). Game facts never go here: they are events.
+ */
+export async function getMeta(db: SQLiteDatabase, key: string): Promise<string | null> {
+  const row = await db.getFirstAsync<{ value: string }>("SELECT value FROM meta WHERE key = ?", [key]);
+  return row?.value ?? null;
+}
+
+export async function setMeta(db: SQLiteDatabase, key: string, value: string): Promise<void> {
+  await db.runAsync("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", [key, value]);
+}

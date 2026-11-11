@@ -205,3 +205,9 @@ describe("engine pass 5 events", () => {
     expect(() => parseEvent({ ...base, type: "QuietHoursSet", quiet: { start: 600, end: 600 } })).toThrow();
   });
 });
+
+describe("Qi Condensation lock", () => {
+  it("accepts the explicit lock event", () => {
+    expect(parseEvent({ id: "e1", userId: "u1", at: 0, type: "AreasLocked" }).type).toBe("AreasLocked");
+  });
+});

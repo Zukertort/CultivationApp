@@ -344,7 +344,7 @@ export interface RulesConfig {
 }
 
 export const RULES_V1: RulesConfig = Object.freeze({
-  version: "1.17.0",
+  version: "1.18.0",
   tiers: {
     turtle: { capacity: 30, weeklyLoss: 10, goldBonus: 0.01, coreQiBonus: 0, breakthroughLegendaryChance: 0 },
     panda: { capacity: 800, weeklyLoss: 200, goldBonus: 0.1, coreQiBonus: 0, breakthroughLegendaryChance: 0 },
@@ -510,10 +510,11 @@ export const RULES_V1: RulesConfig = Object.freeze({
     alertHours: [72, 48, 24, 1],
   },
   realms: {
-    // Set against an honest studier earning about 276 Main Qi a month (ruling 62): Qi Condensation in 1-2 weeks,
+    // Set against an honest studier earning about 276 Main Qi a month (ruling 62): Qi Condensation until the areas are locked,
     // Foundation in about 4 months, Core Formation in 8-12 months, Nascent Soul in years.
     levelQi: { qi_condensation: 0, foundation_establishment: 250, core_formation: 550 },
-    breakthroughQi: { qi_condensation: 60, foundation_establishment: 300, core_formation: 700, nascent_soul: 1500 },
+    // Qi Condensation breaks through when the areas are locked, for no Qi (ruling 133).
+    breakthroughQi: { qi_condensation: 0, foundation_establishment: 300, core_formation: 700, nascent_soul: 1500 },
     coreShares: [0.3, 0.6, 0.9],
     coreMinSet: 5,
     lockWithinDays: 90,

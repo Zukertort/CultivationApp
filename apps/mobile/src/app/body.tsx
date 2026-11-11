@@ -46,7 +46,7 @@ export default function Body() {
       </Card>
 
       <Card title="New exercise or routine">
-        <T muted>Exercises give 10 treats; routines 200 (at most 2 count per day). To make one harder, define a new version, e.g. "BJJ II".</T>
+        <T muted>Exercises give 10 treats; routines 200 (at most 2 count per day). To make one harder, define a new version, e.g. &quot;BJJ II&quot;.</T>
         <Segmented
           value={kind}
           onChange={setKind}
