@@ -4,6 +4,7 @@
  * Realm tab keeps the same decisions for later.
  */
 import { useState } from "react";
+import { Alert } from "react-native";
 import type { MainPath } from "@cultivation/rules";
 import { useStore } from "./store";
 import { Button, C, Card, Field, Note, Screen, T } from "./ui";
@@ -34,6 +35,9 @@ export function Interview() {
   );
 }
 
+export const DECIDE_LATER =
+  "Not sure yet? Create tasks and quests to explore this path. When you've decided, lock your areas to break through.";
+
 const AREAS: { path: MainPath; label: string; hint: string }[] = [
   { path: "main", label: "Main discipline", hint: "Mathematics, BJJ, writing..." },
   { path: "body", label: "Body practice", hint: "Gym, running, dance..." },
@@ -55,8 +59,8 @@ export function AreaDecisions({ onDone }: { onDone?: () => void }) {
   return (
     <Card title="Choose your three areas">
       <T muted>
-        Choosing all three is Qi Condensation&apos;s tribulation: each first decision raises a level, and the breakthrough to Foundation follows once all three are chosen and 60 Qi
-        is there. Changing an area is free until that breakthrough.
+        Choosing all three is Qi Condensation&apos;s tribulation: each first decision raises a level, and locking all three breaks through to Foundation. Until you lock them,
+        changing an area is free. Main tasks here pay gold but no Qi, so everyone starts Foundation even.
       </T>
       {AREAS.map((a) => (
         <Field
@@ -71,7 +75,29 @@ export function AreaDecisions({ onDone }: { onDone?: () => void }) {
       ))}
       <ButtonsFor areas={areas} draft={draft} onDecide={(p) => void decide(p)} />
       <Note text={note?.text ?? null} error={note?.error} />
-      {onDone ? <Button label={Object.values(areas).every((x) => x !== null) ? "Continue" : "Decide the rest later"} kind="ghost" onPress={onDone} /> : null}
+      {state.main.realm === "qi_condensation" ? (
+        Object.values(areas).every((x) => x !== null) ? (
+          <Button
+            label="Lock these areas and break through"
+            onPress={() =>
+              Alert.alert("Lock these areas and break through?", "You enter Foundation Establishment. After this, changing an area costs Qi.", [
+                { text: "Not yet", style: "cancel" },
+                {
+                  text: "Lock and break through",
+                  onPress: () =>
+                    void log({ type: "AreasLocked" }).then((r) => {
+                      setNote(r.ok ? { text: "Breakthrough: Foundation Establishment.", error: false } : { text: r.message, error: true });
+                      if (r.ok) onDone?.();
+                    }),
+                },
+              ])
+            }
+          />
+        ) : (
+          <T muted>{DECIDE_LATER}</T>
+        )
+      ) : null}
+      {onDone ? <Button label="Decide later" kind="ghost" onPress={onDone} /> : null}
     </Card>
   );
 }

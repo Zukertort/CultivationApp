@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { router, useLocalSearchParams } from "expo-router";
 import { Alert, View } from "react-native";
 import * as Crypto from "expo-crypto";
 import { REPENT_OATH, TRIBULATION_OATH } from "@cultivation/schema";
@@ -14,10 +15,28 @@ import {
   type StepOneRealm,
   type Tribulation,
 } from "@cultivation/rules";
+import { DateField, dayIn, daysLeft, endOfLocalDay } from "../lib/fields";
 import { useStore } from "../lib/store";
-import { Button, C, Card, Chip, Field, Note, Row, Screen, T, relative, when, wholeNumber, words } from "../lib/ui";
+import { Button, C, Card, Chip, Field, Note, Row, Screen, T, when, words } from "../lib/ui";
 
 type Result = (ok: boolean, text: string) => void;
+
+/** What to do next in each realm and its self-check question, shown after a breakthrough (the realm intro). */
+const REALM_INTRO: Record<string, { next: string; question: string }> = {
+  foundation_establishment: {
+    next: "Declare tribulations to conquer. The first three you pass raise you to mid, late and great circle (each level also needs 250 Qi). Then form your core: pick the core discipline and your class.",
+    question: "Is this the field I want to pursue?",
+  },
+  core_formation: {
+    next: "Declare the tribulations that would make you a professional. Levels come at 30, 60 and 90% of them passed (counted from 5), the breakthrough at 100%.",
+    question: "Am I a professional yet, or what is missing?",
+  },
+  nascent_soul: {
+    next: "Define the achievements that would make you an expert, then lock the set within 90 days. Claims open after the lock; passing every one transcends to Spirit Realm.",
+    question: "Am I an expert, or am I lacking something?",
+  },
+  spirit_realm: { next: "Progression continues with Step 2.", question: "What would I combine into my own dao?" },
+};
 
 const PREVIOUS: Record<string, string> = { nascent_soul: "core_formation", spirit_realm: "nascent_soul" };
 
@@ -34,9 +53,18 @@ export default function Trials() {
   const passed = items.filter((x) => x.st === "passed" && x.t.realm === realm && x.t.closedAt === null);
   const past = items.filter((x) => !active.includes(x) && !passed.includes(x));
   const declarable = realm !== "qi_condensation" && realm !== "spirit_realm";
+  const { entered } = useLocalSearchParams<{ entered?: string }>();
+  const intro = REALM_INTRO[realm];
 
   return (
     <Screen>
+      {entered === realm && intro ? (
+        <Card title={`Breakthrough: ${words(realm)}`}>
+          <T>{intro.next}</T>
+          <T muted>Ask yourself: {intro.question}</T>
+          <Button label="Got it" kind="ghost" onPress={() => router.setParams({ entered: undefined })} />
+        </Card>
+      ) : null}
       <Card title={`${words(realm)} tribulations`}>
         {purpose ? (
           <>
@@ -104,12 +132,10 @@ function Declare({ onResult }: { onResult: Result }) {
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [criteria, setCriteria] = useState("");
-  const [days, setDays] = useState("30");
+  const [due, setDue] = useState(() => dayIn(30));
   if (!open) return <Button label="Declare a tribulation" onPress={() => setOpen(true)} />;
   const declare = async () => {
-    const d = wholeNumber(days);
-    if (d === null) return onResult(false, "Days must be a whole number.");
-    const r = await log({ type: "TribulationDeclared", tribulationId: Crypto.randomUUID(), title: title.trim(), criteria: criteria.trim(), deadline: Date.now() + d * DAY });
+    const r = await log({ type: "TribulationDeclared", tribulationId: Crypto.randomUUID(), title: title.trim(), criteria: criteria.trim(), deadline: endOfLocalDay(due) });
     onResult(r.ok, r.ok ? `Declared: ${title.trim()}. The criteria are locked now; edits cost Qi after the first hour.` : r.message);
     if (r.ok) {
       setTitle("");
@@ -122,7 +148,7 @@ function Declare({ onResult }: { onResult: Result }) {
       <T muted>A specific, checkable result and a deadline, written before you start. There are no extensions: a missed deadline fails and costs Qi and gold.</T>
       <Field label="Title" value={title} onChangeText={setTitle} maxLength={120} />
       <Field label="Criteria: what exactly counts as passing" value={criteria} onChangeText={setCriteria} multiline maxLength={2000} />
-      <Field label="Deadline in days (1 to 365)" value={days} onChangeText={setDays} keyboardType="number-pad" maxLength={3} />
+      <DateField title="Deadline (at least 24 hours out, at most a year)" value={due} onChange={setDue} minDays={1} />
       <Row>
         <Button label="Declare" onPress={() => void declare()} disabled={!title.trim() || !criteria.trim()} />
         <Button label="Close" kind="ghost" onPress={() => setOpen(false)} />
@@ -139,7 +165,7 @@ function TribulationCard({ id, t, st, onResult }: { id: string; t: Tribulation; 
   const [evidence, setEvidence] = useState("");
   const [title, setTitle] = useState(t.title);
   const [criteria, setCriteria] = useState(t.criteria);
-  const [days, setDays] = useState("14");
+  const [due, setDue] = useState(() => dayIn(14));
   const deadline = t.due ? effectiveDeadline(t.due, state.rest, now) : null;
 
   const claim = async () => {
@@ -161,9 +187,7 @@ function TribulationCard({ id, t, st, onResult }: { id: string; t: Tribulation; 
     if (r.ok) setMode("none");
   };
   const reschedule = async () => {
-    const d = wholeNumber(days);
-    if (d === null) return onResult(false, "Days must be a whole number.");
-    const r = await log({ type: "TribulationRescheduled", tribulationId: id, deadline: Date.now() + d * DAY });
+    const r = await log({ type: "TribulationRescheduled", tribulationId: id, deadline: endOfLocalDay(due) });
     onResult(r.ok, r.ok ? "A new date is set; the attempt starts over." : r.message);
     if (r.ok) setMode("none");
   };
@@ -181,7 +205,7 @@ function TribulationCard({ id, t, st, onResult }: { id: string; t: Tribulation; 
       <T>{t.criteria}</T>
       <T muted>
         {words(t.realm)}
-        {deadline ? ` · due ${when(deadline)} (${relative(deadline, now)})` : " · no date: set a new one"}
+        {deadline ? ` · due ${when(deadline)} · ${daysLeft(deadline, now)}` : " · no date: set a new one"}
         {t.failures ? ` · failed ${t.failures}x` : ""}
         {t.edits ? ` · edited ${t.edits}x` : ""}
       </T>
@@ -209,7 +233,7 @@ function TribulationCard({ id, t, st, onResult }: { id: string; t: Tribulation; 
         </View>
       ) : mode === "reschedule" ? (
         <View style={{ gap: 8 }}>
-          <Field label="New deadline in days" value={days} onChangeText={setDays} keyboardType="number-pad" maxLength={3} />
+          <DateField title="New deadline" value={due} onChange={setDue} minDays={1} />
           <Row>
             <Button label="Set the date" onPress={() => void reschedule()} />
             <Button label="Back" kind="ghost" onPress={() => setMode("none")} />

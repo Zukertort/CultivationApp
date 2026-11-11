@@ -1,3 +1,4 @@
+import "../lib/web-alert";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, View } from "react-native";
 import { Tabs } from "expo-router";
@@ -5,6 +6,7 @@ import { StatusBar } from "expo-status-bar";
 import { SQLiteProvider, useSQLiteContext } from "expo-sqlite";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { OATH_TEXT } from "@cultivation/schema";
+import { BreakthroughWatcher } from "../lib/breakthrough";
 import { DB_NAME, getMeta, migrate, setMeta } from "../lib/db";
 import { AreasStep, Interview } from "../lib/onboarding";
 import { NotificationsProvider } from "../lib/notifications-context";
@@ -72,6 +74,7 @@ function Gate() {
         <Tabs.Screen name="soul" options={{ title: "Soul" }} />
         <Tabs.Screen name="alerts" options={{ title: "Alerts" }} />
       </Tabs>
+      <BreakthroughWatcher />
     </NotificationsProvider>
   );
 }

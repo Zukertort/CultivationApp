@@ -19,7 +19,7 @@ import {
   questDeadlineAlerts,
   questDropChance,
   questDropOutcome,
-  replay,
+  replay as replayFromStart,
   staleTasks,
   taxForecast,
   workDays,
@@ -29,6 +29,19 @@ import {
 } from "./index.js";
 
 // Day 0 = Monday 2026-11-02 00:00 in Buenos Aires (UTC-3), so local days line up with ISO weeks.
+
+/**
+ * These tests measure Main payouts, which Qi Condensation withholds (ruling
+ * 134): every cultivator here enters Foundation by override right at creation.
+ */
+function replay(events: readonly GameEvent[], rules: RulesConfig = RULES_V1, until?: number): CultivatorState {
+  const i = events.findIndex((e) => e.type === "CultivatorCreated");
+  if (i < 0) return replayFromStart(events, rules, until);
+  const at = events[i]!.at;
+  const toFoundation = Array.from({ length: 4 }, (_, k) => ({ id: `fe${k}-${at}`, userId: "u1", at, type: "RealmOverride" }) as GameEvent);
+  return replayFromStart([...events.slice(0, i + 1), ...toFoundation, ...events.slice(i + 1)], rules, until);
+}
+const ruleFlags = (s: CultivatorState) => s.main.flags.filter((f) => f.code !== "realm_override");
 const T0 = Date.UTC(2026, 10, 2, 3);
 const H = 60 * 60 * 1000;
 let seq = 0;
@@ -651,7 +664,7 @@ describe("procrastination tax (rulings 31-33, 40-44)", () => {
     const s = replay(evs, RULES_V1, T0 + 6 * DAY);
     expect(s.main.taxPaid.main.ticks).toBeCloseTo(2 * (23 / 24) + 4 * (22 / 24), 9);
     // The third restore within 30 days and each one after it are flagged; archiving itself costs nothing extra.
-    expect(s.main.flags.map((f) => [f.code, f.id, f.at])).toEqual([3, 4, 5].map((d) => ["archive_churn", "r", T0 + d * DAY + H]));
+    expect(ruleFlags(s).map((f) => [f.code, f.id, f.at])).toEqual([3, 4, 5].map((d) => ["archive_churn", "r", T0 + d * DAY + H]));
     const floor = replay(evs, withRules({ tax: { ...RULES_V1.main.tax, partialPeriods: "floor" } }), T0 + 6 * DAY);
     expect(floor.main.taxPaid.main.ticks).toBe(0); // the gap the old setting left open
   });
@@ -839,7 +852,7 @@ describe("milestones and the year period (ruling 50)", () => {
     const schedule = { kind: "recurring" as const, count: 1, per: "week" as const, endsAt: T0 + 7 * DAY };
     const evs: GameEvent[] = [created, recurring("r", T0, 1, "week", { endsAt: T0 + DAY })];
     for (let d = 1; d <= 4; d++) evs.push(ev("MainTaskRestored", T0 + d * DAY + H, { taskId: "r", schedule: { ...schedule, endsAt: T0 + (d + 1) * DAY } }));
-    expect(replay(evs).main.flags).toEqual([]);
+    expect(ruleFlags(replay(evs))).toEqual([]);
   });
 });
 
@@ -1068,7 +1081,6 @@ describe("potions (ruling 58)", () => {
 });
 
 describe("quests preparing a tribulation (ruling 132)", () => {
-  const toFoundation = Array.from({ length: 4 }, (_, i) => ev("RealmOverride", T0 + i + 1, {}));
   const declare = ev("TribulationDeclared", T0 + H, { tribulationId: "exam", title: "Exam", criteria: "Pass the exam", deadline: T0 + 30 * DAY });
   const prep = (tribulationId?: string) =>
     ev("MainQuestDefined", T0 + 2 * H, {
@@ -1083,7 +1095,7 @@ describe("quests preparing a tribulation (ruling 132)", () => {
     });
 
   it("records the link for display, rejects an unknown tribulation, and changes no reward", () => {
-    const base = [created, interview(), ...toFoundation, declare];
+    const base = [created, interview(), declare]; // replay() enters Foundation at creation
     const linked = replay([...base, prep("exam"), complete("q1", T0 + DAY), complete("q2", T0 + 2 * DAY)]);
     const plain = replay([...base, prep(), complete("q1", T0 + DAY), complete("q2", T0 + 2 * DAY)]);
     expect(linked.main.quests.q!.preparesFor).toBe("exam");

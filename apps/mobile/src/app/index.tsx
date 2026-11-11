@@ -16,11 +16,11 @@ import {
   type MainQuest,
   type MainTask,
 } from "@cultivation/rules";
+import { DateField, EffortField, dayIn, daysLeft, effortLabel, endOfLocalDay } from "../lib/fields";
 import { useStore } from "../lib/store";
-import { Button, C, Card, Chip, Field, Note, Row, Screen, Segmented, T, endOfDayIn, relative, when, wholeNumber, words } from "../lib/ui";
+import { Button, C, Card, Chip, Field, Note, Row, Screen, Segmented, T, relative, when, wholeNumber, words } from "../lib/ui";
 
 const DIFFICULTIES: Difficulty[] = ["trivial", "easy", "mid", "hard", "deadly"];
-const EFFORTS: Effort[] = ["quick", "session", "day", "project"];
 const PERIODS: Period[] = ["day", "week", "month", "year"];
 
 type Feedback = { text: string; error: boolean } | null;
@@ -153,13 +153,13 @@ function TaskRow({ id, t, onAct }: { id: string; t: MainTask; onAct: Act }) {
     : due
       ? st === "expired"
         ? `Expired ${relative(effectiveDeadline(due, state.rest, now), now)}: one extension left within ${RULES_V1.main.extension.windowDays} days`
-        : `Due ${when(effectiveDeadline(due, state.rest, now))} (${relative(effectiveDeadline(due, state.rest, now), now)})`
+        : `Due ${when(effectiveDeadline(due, state.rest, now))} · ${daysLeft(effectiveDeadline(due, state.rest, now), now)}`
       : "";
   return (
     <View style={{ gap: 6, borderTopWidth: 1, borderTopColor: C.border, paddingTop: 8 }}>
       <T style={{ fontWeight: "700" }}>{t.name}</T>
       <T muted>
-        {words(t.difficulty)} · {t.effort}
+        {words(t.difficulty)} · {effortLabel(t.effort)}
         {line ? ` · ${line}` : ""}
         {tags.length ? ` · ${tags.join(", ")}` : ""}
         {t.postponed.days > 0 ? ` · ${t.postponed.days} day(s) of tax postponed` : ""}
@@ -201,7 +201,7 @@ function QuestCard({ id, q, onAct }: { id: string; q: MainQuest; onAct: Act }) {
   return (
     <Card title={q.name} right={<T muted>{st === "expired" ? "Expired" : relative(deadline, now)}</T>}>
       <T muted>
-        Due {when(deadline)}
+        Due {when(deadline)} · {daysLeft(deadline, now)}
         {prep ? ` · prepares for "${prep.title}"` : ""}
       </T>
       {q.taskIds.map((tid) => {
@@ -239,7 +239,7 @@ function NewTask({ onAct }: { onAct: Act }) {
   const [difficulty, setDifficulty] = useState<Difficulty>("mid");
   const [effort, setEffort] = useState<Effort>("session");
   const [kind, setKind] = useState<"once" | "recurring">("once");
-  const [days, setDays] = useState("1");
+  const [due, setDue] = useState(() => dayIn(1));
   const [count, setCount] = useState("1");
   const [per, setPer] = useState<Period>("day");
   const [body, setBody] = useState(false);
@@ -249,12 +249,10 @@ function NewTask({ onAct }: { onAct: Act }) {
   if (!open) return <Button label="New task" kind="ghost" onPress={() => setOpen(true)} />;
 
   const create = async () => {
-    const d = wholeNumber(days);
     const c = wholeNumber(count);
-    if (kind === "once" && d === null) return setError("Days must be a whole number.");
     if (kind === "recurring" && c === null) return setError("The count must be a whole number.");
     setError(null);
-    const schedule = kind === "once" ? { kind: "once" as const, deadline: endOfDayIn(d!) } : { kind: "recurring" as const, count: c!, per };
+    const schedule = kind === "once" ? { kind: "once" as const, deadline: endOfLocalDay(due) } : { kind: "recurring" as const, count: c!, per };
     await onAct(
       {
         type: "MainTaskDefined",
@@ -278,8 +276,7 @@ function NewTask({ onAct }: { onAct: Act }) {
       <Field label="Name (a harder version gets a new name: Math exercise II)" value={name} onChangeText={setName} maxLength={120} />
       <T muted>Difficulty, relative to your current abilities</T>
       <Segmented value={difficulty} options={DIFFICULTIES.map((v) => ({ value: v, label: v }))} onChange={setDifficulty} />
-      <T muted>Effort</T>
-      <Segmented value={effort} options={EFFORTS.map((v) => ({ value: v, label: v }))} onChange={setEffort} />
+      <EffortField value={effort} onChange={setEffort} />
       <Segmented
         value={kind}
         options={[
@@ -289,7 +286,7 @@ function NewTask({ onAct }: { onAct: Act }) {
         onChange={setKind}
       />
       {kind === "once" ? (
-        <Field label="Due at the end of the day, in how many days?" value={days} onChangeText={setDays} keyboardType="number-pad" maxLength={3} />
+        <DateField value={due} onChange={setDue} />
       ) : (
         <>
           <Field label="How many times" value={count} onChangeText={setCount} keyboardType="number-pad" maxLength={3} />
@@ -311,7 +308,7 @@ function NewQuest({ onAct }: { onAct: Act }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [members, setMembers] = useState("");
-  const [days, setDays] = useState("7");
+  const [due, setDue] = useState(() => dayIn(7));
   const [difficulty, setDifficulty] = useState<Difficulty>("mid");
   const [effort, setEffort] = useState<Effort>("session");
   const [prep, setPrep] = useState<string | null>(null);
@@ -326,8 +323,6 @@ function NewQuest({ onAct }: { onAct: Act }) {
     .filter(Boolean);
 
   const create = async () => {
-    const d = wholeNumber(days);
-    if (d === null) return setError("Days must be a whole number.");
     if (names.length < 2) return setError("A quest bundles at least 2 tasks.");
     setError(null);
     await onAct(
@@ -335,7 +330,7 @@ function NewQuest({ onAct }: { onAct: Act }) {
         type: "MainQuestDefined",
         questId: Crypto.randomUUID(),
         name: name.trim(),
-        deadline: endOfDayIn(d),
+        deadline: endOfLocalDay(due),
         tasks: names.map((n) => ({ taskId: Crypto.randomUUID(), name: n, difficulty, effort })),
         ...(prep ? { tribulationId: prep } : {}),
       },
@@ -351,10 +346,10 @@ function NewQuest({ onAct }: { onAct: Act }) {
       <T muted>Quests are only for related tasks (related by time or topic). The bonus grows with the members&apos; total work.</T>
       <Field label="Quest name" value={name} onChangeText={setName} maxLength={120} />
       <Field label="Tasks, one per line (2 to 52)" value={members} onChangeText={setMembers} multiline />
-      <T muted>Every task&apos;s difficulty and effort</T>
+      <T muted>Every task&apos;s difficulty</T>
       <Segmented value={difficulty} options={DIFFICULTIES.map((v) => ({ value: v, label: v }))} onChange={setDifficulty} />
-      <Segmented value={effort} options={EFFORTS.map((v) => ({ value: v, label: v }))} onChange={setEffort} />
-      <Field label="Due at the end of the day, in how many days?" value={days} onChangeText={setDays} keyboardType="number-pad" maxLength={3} />
+      <EffortField value={effort} onChange={setEffort} />
+      <DateField value={due} onChange={setDue} />
       {tribulations.length > 0 ? (
         <>
           <T muted>Prepares for a tribulation (display only)</T>

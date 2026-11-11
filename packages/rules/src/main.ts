@@ -594,7 +594,8 @@ export function onTaskCompleted(s: CultivatorState, e: EventOf<"MainTaskComplete
     paid = { decay };
     const taper = rules.main.simpleDifficulties.includes(t.difficulty) ? rules.main.simpleTaper[m.realm] : 1;
     const w = workPoints(t.difficulty, t.effort, rules);
-    const baseQi = qiForPoints(w, rules) * decay * taper;
+    // Qi Condensation pays Main gold but no Qi, so everyone enters Foundation on equal footing (ruling 134).
+    const baseQi = m.realm === "qi_condensation" ? 0 : qiForPoints(w, rules) * decay * taper;
     t.paidBaseQi += baseQi;
     const qi = baseQi * mainQiMultiplier(s, rules);
     const gold = goldForPoints(w, rules) * decay * trainingGoldMultiplier(s, rules);

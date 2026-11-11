@@ -64,17 +64,34 @@ const where = (s: CultivatorState) => [s.main.realm, s.progress.level];
 const flags = (s: CultivatorState, code: string) => s.main.flags.filter((f) => f.code === code);
 
 describe("Qi Condensation (rulings 75, 87, 88)", () => {
-  it("raises a level per area decided, then breaks through once all three are chosen and 60 Qi is there", () => {
+  it("raises a level per area decided, then breaks through for no Qi once the cultivator locks all three (ruling 133)", () => {
     expect(code(() => replay([created, decide("main", "Mathematics")]))).toBe("interview_first");
     let s = replay([created, interview, decide("main", "Mathematics")]);
     expect(where(s)).toEqual(["qi_condensation", "mid"]);
+    expect(code(() => applyEvent(s, ev("AreasLocked", T0 + 2 * H, {})))).toBe("areas_undecided");
     s = apply(s, decide("body", "BJJ"), decide("soul", "Meditation"));
-    expect(where(s)).toEqual(["qi_condensation", "great_circle"]);
-    expect(realmStatus(s).next).toMatchObject({ kind: "breakthrough", qi: 60, ready: true, waitingForQi: true });
-    s = apply(withQi(s, 70), poke(T0 + 2 * H));
+    expect(where(s)).toEqual(["qi_condensation", "great_circle"]); // "decide later" stays here until the lock
+    expect(realmStatus(s).next).toMatchObject({ kind: "breakthrough", qi: 0, ready: false, missing: "lock_areas" });
+    s = apply(s, ev("AreasLocked", T0 + 2 * H, {}));
     expect(where(s)).toEqual(["foundation_establishment", "early"]);
-    expect(s.qi).toBe(10); // the threshold is spent (ruling 74)
+    expect(s.qi).toBe(0);
     expect(s.progress.steps.map((x) => x.kind)).toEqual(["level", "level", "level", "breakthrough"]);
+    expect(code(() => applyEvent(s, ev("AreasLocked", T0 + 3 * H, {})))).toBe("not_qi_condensation");
+  });
+
+  it("pays Main gold but no Qi in Qi Condensation; other Qi sources still pay (ruling 134)", () => {
+    const task = (id: string, at: number) =>
+      ev("MainTaskDefined", at, { taskId: id, name: id, difficulty: "mid", effort: "session", schedule: { kind: "once", deadline: at + 5 * DAY } });
+    const done = (id: string, at: number) => ev("MainTaskCompleted", at, { taskId: id });
+    const qc = replay([created, interview, task("a", T0 + H), done("a", T0 + 2 * H)]);
+    expect(qc.qi).toBe(0);
+    expect(qc.gold).toBeGreaterThan(0);
+    expect(qc.main.tasks.a!.paidBaseQi).toBe(0); // so a quest straddling the breakthrough pays no bonus on it later
+    const fe = apply(foundation(), task("b", T0 + 3 * H), done("b", T0 + 4 * H));
+    expect(fe.qi).toBeGreaterThan(0);
+    // Lion petting still pays Qi in Qi Condensation.
+    const lion = { ...qc, companion: { ...qc.companion, tier: "lion" as const, food: 4000 } };
+    expect(apply(lion, ev("CompanionPetted", T0 + 3 * H, {})).qi).toBeGreaterThan(0);
   });
 
   it("changes areas for free until the breakthrough, and rejects a change that changes nothing", () => {
@@ -96,7 +113,7 @@ describe("Qi Condensation (rulings 75, 87, 88)", () => {
 /** In early Foundation with the three areas decided, 0 Qi left. */
 function foundation(): CultivatorState {
   const s = replay([created, interview, decide("main", "Mathematics"), decide("body", "BJJ"), decide("soul", "Calm")]);
-  return apply(withQi(s, 60), poke(T0 + 2 * H));
+  return apply(withQi(s, 0), ev("AreasLocked", T0 + 2 * H, {}));
 }
 
 describe("after Qi Condensation, area changes cost Qi (ruling 88)", () => {
@@ -403,7 +420,7 @@ describe("death and revival (ruling 106)", () => {
 
   it("logs everything but pays nothing until a quest of at least a week of work, defined after death, is completed", () => {
     const alive = replay([created, interview, task("t1", T0 + H)]);
-    expect(apply(alive, done("t1", T0 + 2 * H)).qi).toBeGreaterThan(0);
+    expect(apply(alive, done("t1", T0 + 2 * H)).gold).toBeGreaterThan(0); // Qi Condensation pays Main gold only (ruling 134)
     const dead: CultivatorState = { ...alive, progress: { ...alive.progress, diedAt: T0 + H } };
     let s = apply(dead, done("t1", T0 + 2 * H));
     expect([s.qi, s.gold]).toEqual([0, 0]);
@@ -412,10 +429,10 @@ describe("death and revival (ruling 106)", () => {
     expect(realmStatus(s).dead).toBe(true); // half a day of work
     s = apply(s, quest("rev", T0 + 6 * H, "project"), done("rev1", T0 + DAY), done("rev2", T0 + 2 * DAY));
     expect(realmStatus(s).dead).toBe(false); // two projects: 8 days of work
-    expect(s.qi).toBe(0); // the revival quest itself paid nothing
+    expect([s.qi, s.gold]).toEqual([0, 0]); // the revival quest itself paid nothing
     expect(flags(s, "revived")).toEqual([{ at: T0 + 2 * DAY, code: "revived", id: "rev" }]);
     s = apply(s, task("t2", T0 + 2 * DAY + H), done("t2", T0 + 2 * DAY + 2 * H));
-    expect(s.qi).toBeGreaterThan(0);
+    expect(s.gold).toBeGreaterThan(0);
   });
 });
 

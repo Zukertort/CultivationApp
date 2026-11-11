@@ -9,6 +9,7 @@ import { Button, C, Card, Field, Meter, Note, Row, SOUL_HEX, Screen, T, cap, whe
 
 const MISSING: Record<string, string> = {
   areas: "Decide your three areas.",
+  lock_areas: "All three areas are decided: lock them below to break through.",
   tribulations: "Pass the realm's tribulations.",
   choice: "Make the end-of-Foundation choice: form your core and pick a class.",
   lock: "Lock Nascent Soul's set (Trials tab).",
