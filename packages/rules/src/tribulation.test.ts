@@ -188,11 +188,13 @@ describe("editing and deleting (ruling 67)", () => {
     expect(tribulationEditPrice(s, "x", T0 + 18 * DAY)).toMatchObject({ kind: "late" });
   });
 
-  it("rejects an edit it can't afford, an empty edit, and any change to a passed tribulation", () => {
+  it("rejects an early edit it can't afford, an empty edit, and any change to a passed tribulation", () => {
     const poor = rich(replay([...start, declare()]), 19, 0);
     expect(code(() => applyEvent(poor, edit(DECLARED + DAY)))).toBe("insufficient_qi");
-    expect(code(() => applyEvent(rich(replay([...start, declare()]), 100, 1000), edit(DECLARED + 8 * DAY)))).toBe("insufficient_qi"); // a quarter of 550
-    expect(code(() => applyEvent(rich(replay([...start, declare()]), 1000, 10), edit(DECLARED + 8 * DAY)))).toBe("insufficient_gold");
+    // A late edit is taken like a failure, floored and never rejected, but the tribulation stays open (ruling 100).
+    const late = apply(rich(replay([...start, declare()]), 100, 10), edit(DECLARED + 8 * DAY));
+    expect([late.qi, late.gold]).toEqual([0, 0]);
+    expect(late.tribulations.items.x).toMatchObject({ status: "open", failures: 0, due: { deadline: DEADLINE } });
     expect(code(() => applyEvent(base(), ev("TribulationEdited", DECLARED + DAY, { tribulationId: "x" })))).toBe("nothing_to_edit");
     const passed = apply(base(), claim(T0 + DAY));
     expect(code(() => applyEvent(passed, edit(T0 + 2 * DAY)))).toBe("tribulation_passed");
@@ -205,7 +207,7 @@ describe("editing and deleting (ruling 67)", () => {
     expect(s.qi).toBeCloseTo(1000 - 587.5 * 1.02, 9);
     expect(s.gold).toBeCloseTo(1000 - 45 * 1.02, 9);
     expect(tribulationStatus(s, "x")).toBe("deleted");
-    expect(s.main.flags).toContainEqual({ at: T0 + DAY, code: "tribulation_deleted", id: "x" });
+    expect(s.main.flags).toContainEqual({ at: T0 + DAY, code: "tribulation_deleted", id: "x", detail: "open" });
     expect(code(() => applyEvent(s, claim(T0 + 2 * DAY)))).toBe("tribulation_deleted");
     // A failed one: the failure was already paid.
     const failed = apply(advanceTo(base(), T0 + 12 * DAY), del(T0 + 12 * DAY));

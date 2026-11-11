@@ -104,7 +104,9 @@ export interface PendingQuestRoll {
  * Integrity log entries, shown to the cultivator and never penalized:
  * repeated archive-and-restore (ruling 48); tribulation edits, deletions and
  * self-reported claims (ruling 71); fast-track claims (ruling 76); closed-door
- * rest near a tribulation deadline (ruling 86); realm overrides (ruling 84).
+ * rest near a tribulation deadline (ruling 86); realm overrides (ruling 84);
+ * closures, faked tribulations, repents, cycling, deaths and revivals
+ * (rulings 101-108).
  */
 export interface IntegrityFlag {
   at: number;
@@ -115,10 +117,16 @@ export interface IntegrityFlag {
     | "tribulation_claimed"
     | "fast_track_claim"
     | "rest_near_tribulation"
-    | "realm_override";
-  /** The task or tribulation; the progression step for an override. */
+    | "realm_override"
+    | "tribulation_closed"
+    | "tribulation_faked"
+    | "repented"
+    | "repent_cycling"
+    | "died"
+    | "revived";
+  /** The task or tribulation; the progression step for an override; the realm left for a repent or death; the quest for a revival. */
   id: string;
-  /** For tribulation edits, the price paid: "free", "early", "late" or "failed". */
+  /** Edits and deletions: the price kind. Closures: why. Repents and deaths: the repent count in that realm. */
   detail?: string;
 }
 

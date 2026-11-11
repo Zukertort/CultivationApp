@@ -155,14 +155,24 @@ export interface RealmRules {
   coreShares: readonly [number, number, number];
   /** Core Formation's percentage counts once its set holds this many tribulations. */
   coreMinSet: number;
-  /** Nascent Soul's set must be sealed within this many days of entering (ruling 79). */
-  sealWithinDays: number;
+  /** Nascent Soul's set is locked within this many days of entering, or locked as it stands (ruling 79). */
+  lockWithinDays: number;
   /** A tribulation failure takes this share of the current threshold, and down to (1 - share) of it (ruling 80). */
   failureShare: number;
   /** Changing Body or Soul after Qi Condensation; changing Main in Foundation; changing the core discipline (rulings 88, 90, 91). */
   prices: { areaChangeQi: number; foundationSwitchQi: number; coreChangeQi: number };
   /** Every level-up and breakthrough's legendary roll starts at this chance (ruling 94). */
   legendaryBaseChance: number;
+  /**
+   * Repent (rulings 101-106): the penalty for each repent in the same realm
+   * (the last applies to every later one), the repent count after which the
+   * integrity log flags cycling, and a revival quest's minimum work in days.
+   */
+  repent: {
+    penalties: readonly { items: number | "all"; gold: number; qi: number; death: boolean }[];
+    cyclingFlagAfter: number;
+    revivalWorkDays: number;
+  };
   /** Closed-door rest started this close to an open tribulation's deadline is logged (ruling 86). */
   closedDoorFlagHours: number;
 }
@@ -306,7 +316,7 @@ export interface RulesConfig {
 }
 
 export const RULES_V1: RulesConfig = Object.freeze({
-  version: "1.12.0",
+  version: "1.13.0",
   tiers: {
     turtle: { capacity: 30, weeklyLoss: 10, goldBonus: 0.01, coreQiBonus: 0, breakthroughLegendaryChance: 0 },
     panda: { capacity: 800, weeklyLoss: 200, goldBonus: 0.1, coreQiBonus: 0, breakthroughLegendaryChance: 0 },
@@ -476,10 +486,21 @@ export const RULES_V1: RulesConfig = Object.freeze({
     breakthroughQi: { qi_condensation: 60, foundation_establishment: 300, core_formation: 700, nascent_soul: 1500 },
     coreShares: [0.3, 0.6, 0.9],
     coreMinSet: 5,
-    sealWithinDays: 90,
+    lockWithinDays: 90,
     failureShare: 0.25,
     prices: { areaChangeQi: 30, foundationSwitchQi: 125, coreChangeQi: 275 },
     legendaryBaseChance: 0.02,
+    repent: {
+      penalties: [
+        { items: 0, gold: 0, qi: 0, death: false },
+        { items: 1, gold: 0, qi: 0, death: false },
+        { items: 2, gold: 0.25, qi: 0, death: false },
+        { items: "all", gold: 0.5, qi: 0.3, death: false },
+        { items: "all", gold: 1, qi: 1, death: true },
+      ],
+      cyclingFlagAfter: 3,
+      revivalWorkDays: 7,
+    },
     closedDoorFlagHours: 72,
   },
 } satisfies RulesConfig);

@@ -4,7 +4,7 @@
  * edits and deletions cost Qi (and gold late in the attempt), a missed
  * deadline fails it and takes Qi and gold, and a sworn claim passes it.
  *
- * Settled rules live in docs/design.md, Rulings 64-72 and 80-97. Which
+ * Settled rules live in docs/design.md, Rulings 64-72 and 80-109. Which
  * tribulations a breakthrough needs is decided in realm.ts (part 3). The only random
  * outcome is a passed tribulation's item roll, rolled by the server and
  * stored in the event.
@@ -15,7 +15,7 @@ import type { CultivatorState } from "./engine.js";
 import { addPotion, potionKind } from "./economy.js";
 import { violate } from "./errors.js";
 import { effectiveDeadline, markActivity, type Due } from "./main.js";
-import { checkClaimable, checkDeclarable, failureQiLoss } from "./realm.js";
+import { checkClaimable, checkDeclarable, failureQiLoss, isUnlockedNascent } from "./realm.js";
 import { DAY, MINUTE } from "./time.js";
 
 const HOUR = 60 * MINUTE;
@@ -147,8 +147,12 @@ function pay(s: CultivatorState, qi: number, gold: number, into: Cost): void {
 export interface TribulationPrice {
   qi: number;
   gold: number;
-  /** Which price applies: free within the first hour, early, late (last quarter), or for a failed tribulation. */
-  kind: "free" | "early" | "late" | "failed";
+  /**
+   * Which price applies: free within the first hour, free before Nascent
+   * Soul's lock ("unlocked"), early, late (last quarter, taken like a
+   * failure), or for a failed tribulation.
+   */
+  kind: "free" | "unlocked" | "early" | "late" | "failed";
 }
 
 /** What editing a tribulation costs at `at` (ruling 67, Step 1 prices). For the app and the handler. */
@@ -156,10 +160,11 @@ export function tribulationEditPrice(state: CultivatorState, tribulationId: stri
   const t = get(state, tribulationId);
   const r = rules.tribulations;
   if (at - t.declaredAt <= r.freeEditMinutes * MINUTE) return { qi: 0, gold: 0, kind: "free" };
+  if (isUnlockedNascent(state, t)) return { qi: 0, gold: 0, kind: "unlocked" };
   if (statusAt(state, t, at) === "failed" || !t.due) return { qi: r.editQi, gold: 0, kind: "failed" };
   const span = effectiveDeadline(t.due, state.rest, at) - t.spanStart;
   if (at - t.spanStart < r.lateEditFrom * span) return { qi: r.editQi, gold: 0, kind: "early" };
-  // The last quarter costs a failure (ruling 93).
+  // The last quarter costs a failure, floored like one and never rejected, but the tribulation stays open (rulings 93, 100).
   return { qi: failureQiLoss(state, rules), gold: r.failure.gold, kind: "late" };
 }
 
@@ -167,16 +172,17 @@ export function tribulationEditPrice(state: CultivatorState, tribulationId: stri
  * What deleting a tribulation costs at `at` (ruling 93): an open one, the
  * failure loss plus 2% in Qi and gold, taken like a failure (floored at the
  * balances, never rejected); a failed one, 40 Qi, since the failure was
- * already paid.
+ * already paid; nothing before Nascent Soul's lock (ruling 79).
  */
 export function tribulationDeletePrice(
   state: CultivatorState,
   tribulationId: string,
   at: number,
   rules: RulesConfig = RULES_V1,
-): { qi: number; gold: number; kind: "open" | "failed" } {
+): { qi: number; gold: number; kind: "unlocked" | "open" | "failed" } {
   const t = get(state, tribulationId);
   const r = rules.tribulations;
+  if (isUnlockedNascent(state, t)) return { qi: 0, gold: 0, kind: "unlocked" };
   if (statusAt(state, t, at) === "failed") return { qi: r.deleteFailedQi, gold: 0, kind: "failed" };
   const k = 1 + r.deleteOpenExtra;
   return { qi: failureQiLoss(state, rules) * k, gold: r.failure.gold * k, kind: "open" };
@@ -218,7 +224,8 @@ export function onTribulationEdited(s: CultivatorState, e: EventOf<"TribulationE
   checkChangeable(t);
   if (e.title === undefined && e.criteria === undefined) violate("nothing_to_edit", "an edit changes the title or the criteria");
   const price = tribulationEditPrice(s, e.tribulationId, e.at, rules);
-  pay(s, price.qi, price.gold, s.tribulations.spent.edits);
+  if (price.kind === "late") take(s, price.qi, price.gold, s.tribulations.spent.edits);
+  else pay(s, price.qi, price.gold, s.tribulations.spent.edits);
   if (e.title !== undefined) t.title = e.title;
   if (e.criteria !== undefined) t.criteria = e.criteria;
   t.edits += 1;
@@ -234,7 +241,8 @@ export function onTribulationDeleted(s: CultivatorState, e: EventOf<"Tribulation
   else take(s, price.qi, price.gold, s.tribulations.spent.deletions);
   t.status = "deleted";
   t.due = null;
-  s.main.flags.push({ at: e.at, code: "tribulation_deleted", id: e.tribulationId });
+  // Every deletion is logged, free ones included (ruling 108).
+  s.main.flags.push({ at: e.at, code: "tribulation_deleted", id: e.tribulationId, detail: price.kind });
 }
 
 export function onTribulationRescheduled(s: CultivatorState, e: EventOf<"TribulationRescheduled">, rules: RulesConfig): void {

@@ -44,7 +44,11 @@ import {
   onAreaDecided,
   onBreakthroughRolled,
   onCoreFormed,
-  onNascentSoulSealed,
+  onNascentSoulLocked,
+  onRepented,
+  checkRevival,
+  clampWhileDead,
+  deathSnapshot,
   onRealmOverride,
   progressMidnight,
   type ProgressState,
@@ -591,7 +595,8 @@ const handlers: { [T in GameEvent["type"]]: Handler<T> } = {
   },
   AreaDecided: onAreaDecided,
   CoreFormed: (s, e) => onCoreFormed(s, e),
-  NascentSoulSealed: onNascentSoulSealed,
+  NascentSoulLocked: onNascentSoulLocked,
+  Repented: onRepented,
   RealmOverride: onRealmOverride,
   BreakthroughRolled: (s, e) => {
     if (!onBreakthroughRolled(s, e)) s.anomalies.push({ at: e.at, code: "orphan_breakthrough_roll" });
@@ -610,10 +615,14 @@ function applyMut(s: CultivatorState, e: GameEvent, rules: RulesConfig): void {
     // The game clock starts at creation; nothing decays before the cultivator exists.
     s.clock = e.at;
   }
+  // While dead, nothing pays Qi, gold or drops (ruling 106).
+  const dead = deathSnapshot(s);
   advanceMut(s, e.at, rules);
   (handlers[e.type] as Handler<typeof e.type>)(s, e as never, rules);
   // Level-ups and breakthroughs are derived: whatever an event makes possible happens at once (ruling 74).
   advanceProgress(s, e.at, rules);
+  clampWhileDead(s, dead);
+  checkRevival(s, e.at, rules);
 }
 
 /** Apply one event. Throws RuleViolation if the event breaks a rule; the input state is untouched. */
@@ -626,7 +635,9 @@ export function applyEvent(state: CultivatorState, event: GameEvent, rules: Rule
 /** Advance the state to `to` with no new events (food decay, demotions, rest ending). */
 export function advanceTo(state: CultivatorState, to: number, rules: RulesConfig = RULES_V1): CultivatorState {
   const s = clone(state);
+  const dead = deathSnapshot(s);
   advanceMut(s, to, rules);
+  clampWhileDead(s, dead);
   return s;
 }
 
@@ -634,7 +645,11 @@ export function advanceTo(state: CultivatorState, to: number, rules: RulesConfig
 export function replay(events: readonly GameEvent[], rules: RulesConfig = RULES_V1, until?: number): CultivatorState {
   const s = initialState(rules);
   for (const e of events) applyMut(s, e, rules);
-  if (until !== undefined) advanceMut(s, until, rules);
+  if (until !== undefined) {
+    const dead = deathSnapshot(s);
+    advanceMut(s, until, rules);
+    clampWhileDead(s, dead);
+  }
   return s;
 }
 

@@ -1,7 +1,8 @@
 /**
  * Realm simulator (Main part 3): how long honest cultivators take through
  * the Step 1 realms and levels with the provisional Qi thresholds, how long
- * they wait for Qi, and what a failure takes (rulings 62, 73-97).
+ * they wait for Qi, what a failure takes, and what repent cycling costs
+ * (rulings 62, 73-109).
  *
  * Every persona answers the interview on day 0 and decides its three areas
  * in the first week. Its income comes from Main tasks (the study, project or
@@ -11,13 +12,16 @@
  * - Core Formation: a set of 6 declared on entry, due every 2 months, each
  *   passed 10 days before its deadline.
  * - Nascent Soul: a set of 4 declared on entry (due at 6, 8, 10 and 12
- *   months), sealed on day 30, each passed 10 days before its deadline.
+ *   months), locked on day 30, each passed 10 days before its deadline.
+ * The repent cycler repents at every Nascent Soul entry (one Core Formation
+ * tribulation marked faked, rescheduled and passed again), and when its
+ * avatar dies it completes a revival quest of two week-long projects.
  *
  * Output: a summary on stdout and a CSV row per persona in tools/sim/out/.
  */
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { OATH_TEXT, TRIBULATION_OATH, type GameEvent } from "@cultivation/schema";
+import { OATH_TEXT, REPENT_OATH, TRIBULATION_OATH, type GameEvent } from "@cultivation/schema";
 import {
   DAY,
   RULES_V1,
@@ -170,6 +174,8 @@ interface Habits {
   switchMidFoundation?: boolean;
   /** Declares the fewest tribulations with 1-day deadlines and passes them the next day, so only Qi sets the pace. */
   eager?: boolean;
+  /** Repents at every Nascent Soul entry, cycling back through Core Formation's last steps (ruling 104). */
+  repentCycle?: boolean;
 }
 
 interface Plan {
@@ -180,6 +186,7 @@ interface Plan {
 function tribulationPlan(h: Habits) {
   const plans = new Map<string, Plan>();
   let switched = false;
+  let revivalDay: number | null = null;
   const declare = (c: Cultivator, id: string, day: number, days: number, passDay: number) => {
     const at = c.at(day, 22);
     if (c.now("TribulationDeclared", at, { tribulationId: id, title: id, criteria: `Pass ${id}`, deadline: at + days * DAY })) {
@@ -207,6 +214,27 @@ function tribulationPlan(h: Habits) {
       }
     }
 
+    if (h.repentCycle) {
+      // Dead: a revival quest of two project-sized tasks (8 days of work), done over two weeks (ruling 106).
+      if (c.s.progress.diedAt !== null) {
+        if (revivalDay === null) {
+          revivalDay = day;
+          c.now("MainQuestDefined", at, {
+            questId: `revival${day}`,
+            name: "Revival",
+            deadline: at + 30 * DAY,
+            tasks: [1, 2].map((k) => ({ taskId: `revival${day}-${k}`, name: `Revival ${k}`, difficulty: "hard", effort: "project" })),
+          });
+        } else if (day === revivalDay + 6 || day === revivalDay + 13) {
+          c.now("MainTaskCompleted", at, { taskId: `revival${revivalDay}-${day === revivalDay + 6 ? 1 : 2}` });
+        }
+      } else revivalDay = null;
+      if (realm === "nascent_soul") {
+        const fake = Object.entries(c.s.tribulations.items).find(([, t]) => t.realm === "core_formation" && t.status === "passed" && t.closedAt === null);
+        if (fake && c.now("Repented", at, { oath: REPENT_OATH, faked: [fake[0]] })) return;
+      }
+    }
+
     const open = [...plans.keys()].filter((id) => {
       const t = c.s.tribulations.items[id]!;
       return t.realm === c.s.main.realm && t.closedAt === null && (t.status === "open" || t.status === "failed");
@@ -226,11 +254,11 @@ function tribulationPlan(h: Habits) {
       if (h.eager) for (let k = 1; k <= 5; k++) declare(c, `cf${day}-${k}`, day, 1, day + 1);
       else for (let k = 1; k <= 6; k++) declare(c, `cf${day}-${k}`, day, 60 * k, day + 60 * k - 10);
     } else if (realm === "nascent_soul") {
-      if (h.eager && open.length === 0 && c.s.progress.sealedAt === null) {
+      if (h.eager && open.length === 0 && c.s.progress.lockedAt === null) {
         declare(c, `ns${day}`, day, 1, day + 1);
-        c.now("NascentSoulSealed", at, {});
-      } else if (open.length === 0 && c.s.progress.sealedAt === null) for (const m of [6, 8, 10, 12]) declare(c, `ns${day}-${m}`, day, m * 30, day + m * 30 - 10);
-      else if (c.s.progress.sealedAt === null && day - Math.floor((c.s.progress.enteredAt - T0) / DAY) >= 30) c.now("NascentSoulSealed", at, {});
+        c.now("NascentSoulLocked", at, {});
+      } else if (open.length === 0 && c.s.progress.lockedAt === null) for (const m of [6, 8, 10, 12]) declare(c, `ns${day}-${m}`, day, m * 30, day + m * 30 - 10);
+      else if (c.s.progress.lockedAt === null && day - Math.floor((c.s.progress.enteredAt - T0) / DAY) >= 30) c.now("NascentSoulLocked", at, {});
     }
   };
 }
@@ -255,6 +283,7 @@ const PERSONAS: Persona[] = [
   { label: "eager weekly project", income: weeklyProject, habits: { eager: true } },
   { label: "eager study + weekly project", income: both, habits: { eager: true } },
   { label: "eager reference: weekly hard milestones", income: weeklyMilestones, habits: { eager: true } },
+  { label: "repent cycler: eager reference, repents at every Nascent Soul entry", income: weeklyMilestones, habits: { eager: true, repentCycle: true } },
 ];
 
 const REALM_ORDER: Realm[] = ["foundation_establishment", "core_formation", "nascent_soul", "spirit_realm"];
@@ -293,6 +322,9 @@ function simulate(p: Persona) {
     legendaryRolls: c.s.progress.legendaryRolls.none + c.s.progress.legendaryRolls.legendary,
     legendaryItems: c.s.progress.legendaryRolls.legendary,
     conquered: conqueredTribulations(c.s).length,
+    repents: Object.values(c.s.progress.repents).reduce((a, b) => a + b, 0),
+    deaths: c.s.progress.deaths,
+    cyclingFlags: c.s.main.flags.filter((f) => f.code === "repent_cycling").length,
   };
 }
 
@@ -313,6 +345,9 @@ export function runRealmScenarios(outDir: string): void {
     "legendary rolls",
     "legendary items",
     "conquered tribulations",
+    "repents",
+    "deaths",
+    "cycling flags",
   ];
   const rows = PERSONAS.map(simulate).map((r) => [
     r.label,
@@ -327,6 +362,9 @@ export function runRealmScenarios(outDir: string): void {
     String(r.legendaryRolls),
     String(r.legendaryItems),
     String(r.conquered),
+    String(r.repents),
+    String(r.deaths),
+    String(r.cyclingFlags),
   ]);
   console.log(`\nRealms: month each realm was reached, Qi waits and failure losses (up to ${YEARS} years)\n`);
   console.log(header.join("\t"));

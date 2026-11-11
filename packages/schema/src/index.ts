@@ -419,10 +419,24 @@ export const CoreFormed = z.object({
   choice: z.string().min(1).max(200),
 });
 
-/** Seals Nascent Soul's tribulation set, within 90 days of entering (ruling 79). */
-export const NascentSoulSealed = z.object({
+/** Locks Nascent Soul's tribulation set, within 90 days of entering (ruling 79). */
+export const NascentSoulLocked = z.object({
   ...base,
-  type: z.literal("NascentSoulSealed"),
+  type: z.literal("NascentSoulLocked"),
+});
+
+export const REPENT_OATH = "I acknowledge that at least one of my tribulations was faked and I solemnly swear I will not do it again.";
+
+/**
+ * From Nascent Soul upward, admits that tribulations of the previous realm
+ * were faked and drops back to it (rulings 101-107). `faked` may be empty
+ * only when the current realm was entered by an override.
+ */
+export const Repented = z.object({
+  ...base,
+  type: z.literal("Repented"),
+  oath: z.literal(REPENT_OATH),
+  faked: z.array(id).max(200),
 });
 
 /** Advances one level or realm, ignoring Qi and tribulations; logged (ruling 84). */
@@ -517,7 +531,8 @@ export const GameEvent = z.discriminatedUnion("type", [
   TribulationDropRolled,
   AreaDecided,
   CoreFormed,
-  NascentSoulSealed,
+  NascentSoulLocked,
+  Repented,
   RealmOverride,
   BreakthroughRolled,
 ]);

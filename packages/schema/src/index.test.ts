@@ -169,8 +169,11 @@ describe("realm events", () => {
     expect(() => parseEvent({ ...base, type: "AreaDecided", path: "main", choice: "" })).toThrow();
   });
 
-  it("accepts the core choice, the seal, the override and a breakthrough roll", () => {
-    for (const type of ["NascentSoulSealed", "RealmOverride"]) expect(parseEvent({ ...base, type }).type).toBe(type);
+  it("accepts the core choice, the lock, the override, a repent and a breakthrough roll", () => {
+    const oath = "I acknowledge that at least one of my tribulations was faked and I solemnly swear I will not do it again.";
+    expect(parseEvent({ ...base, type: "Repented", oath, faked: ["t1"] }).type).toBe("Repented");
+    expect(() => parseEvent({ ...base, type: "Repented", oath: "sorry", faked: ["t1"] })).toThrow();
+    for (const type of ["NascentSoulLocked", "RealmOverride"]) expect(parseEvent({ ...base, type }).type).toBe(type);
     expect(parseEvent({ ...base, type: "CoreFormed", choice: "Mathematics" }).type).toBe("CoreFormed");
     expect(() => parseEvent({ ...base, type: "CoreFormed" })).toThrow(); // the core discipline is picked with it
     expect(parseEvent({ ...base, type: "BreakthroughRolled", step: 3, item: "legendary" }).type).toBe("BreakthroughRolled");
