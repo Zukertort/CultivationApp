@@ -296,6 +296,8 @@ export interface RulesConfig {
   poses: { name: string; minMastered: number; qiBonus: number }[];
   /** A halo ticket adds `legendaryBonus` to the next level-up or breakthrough's legendary roll (ruling 83). */
   halo: { visibleDays: number; ticketDays: number; legendaryBonus: number };
+  /** Qi for petting the Lion, once a local day, before multipliers (ruling 127). SIM. */
+  lionPetQi: number;
   rest: {
     /** SIM: vacation price per day. */
     vacationGoldPerDay: number;
@@ -336,11 +338,13 @@ export interface RulesConfig {
     horizonDays: number;
     /** Push when the companion is projected to fall to this fraction of its meter. */
     companionHungryFraction: number;
+    /** The daily reminder's local time until the cultivator sets one, in minutes after midnight (ruling 128). */
+    defaultReminderMinutes: number;
   };
 }
 
 export const RULES_V1: RulesConfig = Object.freeze({
-  version: "1.16.0",
+  version: "1.17.0",
   tiers: {
     turtle: { capacity: 30, weeklyLoss: 10, goldBonus: 0.01, coreQiBonus: 0, breakthroughLegendaryChance: 0 },
     panda: { capacity: 800, weeklyLoss: 200, goldBonus: 0.1, coreQiBonus: 0, breakthroughLegendaryChance: 0 },
@@ -361,6 +365,8 @@ export const RULES_V1: RulesConfig = Object.freeze({
     { name: "king", minMastered: 10, qiBonus: 0.05 },
   ],
   halo: { visibleDays: 30, ticketDays: 90, legendaryBonus: 0.1 },
+  // About a third of a daily mid study session.
+  lionPetQi: 3,
   rest: {
     vacationGoldPerDay: 20,
     closedDoorMaxDays: 14,
@@ -375,7 +381,7 @@ export const RULES_V1: RulesConfig = Object.freeze({
   scales: { goldBonusEach: 0.1, qiBonusEach: 0.05, forWings: 9 },
   wings: { goldBonus: 1.0, qiBonus: 0.5 },
   potions: { legendaryShare: 0.5, gain: { bonus: 0.1, hours: 24 }, legendary: { chanceBonus: 0.05, perBreakthrough: 1 } },
-  notifications: { maxPerDay: 3, horizonDays: 14, companionHungryFraction: 0.05 },
+  notifications: { maxPerDay: 3, horizonDays: 14, companionHungryFraction: 0.05, defaultReminderMinutes: 9 * 60 },
   soul: {
     startHp: 50,
     maxHp: 100,

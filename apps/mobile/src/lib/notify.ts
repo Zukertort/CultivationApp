@@ -83,6 +83,8 @@ export function alertText(a: PushAlert, companionTier: string): { title: string;
       return { title: "A heart demon is awakening", body: "A demon is close to 70%. Pushing it back before midnight keeps my soul's color." };
     case "companion_hungry":
       return { title: `The ${companionTier} is hungry`, body: "Train soon, or my companion will leave." };
+    case "daily_reminder":
+      return { title: "Time to cultivate", body: "Nothing urgent today. A look at my to-do list keeps the path moving." };
   }
 }
 

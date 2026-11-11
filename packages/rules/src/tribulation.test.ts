@@ -198,7 +198,8 @@ describe("editing and deleting (ruling 67)", () => {
     expect(code(() => applyEvent(base(), ev("TribulationEdited", DECLARED + DAY, { tribulationId: "x" })))).toBe("nothing_to_edit");
     const passed = apply(base(), claim(T0 + DAY));
     expect(code(() => applyEvent(passed, edit(T0 + 2 * DAY)))).toBe("tribulation_passed");
-    expect(code(() => applyEvent(passed, del(T0 + 2 * DAY)))).toBe("tribulation_passed");
+    // Deleting a passed tribulation of the current realm admits it was faked (ruling 126).
+    expect(applyEvent(passed, del(T0 + 2 * DAY)).main.flags.map((f) => f.code)).toContain("tribulation_faked");
   });
 
   it("deletes an open tribulation for a failure's loss plus 2%, and a failed one for 40 Qi (ruling 93)", () => {
@@ -292,12 +293,12 @@ describe("push alerts (rulings 69-70)", () => {
       });
     const s = rich(replay([...start, declare("x", T0 + 8 * H, T0 + 8 * H + 4 * DAY), quests("q")]));
     const vacation = apply(s, ev("RestStarted", T0 + 9 * H, { kind: "vacation", until: T0 + 10 * DAY }));
-    const vplan = pushAlertPlan(vacation, T0 + 9 * H);
+    const vplan = pushAlertPlan(vacation, T0 + 9 * H).filter((a) => a.kind !== "daily_reminder");
     expect(new Set(vplan.map((a) => a.kind))).toEqual(new Set(["tribulation_deadline", "rest_ending"]));
     expect(vplan.at(-1)).toMatchObject({ kind: "rest_ending", at: T0 + 10 * DAY });
     const closed = apply(s, ev("RestStarted", T0 + 9 * H, { kind: "closed_door", until: T0 + 10 * DAY }));
     // Inside the rest only the return date pushes; the deadlines it pushed back alert after it.
-    const cplan = pushAlertPlan(closed, T0 + 9 * H);
+    const cplan = pushAlertPlan(closed, T0 + 9 * H).filter((a) => a.kind !== "daily_reminder");
     expect(cplan.filter((a) => a.at <= T0 + 10 * DAY).map((a) => a.kind)).toEqual(["rest_ending"]);
     expect(cplan.some((a) => a.kind === "tribulation_deadline" && a.at > T0 + 10 * DAY)).toBe(true);
   });

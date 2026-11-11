@@ -106,6 +106,8 @@ export interface CultivatorState {
     /** Local day key and routines counted that day (daily cap). */
     routineDay: number;
     routinesToday: number;
+    /** Local day the Lion was last petted (ruling 127). */
+    pettedDay: number;
   };
   tierHistory: TierChange[];
   activities: Record<string, { name: string; kind: BodyActivityKind }>;
@@ -116,6 +118,8 @@ export interface CultivatorState {
   rest: RestPeriod | null;
   closedDoorLog: RestPeriod[];
   goldenTickets: number;
+  /** Notification preferences (rulings 128-129): the reminder's local time (null: the default) and quiet hours. */
+  prefs: { reminderMinutes: number | null; quiet: { start: number; end: number } | null };
   /**
    * Potions by kind (ruling 58); a drunk gain potion is active until
    * `gainPotionUntil`. `legendary` counts legendary items.
@@ -160,6 +164,7 @@ export function initialState(rules: RulesConfig = RULES_V1): CultivatorState {
       ageMs: {},
       routineDay: -1,
       routinesToday: 0,
+      pettedDay: -1,
     },
     tierHistory: [],
     activities: {},
@@ -169,6 +174,7 @@ export function initialState(rules: RulesConfig = RULES_V1): CultivatorState {
     rest: null,
     closedDoorLog: [],
     goldenTickets: 0,
+    prefs: { reminderMinutes: null, quiet: null },
     inventory: {
       gainPotions: 0,
       legendaryPotions: 0,
@@ -562,6 +568,16 @@ const onDropRolled: Handler<"SoulDropRolled"> = (s, e, rules) => {
 };
 
 /** Drink a gain potion (ruling 58): +10% gold and Qi for 24 hours, one active at a time. */
+/** Pet the Lion once a local day for a little Qi (ruling 127); not Body activity, and nothing while dead (clamped). */
+const onCompanionPetted: Handler<"CompanionPetted"> = (s, e, rules) => {
+  const c = s.companion;
+  if (c.tier !== "lion") violate("not_lion", "only the Lion can be petted for Qi");
+  const day = localDay(e.at, s.tzOffsetMinutes);
+  if (c.pettedDay === day) violate("already_petted", "the Lion was already petted today");
+  c.pettedDay = day;
+  earnQi(s, rules.lionPetQi * qiMultiplier(s, rules));
+};
+
 const onPotionUsed: Handler<"PotionUsed"> = (s, e, rules) => {
   const inv = s.inventory;
   if (inv.gainPotions < 1) violate("no_potion", "no gain potion to drink");
@@ -620,8 +636,21 @@ const handlers: { [T in GameEvent["type"]]: Handler<T> } = {
   RouletteSpun: onRouletteSpun,
   PotionUsed: onPotionUsed,
   HeartDemonCreated: (s, e, rules) => onDemonCreated(s.soul, e, rules),
-  HeartDemonRenamed: (s, e, rules) => onDemonRenamed(s.soul, e, rules),
-  HeartDemonDeleted: (s, e, rules) => onDemonDeleted(s.soul, e, rules),
+  HeartDemonRenamed: (s, e, rules) => {
+    onDemonRenamed(s.soul, e, rules);
+    s.main.flags.push({ at: e.at, code: "demon_renamed", id: e.demonId });
+  },
+  HeartDemonDeleted: (s, e, rules) => {
+    onDemonDeleted(s.soul, e, rules);
+    s.main.flags.push({ at: e.at, code: "demon_deleted", id: e.demonId });
+  },
+  CompanionPetted: onCompanionPetted,
+  DailyReminderSet: (s, e) => {
+    s.prefs.reminderMinutes = e.minutes;
+  },
+  QuietHoursSet: (s, e) => {
+    s.prefs.quiet = e.quiet && { ...e.quiet };
+  },
   SoulTaskLogged: (s, e, rules) => {
     const polarity = onSoulTaskLogged(s.soul, e, rules);
     // Practice counts against the Soul tax; a relapse doesn't (ruling 31).
