@@ -1,11 +1,12 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ActivityIndicator, View } from "react-native";
 import { Tabs } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { SQLiteProvider } from "expo-sqlite";
+import { SQLiteProvider, useSQLiteContext } from "expo-sqlite";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { OATH_TEXT } from "@cultivation/schema";
-import { DB_NAME, migrate } from "../lib/db";
+import { DB_NAME, getMeta, migrate, setMeta } from "../lib/db";
+import { AreasStep, Interview } from "../lib/onboarding";
 import { NotificationsProvider } from "../lib/notifications-context";
 import { StoreProvider, useStore } from "../lib/store";
 import { Button, C, Card, Field, Note, Screen, T } from "../lib/ui";
@@ -23,9 +24,16 @@ export default function RootLayout() {
   );
 }
 
+const AREAS_STEP = "onboarding_areas_done";
+
 function Gate() {
+  const db = useSQLiteContext();
   const { ready, state } = useStore();
-  if (!ready) {
+  const [areasDone, setAreasDone] = useState<boolean | null>(null);
+  useEffect(() => {
+    void getMeta(db, AREAS_STEP).then((v) => setAreasDone(v !== null));
+  }, [db]);
+  if (!ready || areasDone === null) {
     return (
       <View style={{ flex: 1, backgroundColor: C.bg, justifyContent: "center" }}>
         <ActivityIndicator color={C.gold} />
@@ -33,6 +41,18 @@ function Gate() {
     );
   }
   if (!state.created) return <Oath />;
+  if (state.main.interview === null) return <Interview />;
+  // Shown once after the interview; "Continue" or "Decide the rest later" closes it.
+  if (!areasDone) {
+    return (
+      <AreasStep
+        onDone={() => {
+          void setMeta(db, AREAS_STEP, "1");
+          setAreasDone(true);
+        }}
+      />
+    );
+  }
   return (
     <NotificationsProvider>
       <Tabs
@@ -42,12 +62,15 @@ function Gate() {
           tabBarActiveTintColor: C.gold,
           tabBarInactiveTintColor: C.muted,
           tabBarIconStyle: { display: "none" },
-          tabBarLabelStyle: { fontSize: 14, fontWeight: "700" },
+          tabBarLabelStyle: { fontSize: 12, fontWeight: "700" },
         }}
       >
-        <Tabs.Screen name="index" options={{ title: "Cultivator" }} />
+        <Tabs.Screen name="index" options={{ title: "Tasks" }} />
+        <Tabs.Screen name="realm" options={{ title: "Realm" }} />
+        <Tabs.Screen name="trials" options={{ title: "Trials" }} />
         <Tabs.Screen name="body" options={{ title: "Body" }} />
         <Tabs.Screen name="soul" options={{ title: "Soul" }} />
+        <Tabs.Screen name="alerts" options={{ title: "Alerts" }} />
       </Tabs>
     </NotificationsProvider>
   );

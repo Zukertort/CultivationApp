@@ -411,6 +411,7 @@ Items found while implementing; each waits for a decision or a later part.
 - [ ] Legendary versions of class wearables (visual plus bonus demon damage or gold) wait for gear
 - [ ] Set shop and gear prices against the physical-practice personas (about 3.5x a studier's gold), not the studier
 - [ ] Soul cadence: each demon needs a positive task about every 8 days just to hold (3-day grace, then 1% a day), so with several demons 3 practice sessions a week fall behind and the soul ends Broken in the cadence report; daily practice reaches Red at week 83
+- [ ] Remove the temporary on-device roller (`apps/mobile/src/lib/roller.ts`) once the server rolls; it writes the same roll events, so the log needs no migration
 - [ ] Dev-only scenario loader for testing: builds a cultivator by generating and replaying a real event log (the simulator personas as seeds), plus a time-travel control to advance the clock. It exists only in the development build profile and is excluded from release builds; no cheat events in the rules engine
 
 ## Rulings
