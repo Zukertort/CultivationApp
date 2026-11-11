@@ -181,7 +181,7 @@ function simulate(p: Persona): Cultivator {
   c.apply("InterviewAnswered", T0, { interests: { main: "Mathematics", body: "Gym", soul: "Calm" } });
   c.apply("BodyActivityDefined", T0, { activityId: "gym-1", name: "Gym v1", kind: "routine" });
   c.apply("HeartDemonCreated", T0, { demonId: "d", name: "Impatience", positiveTasks: [{ taskId: "breathe", name: "Breathe" }], negativeTasks: [] });
-  for (let i = 1; i <= 8; i++) c.apply("RealmOverride", T0 + i, {});
+  for (let i = 1; i <= 8; i++) c.apply("RealmOverride", T0 + i, { class: "monk" });
   c.apply("TribulationDeclared", T0 + HOUR, { tribulationId: LONG_TERM, title: "Long-term goal", criteria: "Due after the simulated year", deadline: T0 + 365 * DAY });
   const v = (day: number) => Math.floor(day / 28) + 1;
   for (let day = 0; day < WEEKS * 7; day++) {

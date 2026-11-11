@@ -12,6 +12,7 @@
 import type { EventOf, MainQuestDrop } from "@cultivation/schema";
 import { RULES_V1, type Realm, type RulesConfig } from "./config.js";
 import type { CultivatorState } from "./engine.js";
+import { earnClassDrop } from "./class.js";
 import { addPotion, potionKind } from "./economy.js";
 import { violate } from "./errors.js";
 import { effectiveDeadline, markActivity, type Due } from "./main.js";
@@ -280,6 +281,8 @@ export function onTribulationClaimed(s: CultivatorState, e: EventOf<"Tribulation
   const cooldown = rules.tribulations.item.cooldownDays * DAY;
   if (tr.lastRollAt !== null && e.at - tr.lastRollAt < cooldown) return;
   tr.lastRollAt = e.at;
+  // The class drop is a second roll under the same cooldown (rulings 119-120).
+  earnClassDrop(s, e, rules);
   // An outcome stored without an earned roll (e.g. inside the cooldown) is ignored, as for other drops.
   if (e.drop !== undefined) applyDrop(s, e.drop);
   else tr.pendingRolls[e.id] = { eventId: e.id, at: e.at, tribulationId: e.tribulationId };

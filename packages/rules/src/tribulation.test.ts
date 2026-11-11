@@ -26,7 +26,7 @@ const ev = <T extends GameEvent["type"]>(type: T, at: number, rest: Omit<Extract
 const created = ev("CultivatorCreated", T0, { name: "Ricardo", tzOffsetMinutes: -180, oath: OATH_TEXT });
 const interview = ev("InterviewAnswered", T0, { interests: { main: "Mathematics", body: "BJJ", soul: "" } });
 // Tribulations exist from Foundation on (ruling 89); overrides reach early Core Formation, whose next threshold is 550 Qi.
-const toCore = Array.from({ length: 8 }, (_, i) => ev("RealmOverride", T0 + i + 1, {}));
+const toCore = Array.from({ length: 8 }, (_, i) => ev("RealmOverride", T0 + i + 1, { class: "monk" }));
 const start = [created, ...toCore];
 /** Declared at day 0 08:00 with a 10-day span: the last quarter starts at day 7 20:00. */
 const DECLARED = T0 + 8 * H;

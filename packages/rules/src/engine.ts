@@ -11,6 +11,7 @@ import {
   onQuestCompleted,
   onQuestDefined,
   onSoulTaskLogged,
+  crossCreditAttack,
   earnRolls,
   settleRolls,
   onDropRolled as onSoulDropRolled,
@@ -38,6 +39,7 @@ import {
   shiftDeadlinesAfterRest,
   type MainState,
 } from "./main.js";
+import { initialClass, onClassChosen, onClassDropRolled, onWearableUsed, classCovers, type ClassState } from "./class.js";
 import {
   advanceProgress,
   initialProgress,
@@ -95,6 +97,8 @@ export interface CultivatorState {
   companion: {
     tier: Tier;
     food: number;
+    /** A keep pet wearable holds the companion's tier until then: no food loss, no demotion; promotions still work (ruling 118). */
+    tierKeptUntil: number | null;
     /** First paying completion of each activity version (repetition decay). */
     firstCompletedAt: Record<string, number>;
     /** Decay age of each activity version: time since its first paying completion, rest excluded (ruling 19). */
@@ -116,12 +120,25 @@ export interface CultivatorState {
    * Potions by kind (ruling 58); a drunk gain potion is active until
    * `gainPotionUntil`. `legendary` counts legendary items.
    */
-  inventory: { gainPotions: number; legendaryPotions: number; gainPotionUntil: number | null; legendary: number; scales: number; wings: boolean };
+  inventory: {
+    gainPotions: number;
+    legendaryPotions: number;
+    gainPotionUntil: number | null;
+    legendary: number;
+    scales: number;
+    wings: boolean;
+    /** Class wearables held (ruling 118). */
+    soulWearables: number;
+    petKeepWearables: number;
+    petHaloWearables: number;
+  };
   soul: SoulState;
   main: MainState;
   tribulations: TribulationState;
   /** Realm level, areas and progression history (part 3); the realm itself is `main.realm`. */
   progress: ProgressState;
+  /** The class, its changes and its drops (part 4). */
+  class: ClassState;
   /** Things that should be impossible (e.g. a second set of wings); flagged, never silently fixed. */
   anomalies: { at: number; code: string }[];
 }
@@ -138,6 +155,7 @@ export function initialState(rules: RulesConfig = RULES_V1): CultivatorState {
     companion: {
       tier: "turtle",
       food: rules.tiers.turtle.capacity * rules.tierStartFraction,
+      tierKeptUntil: null,
       firstCompletedAt: {},
       ageMs: {},
       routineDay: -1,
@@ -151,11 +169,22 @@ export function initialState(rules: RulesConfig = RULES_V1): CultivatorState {
     rest: null,
     closedDoorLog: [],
     goldenTickets: 0,
-    inventory: { gainPotions: 0, legendaryPotions: 0, gainPotionUntil: null, legendary: 0, scales: 0, wings: false },
+    inventory: {
+      gainPotions: 0,
+      legendaryPotions: 0,
+      gainPotionUntil: null,
+      legendary: 0,
+      scales: 0,
+      wings: false,
+      soulWearables: 0,
+      petKeepWearables: 0,
+      petHaloWearables: 0,
+    },
     soul: initialSoul(),
     main: initialMain(),
     tribulations: initialTribulations(),
     progress: initialProgress(),
+    class: initialClass(),
     anomalies: [],
   };
 }
@@ -312,6 +341,11 @@ function advanceCompanion(s: CultivatorState, from: number, to: number, rules: R
     const c = s.companion;
     const t = rules.tiers[c.tier];
     const perMs = t.weeklyLoss / WEEK;
+    // A kept companion loses no food until the pet wearable's effect ends (ruling 118).
+    if (c.tierKeptUntil !== null && cur < c.tierKeptUntil) {
+      cur = Math.min(to, c.tierKeptUntil);
+      continue;
+    }
     const dt = to - cur;
     if (c.tier === "turtle") {
       c.food = Math.max(0, c.food - perMs * dt);
@@ -353,39 +387,68 @@ const onActivityLogged: Handler<"BodyActivityLogged"> = (s, e, rules) => {
   // Any logged activity counts against the Body tax, even one over the routine cap (ruling 31).
   markActivity(s.main, "body", e.at);
 
-  if (activity.kind === "routine") {
-    const day = localDay(e.at, s.tzOffsetMinutes);
-    if (day !== c.routineDay) {
-      c.routineDay = day;
-      c.routinesToday = 0;
-    }
-    // Over the daily cap the routine is still a fact, but it pays nothing.
-    if (c.routinesToday >= rules.routinesPerDayCap) return;
-    c.routinesToday += 1;
-  }
+  // Over the daily cap the routine is still a fact, but it pays nothing.
+  if (activity.kind === "routine" && !takeRoutineSlot(s, e.at, rules)) return;
 
   if (c.firstCompletedAt[e.activityId] === undefined) {
     c.firstCompletedAt[e.activityId] = e.at;
     c.ageMs[e.activityId] = 0;
   }
-  const rep = repetitionMultiplier(c.ageMs[e.activityId] ?? 0, rules);
+  payTraining(s, activity.kind, repetitionMultiplier(c.ageMs[e.activityId] ?? 0, rules), e.at, rules);
+};
 
+/** Count a routine against the daily cap; false when the cap is reached. */
+function takeRoutineSlot(s: CultivatorState, at: number, rules: RulesConfig): boolean {
+  const c = s.companion;
+  const day = localDay(at, s.tzOffsetMinutes);
+  if (day !== c.routineDay) {
+    c.routineDay = day;
+    c.routinesToday = 0;
+  }
+  if (c.routinesToday >= rules.routinesPerDayCap) return false;
+  c.routinesToday += 1;
+  return true;
+}
+
+/** Pay a Body activity's gold and feed its treats (scaled by repetition), promoting the companion. */
+function payTraining(s: CultivatorState, kind: BodyActivityKind, rep: number, at: number, rules: RulesConfig): void {
+  const c = s.companion;
   // Gold uses the multiplier of the tier the activity was done in.
-  earnGold(s, rules.gold[activity.kind] * rep * trainingGoldMultiplier(s, rules));
+  earnGold(s, rules.gold[kind] * rep * trainingGoldMultiplier(s, rules));
 
-  c.food += rules.treats[activity.kind] * rep;
+  c.food += rules.treats[kind] * rep;
   while (c.tier !== "lion" && c.food >= rules.tiers[c.tier].capacity) {
     const higher = TIERS[tierIndex(c.tier) + 1] as Tier;
-    changeTier(s, higher, e.at, "promoted", rules);
+    changeTier(s, higher, at, "promoted", rules);
   }
   if (c.tier === "lion") {
     const cap = rules.tiers.lion.capacity;
     if (c.food >= cap) {
       c.food = cap;
-      if (activity.kind === "routine") s.goldenTickets += 1;
+      if (kind === "routine") s.goldenTickets += 1;
     }
   }
-};
+}
+
+/**
+ * Cross-path credit for a paying completion of a tagged Main task (rulings
+ * 116, 124): a Body routine's treats and gold under the daily routine cap,
+ * and one positive task's damage to the chosen demon (no soul drop roll),
+ * each counting as activity for the tax. Tags the current class doesn't
+ * allow are ignored. The Main task's repetition decay scales the routine.
+ */
+function crossCredit(s: CultivatorState, taskId: string, at: number, decay: number, rules: RulesConfig): void {
+  const t = s.main.tasks[taskId]!;
+  const covers = classCovers(s, rules);
+  if (t.crossBody && covers.body) {
+    markActivity(s.main, "body", at);
+    if (takeRoutineSlot(s, at, rules)) payTraining(s, "routine", decay, at, rules);
+  }
+  if (t.crossSoulDemonId !== null && covers.soul && s.soul.demons[t.crossSoulDemonId]) {
+    markActivity(s.main, "soul", at);
+    crossCreditAttack(s.soul, t.crossSoulDemonId, at, rules);
+  }
+}
 
 const onSkillDefined: Handler<"SkillDefined"> = (s, e) => {
   if (s.skills[e.skillId]) violate("duplicate_skill", `skill ${e.skillId} already defined`);
@@ -575,7 +638,15 @@ const handlers: { [T in GameEvent["type"]]: Handler<T> } = {
   InterviewAnswered: (s, e) => onInterviewAnswered(s, e),
   MainTaskDefined: onTaskDefined,
   MainQuestDefined: onMainQuestDefined,
-  MainTaskCompleted: onTaskCompleted,
+  MainTaskCompleted: (s, e, rules) => {
+    const paid = onTaskCompleted(s, e, rules);
+    if (paid !== null) crossCredit(s, e.taskId, e.at, paid.decay, rules);
+  },
+  ClassChosen: onClassChosen,
+  ClassDropRolled: (s, e) => {
+    if (!onClassDropRolled(s, e)) s.anomalies.push({ at: e.at, code: "orphan_class_drop_roll" });
+  },
+  WearableUsed: onWearableUsed,
   MainTaskCancelled: onTaskCancelled,
   MainTaskArchived: (s, e) => onTaskArchived(s, e),
   MainTaskRestored: onTaskRestored,

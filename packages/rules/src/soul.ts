@@ -35,6 +35,8 @@ export interface HeartDemon {
   idleMs: number;
   defeats: number;
   revivals: number;
+  /** A soul wearable freezes its growth until then (ruling 118). */
+  frozenUntil: number | null;
 }
 
 export interface SoulQuest {
@@ -226,7 +228,9 @@ export function advanceSoul(soul: SoulState, from: number, to: number, rules: Ru
   for (const [demonId, d] of Object.entries(soul.demons)) {
     const before = d.idleMs;
     d.idleMs = before + dt;
-    const growMs = Math.max(0, d.idleMs - grace) - Math.max(0, before - grace);
+    let growMs = Math.max(0, d.idleMs - grace) - Math.max(0, before - grace);
+    // Growth happens in the stretch's tail past the grace; a soul wearable's freeze removes its start (ruling 118).
+    if (d.frozenUntil !== null && d.frozenUntil > to - growMs) growMs = Math.max(0, to - Math.max(to - growMs, d.frozenUntil));
     if (growMs <= 0 || hpPerDay <= 0 || d.hp >= r.maxHp) continue;
 
     const hp0 = d.hp;
@@ -283,6 +287,7 @@ export function onDemonCreated(soul: SoulState, e: EventOf<"HeartDemonCreated">,
     idleMs: 0,
     defeats: 0,
     revivals: 0,
+    frozenUntil: null,
   };
   soul.firstDemonAt ??= e.at;
   soul.lastDemonCreatedAt = e.at;
@@ -329,6 +334,12 @@ export function onDemonDeleted(soul: SoulState, e: EventOf<"HeartDemonDeleted">,
     setColor(soul, "white", e.at, "deletion");
   }
   // At White nothing happens now; with no demon left, the day's end turns the soul Broken.
+  syncGoldenClock(soul, rules);
+}
+
+/** A tagged Main task's Soul credit: one positive task's damage to the demon (ruling 116). */
+export function crossCreditAttack(soul: SoulState, demonId: string, at: number, rules: RulesConfig): void {
+  attack(soul, demonId, soul.demons[demonId]!, at, rules);
   syncGoldenClock(soul, rules);
 }
 

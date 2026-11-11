@@ -652,6 +652,7 @@ function soulWith(demons: { hp: number; defeated?: boolean; idleMs?: number }[],
       idleMs: d.idleMs ?? 0,
       defeats: d.defeated ? 1 : 0,
       revivals: 0,
+      frozenUntil: null,
     };
     soul.demons[`d${i}`] = demon;
   });
