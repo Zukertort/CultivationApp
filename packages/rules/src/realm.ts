@@ -17,6 +17,7 @@
 import type { EventOf } from "@cultivation/schema";
 import { RULES_V1, type MainPath, type Realm, type RulesConfig, type StepOneRealm } from "./config.js";
 import type { CultivatorState } from "./engine.js";
+import { chooseClassAtCore } from "./class.js";
 import { violate } from "./errors.js";
 import { workDays } from "./main.js";
 import { DAY } from "./time.js";
@@ -419,7 +420,7 @@ export interface DeathSnapshot {
   pending: string[][];
 }
 
-const pendingMaps = (s: CultivatorState) => [s.soul.pendingRolls, s.main.pendingRolls, s.tribulations.pendingRolls, s.progress.pendingRolls];
+const pendingMaps = (s: CultivatorState) => [s.soul.pendingRolls, s.main.pendingRolls, s.tribulations.pendingRolls, s.progress.pendingRolls, s.class.pendingDrops];
 
 /** What a dead cultivator holds before an event or a stretch of time; null while alive. */
 export function deathSnapshot(s: CultivatorState): DeathSnapshot | null {
@@ -446,6 +447,9 @@ export function clampWhileDead(s: CultivatorState, before: DeathSnapshot | null)
   inv.legendary = Math.min(inv.legendary, before.inventory.legendary);
   inv.scales = Math.min(inv.scales, before.inventory.scales);
   inv.wings = inv.wings && before.inventory.wings;
+  inv.soulWearables = Math.min(inv.soulWearables, before.inventory.soulWearables);
+  inv.petLionWearables = Math.min(inv.petLionWearables, before.inventory.petLionWearables);
+  inv.petHaloWearables = Math.min(inv.petHaloWearables, before.inventory.petHaloWearables);
   s.main.debt.qi = Math.max(s.main.debt.qi, before.debt.qi);
   s.main.debt.gold = Math.max(s.main.debt.gold, before.debt.gold);
   pendingMaps(s).forEach((m, i) => {
@@ -531,6 +535,7 @@ export function onCoreFormed(s: CultivatorState, e: EventOf<"CoreFormed">): void
   if (p.coreChosen) violate("core_already_chosen", "the core is already chosen");
   p.coreChosen = true;
   p.areas.main = e.choice;
+  chooseClassAtCore(s, e.class, e.at);
 }
 
 export function onNascentSoulLocked(s: CultivatorState, e: EventOf<"NascentSoulLocked">, rules: RulesConfig): void {
@@ -566,13 +571,16 @@ function loseItems(s: CultivatorState, n: number | "all"): number {
   const inv = s.inventory;
   let left = n === "all" ? Infinity : n;
   let lost = 0;
-  const take = (key: "gainPotions" | "legendaryPotions" | "scales" | "legendary") => {
+  const take = (key: "gainPotions" | "soulWearables" | "petHaloWearables" | "petLionWearables" | "legendaryPotions" | "scales" | "legendary") => {
     const k = Math.min(inv[key], left);
     inv[key] -= k;
     left -= k;
     lost += k;
   };
   take("gainPotions");
+  take("soulWearables");
+  take("petHaloWearables");
+  take("petLionWearables");
   take("legendaryPotions");
   take("scales");
   take("legendary");

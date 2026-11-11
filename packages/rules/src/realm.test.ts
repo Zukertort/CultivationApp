@@ -42,7 +42,7 @@ const claim = (id: string, at: number, evidence = false, drop?: "gain_potion") =
     ...(drop ? { drop } : {}),
   });
 const del = (id: string, at: number) => ev("TribulationDeleted", at, { tribulationId: id });
-const formCore = (at: number, choice = "Mathematics") => ev("CoreFormed", at, { choice });
+const formCore = (at: number, choice = "Mathematics") => ev("CoreFormed", at, { choice, class: "monk" });
 const lock = (at: number) => ev("NascentSoulLocked", at, {});
 const repent = (at: number, faked: string[]) => ev("Repented", at, { oath: REPENT_OATH, faked });
 const reschedule = (id: string, at: number, days = 100) => ev("TribulationRescheduled", at, { tribulationId: id, deadline: at + days * DAY });

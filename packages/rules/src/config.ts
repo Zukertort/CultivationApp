@@ -5,7 +5,7 @@
  * Numbers marked SIM are placeholders the design doc leaves to the economy
  * simulator.
  */
-import type { Difficulty, Effort } from "@cultivation/schema";
+import type { ClassId, Difficulty, Effort } from "@cultivation/schema";
 
 export const TIERS = ["turtle", "panda", "horse", "tiger", "lion"] as const;
 export type Tier = (typeof TIERS)[number];
@@ -15,6 +15,29 @@ export const SOUL_COLORS = ["broken", "black", "violet", "white", "green", "blue
 export type SoulColor = (typeof SOUL_COLORS)[number];
 export const WEAKENING_COLORS: readonly SoulColor[] = ["broken", "black", "violet"];
 export const GROWTH_COLORS: readonly SoulColor[] = ["green", "blue", "red", "golden", "translucent", "rainbow"];
+
+/** Class groups (rulings 113-124): which paths a tagged Main task can also hone. */
+export type ClassGroup = "soul" | "body" | "hybrid" | "unique";
+
+/** Classes (rulings 113-124). Every number is a simulator value. */
+export interface ClassRules {
+  table: Record<ClassId, { group: ClassGroup; gold: number; qi: number }>;
+  /** Gold to change class after the first, free choice (ruling 114). */
+  changeGold: number;
+  /**
+   * A passed tribulation's class drop (rulings 119-120): the base chance,
+   * Soul classes' bonus by growth soul color, Body classes' by fitness tier
+   * (Hybrid takes the higher), and Unique's legendary-item chance.
+   */
+  drop: {
+    chance: number;
+    soulColorBonus: Partial<Record<SoulColor, number>>;
+    tierBonus: Record<Tier, number>;
+    uniqueLegendaryChance: number;
+  };
+  /** How long a soul wearable freezes a demon's growth, and a Lion pet wearable keeps the Lion (ruling 118). */
+  wearables: { freezeDays: number; lionKeepDays: number };
+}
 
 /** Main realms in order. Step 1 holds the first four; Spirit Realm starts Step 2. */
 export const REALMS = [
@@ -305,6 +328,7 @@ export interface RulesConfig {
   main: MainRules;
   tribulations: TribulationRules;
   realms: RealmRules;
+  classes: ClassRules;
   notifications: {
     /** Push notifications per local day; the most urgent are kept. */
     maxPerDay: number;
@@ -316,7 +340,7 @@ export interface RulesConfig {
 }
 
 export const RULES_V1: RulesConfig = Object.freeze({
-  version: "1.14.0",
+  version: "1.15.0",
   tiers: {
     turtle: { capacity: 30, weeklyLoss: 10, goldBonus: 0.01, coreQiBonus: 0, breakthroughLegendaryChance: 0 },
     panda: { capacity: 800, weeklyLoss: 200, goldBonus: 0.1, coreQiBonus: 0, breakthroughLegendaryChance: 0 },
@@ -505,5 +529,26 @@ export const RULES_V1: RulesConfig = Object.freeze({
       revivalWorkDays: 7,
     },
     closedDoorFlagHours: 72,
+  },
+  classes: {
+    table: {
+      bard: { group: "soul", gold: 0.1, qi: 0.02 },
+      erudite: { group: "soul", gold: 0.02, qi: 0.1 },
+      warrior: { group: "body", gold: 0.1, qi: 0.02 },
+      knight: { group: "body", gold: 0.02, qi: 0.1 },
+      dancer: { group: "hybrid", gold: 0.01, qi: 0.07 },
+      acrobat: { group: "hybrid", gold: 0.07, qi: 0.01 },
+      monk: { group: "unique", gold: 0.15, qi: 0.05 },
+      sorcerer: { group: "unique", gold: 0.05, qi: 0.15 },
+    },
+    // About 2.5 months of an honest studier's Main gold.
+    changeGold: 500,
+    drop: {
+      chance: 0.5,
+      soulColorBonus: { green: 0.02, blue: 0.04, red: 0.06, golden: 0.08, translucent: 0.1, rainbow: 0.12 },
+      tierBonus: { turtle: 0, panda: 0.02, horse: 0.04, tiger: 0.06, lion: 0.08 },
+      uniqueLegendaryChance: 0.02,
+    },
+    wearables: { freezeDays: 7, lionKeepDays: 30 },
   },
 } satisfies RulesConfig);

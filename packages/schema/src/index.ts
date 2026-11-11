@@ -227,6 +227,10 @@ const mainTaskFields = {
   name: z.string().min(1).max(120),
   difficulty: Difficulty,
   effort: Effort,
+  /** Cross-path tags (rulings 116-117): a paying completion also counts as a Body routine, as the class group allows. */
+  alsoBody: z.boolean().optional(),
+  /** Cross-path tags: a paying completion also damages this heart demon, as the class group allows. */
+  alsoSoulDemonId: id.optional(),
 };
 
 export const MainTaskDefined = z.object({
@@ -387,6 +391,8 @@ export const TribulationClaimed = z.object({
   /** No LLM yet: always "skipped" for now. */
   llmReview: z.enum(["skipped", "done"]),
   drop: MainQuestDrop.optional(),
+  /** The class drop's outcome (rulings 119-120), if the server rolled it at logging time. */
+  classDrop: z.lazy(() => ClassDrop).optional(),
 });
 
 /** Appended by the server on sync for a claim whose earned item roll has no recorded outcome. */
@@ -412,11 +418,47 @@ export const AreaDecided = z.object({
   choice: z.string().min(1).max(200),
 });
 
-/** At the end of Foundation, forms a core in the chosen discipline, picked for free (rulings 74, 90). */
+// ---- Classes ----------------------------------------------------------------
+
+export const ClassId = z.enum(["bard", "erudite", "warrior", "knight", "dancer", "acrobat", "monk", "sorcerer"]);
+
+/**
+ * A passed tribulation's class drop (rulings 119-120): a soul wearable, a pet
+ * wearable of either kind, or for Unique classes a legendary item.
+ */
+export const ClassDrop = z.enum(["none", "soul_wearable", "pet_lion", "pet_halo", "legendary"]);
+
+/** At the end of Foundation, forms a core in the chosen discipline and picks the class, both for free (rulings 74, 90, 113). */
 export const CoreFormed = z.object({
   ...base,
   type: z.literal("CoreFormed"),
   choice: z.string().min(1).max(200),
+  class: ClassId,
+});
+
+/** Picks the class when none was chosen (free), or changes it for gold (rulings 113-114, 123). */
+export const ClassChosen = z.object({
+  ...base,
+  type: z.literal("ClassChosen"),
+  class: ClassId,
+});
+
+/** Appended by the server on sync for a claim whose earned class drop has no recorded outcome. */
+export const ClassDropRolled = z.object({
+  ...base,
+  type: z.literal("ClassDropRolled"),
+  /** The TribulationClaimed event the roll belongs to. */
+  eventId: id,
+  drop: ClassDrop,
+});
+
+/** Wears a class wearable (ruling 118): a soul wearable on a demon, or a pet wearable. */
+export const WearableUsed = z.object({
+  ...base,
+  type: z.literal("WearableUsed"),
+  wearable: z.enum(["soul", "pet_lion", "pet_halo"]),
+  /** The demon a soul wearable freezes. */
+  demonId: id.optional(),
 });
 
 /** Locks Nascent Soul's tribulation set, within 90 days of entering (ruling 79). */
@@ -531,6 +573,9 @@ export const GameEvent = z.discriminatedUnion("type", [
   TribulationDropRolled,
   AreaDecided,
   CoreFormed,
+  ClassChosen,
+  ClassDropRolled,
+  WearableUsed,
   NascentSoulLocked,
   Repented,
   RealmOverride,
@@ -551,6 +596,8 @@ export type Period = z.infer<typeof Period>;
 export type TaskSchedule = z.infer<typeof TaskSchedule>;
 export type MainQuestDrop = z.infer<typeof MainQuestDrop>;
 export type ClaimEvidence = z.infer<typeof ClaimEvidence>;
+export type ClassId = z.infer<typeof ClassId>;
+export type ClassDrop = z.infer<typeof ClassDrop>;
 
 /** Validate untrusted input (sync payloads, local DB rows) into a typed event. */
 export function parseEvent(input: unknown): GameEvent {

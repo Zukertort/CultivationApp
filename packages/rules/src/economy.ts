@@ -5,6 +5,12 @@
 import { RULES_V1, type MainPath, type RulesConfig } from "./config.js";
 import type { CultivatorState } from "./engine.js";
 
+/** The current class's gold and Qi bonus (ruling 115); read here to keep economy free of the class module. */
+function classShare(state: CultivatorState, rules: RulesConfig): { gold: number; qi: number } {
+  const id = state.class.id;
+  return id === null ? { gold: 0, qi: 0 } : rules.classes.table[id];
+}
+
 export function masteredCount(state: CultivatorState): number {
   return state.masteries.length;
 }
@@ -66,22 +72,22 @@ export function potionBonus(state: CultivatorState, rules: RulesConfig = RULES_V
 
 /** Gold multiplier for soul drops, the roulette and anything outside Body and Main: no tier bonus (ruling 35). */
 export function goldMultiplier(state: CultivatorState, rules: RulesConfig = RULES_V1): number {
-  return (1 + potionBonus(state, rules)) * goldItems(state, rules);
+  return (1 + classShare(state, rules).gold + potionBonus(state, rules)) * goldItems(state, rules);
 }
 
 /** Gold multiplier for Body and Main gold: the fitness tier's bonus joins the pool (ruling 35). */
 export function trainingGoldMultiplier(state: CultivatorState, rules: RulesConfig = RULES_V1): number {
-  return (1 + rules.tiers[state.companion.tier].goldBonus + potionBonus(state, rules)) * goldItems(state, rules);
+  return (1 + rules.tiers[state.companion.tier].goldBonus + classShare(state, rules).gold + potionBonus(state, rules)) * goldItems(state, rules);
 }
 
 /** Qi multiplier for every Qi gain: the pose bonus joins the pool (ruling 35). */
 export function qiMultiplier(state: CultivatorState, rules: RulesConfig = RULES_V1): number {
-  return (1 + (currentPose(state, rules)?.qiBonus ?? 0) + potionBonus(state, rules)) * qiItems(state, rules);
+  return (1 + (currentPose(state, rules)?.qiBonus ?? 0) + classShare(state, rules).qi + potionBonus(state, rules)) * qiItems(state, rules);
 }
 
 /** Qi multiplier for Main tasks and quests: the pose plus the fitness tier's core Qi bonus. */
 export function mainQiMultiplier(state: CultivatorState, rules: RulesConfig = RULES_V1): number {
-  const pool = 1 + (currentPose(state, rules)?.qiBonus ?? 0) + rules.tiers[state.companion.tier].coreQiBonus + potionBonus(state, rules);
+  const pool = 1 + (currentPose(state, rules)?.qiBonus ?? 0) + rules.tiers[state.companion.tier].coreQiBonus + classShare(state, rules).qi + potionBonus(state, rules);
   return pool * qiItems(state, rules);
 }
 

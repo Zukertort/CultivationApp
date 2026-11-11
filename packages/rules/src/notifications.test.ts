@@ -20,6 +20,7 @@ function withDemons(hps: number[]): CultivatorState {
       idleMs: 3 * DAY, // growing already
       defeats: 0,
       revivals: 0,
+      frozenUntil: null,
     };
     s.soul.demons[`d${i}`] = d;
   });

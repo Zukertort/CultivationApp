@@ -252,7 +252,7 @@ function tribulationPlan(h: Habits) {
         switched = c.now("AreaDecided", at, { path: "main", choice: "a second discipline" });
         return;
       }
-      if (status.level === "great_circle" && status.next?.missing === "choice") c.now("CoreFormed", at, { choice: "main discipline" });
+      if (status.level === "great_circle" && status.next?.missing === "choice") c.now("CoreFormed", at, { choice: "main discipline", class: "monk" });
       else if (open.length === 0 && (status.tribulations?.passed ?? 0) < 3) {
         if (h.eager) declare(c, `fe${day}`, day, 1, day + 1);
         else declare(c, `fe${day}`, day, 28, h.fastTrack ? day : day + 20);

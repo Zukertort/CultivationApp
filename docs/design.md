@@ -21,7 +21,7 @@ Each path gets its own math because each grows differently: Main compounds, Body
 - [ ] &#91;v1\] Foundation Establishment: starter quests to begin practicing, plus dated tribulations for mid, late and great circle, sized to current abilities *(Main part 3 built the dated tribulations for mid, late and great circle (ruling 76); starter quests wait for the app's suggested quests.)*
 - [x] &#91;v1\] Fast track: a cultivator already in the discipline defines Foundation tribulations and proves they are passed *(Ruling 76: Foundation's Qi thresholds are waived for claims with evidence, logged as fast track.)*
 - [x] Foundation switch rule: free right after a tribulation, costs Qi mid-level (discourages quitting too early) *(Rulings 77 and 90: a Main change mid-Foundation costs Qi with no restart; the core discipline is picked for free at the end of Foundation.)*
-- [ ] Class selection at the end of Foundation: ask whether the core discipline relates to Body, Soul, both or neither
+- [ ] Class selection at the end of Foundation: ask whether the core discipline relates to Body, Soul, both or neither *(The rules record the class since Main part 4 (ruling 113); the question waits for the app.)*
 - [x] Core Formation: guide tribulations that define "professional" in the discipline; levels advance at 30/60/90% of tribulations passed, Nascent Soul at 100%; adding a tribulation later lowers the percentage but never the level already reached *(Levels and the never-demote rule were built in Main part 3 (ruling 78); the guidance waits for the LLM.)*
 - [ ] Nascent Soul: guide tribulations that define "expert"; offer a research quest when unsure; warn against changing them out of self-doubt or overconfidence *(The locked set and the transcendence were built in Main part 3 (ruling 79); the guidance, the research-quest offer and the warning wait for the app and the LLM.)*
 - [ ] Spirit Realm: force selecting a new discipline; tribulations are studies and combinations that may shift with findings
@@ -48,18 +48,18 @@ Each path gets its own math because each grows differently: Main compounds, Body
 
 Classes customize how tasks count across paths, so a fighter's training routine can also be core cultivation. They don't depend on the discipline (a dancer may pick any class) and can be changed with gold. The more paths a class covers, the lower its gold bonus: Unique (core only) highest, Soul or Body (dual) middle, Hybrid (triple) lowest.
 
-- [ ] &#91;v1\] Class choice at the end of Foundation Establishment, grouped as Soul, Body, Hybrid and Unique
-- [ ] &#91;v1\] Cross-path tasks: a core quest or task can be tagged to also count for Body (as a routine paying gold) or Soul (damage to a chosen heart demon), as the class group allows; logged once, never twice
-- [ ] &#91;v1\] Class gold and Qi bonuses apply to all gains and come from the current class only; switching replaces them, never stacks
-- [ ] Class change in the gold shop; changing class forfeits all soul and pet wearables
-- [ ] Soul class drops after a successful tribulation: soul wearables (e.g., freeze a heart demon for a week); legendary ones add visuals and bonus demon damage
-- [ ] Body class drops after a successful tribulation: pet wearables (e.g., keep the Lion for a month, or a halo ticket); legendary ones add visuals and bonus gold
-- [ ] Hybrid class drops after a successful tribulation: a soul wearable or a pet wearable (50/50), never both
-- [ ] Unique class drops: +2% legendary chance after a tribulation
-- [ ] Class drops never amplify negative soul effects
+- [x] &#91;v1\] Class choice at the end of Foundation Establishment, grouped as Soul, Body, Hybrid and Unique *(Ruling 113: CoreFormed carries it.)*
+- [x] &#91;v1\] Cross-path tasks: a core quest or task can be tagged to also count for Body (as a routine paying gold) or Soul (damage to a chosen heart demon), as the class group allows; logged once, never twice *(Rulings 116, 117 and 124.)*
+- [x] &#91;v1\] Class gold and Qi bonuses apply to all gains and come from the current class only; switching replaces them, never stacks *(Ruling 115.)*
+- [x] Class change in the gold shop; changing class forfeits all soul and pet wearables *(Rulings 114 and 118: 500 gold, held wearables forfeited. The shop screen waits for the app.)*
+- [x] Soul class drops after a successful tribulation: soul wearables (e.g., freeze a heart demon for a week); legendary ones add visuals and bonus demon damage *(Rulings 118 and 119; legendary versions wait for gear.)*
+- [x] Body class drops after a successful tribulation: pet wearables (e.g., keep the Lion for a month, or a halo ticket); legendary ones add visuals and bonus gold *(Rulings 118 and 119; legendary versions wait for gear.)*
+- [x] Hybrid class drops after a successful tribulation: a soul wearable or a pet wearable (50/50), never both *(Ruling 119.)*
+- [x] Unique class drops: +2% legendary chance after a tribulation *(Ruling 120: a 2% legendary-item roll on each passed tribulation.)*
+- [x] Class drops never amplify negative soul effects *(Class bonuses apply to gains only (ruling 115), and a soul wearable only freezes growth.)*
 - [ ] Avatar look changes with class
 - [ ] Class gear (robes, weapons, items) per class; off-class gear keeps only 20% of its bonus
-- [ ] Spirit Realm: the class locks on entry, then the soul takes the class avatar's form; class bonuses and drops multiply by step (×2 in Step 2 up to ×7 in Step 7)
+- [ ] Spirit Realm: the class locks on entry, then the soul takes the class avatar's form; class bonuses and drops multiply by step (×2 in Step 2 up to ×7 in Step 7) *(The lock was built in Main part 4 (ruling 123); the form and the multipliers come with Step 2.)*
 
 **Gaps**
 
@@ -206,9 +206,9 @@ Qi pays for breakthroughs and gold buys gear and rest; repeated tasks pay less e
 - [ ] Avatar warning on heavy repetition: "I've completed 'Math exercise' too many times; I need to make it harder to keep growing" *(The rules engine lists stale tasks with `staleTasks`; the avatar message waits for the app.)*
 - [x] &#91;v1\] Gold scales with difficulty, number of tasks and duration
 - [ ] &#91;v1\] Procrastination tax on every path (Main, Body, Soul) after a set number of days without activity there; a class's cross-credit counts as activity on the paths it covers; the tax hits Qi and gold only, never realm progress, and debt is capped; the Body and Soul taxes are 1/5 of the Main tax *(Built in Main part 1 except class cross-credit, which comes with classes in part 4.)*
-- [ ] &#91;v1\] Bonus stacking: every percentage bonus (fitness tier, pose, soul color, class with its Spirit Realm multiplier, items, potions) adds into one pool; scales and wings multiply the total *(Part 1 added the pose Qi bonus and the tier's core Qi bonus, and limited the tier gold bonus to Body and Main gold. Gain potions joined the pool with ruling 58. Classes, soul color and items come in part 4.)*
+- [ ] &#91;v1\] Bonus stacking: every percentage bonus (fitness tier, pose, soul color, class with its Spirit Realm multiplier, items, potions) adds into one pool; scales and wings multiply the total *(Part 1 added the pose Qi bonus and the tier's core Qi bonus, and limited the tier gold bonus to Body and Main gold. Gain potions joined the pool with ruling 58. Classes joined it in part 4 (ruling 115); soul color and items come later.)*
 - [ ] Legendary chances add when several apply to the same event (e.g., a breakthrough into Nascent Soul: 20% base + Lion 2% + halo ticket 10% = 32%); each realm has its own pool of legendary items that can drop, since gear is realm-locked *(The chances add since Main part 3 (rulings 94, 111). The Unique class's 2% is its own roll on each passed tribulation (ruling 120). The realm pools wait for gear (ruling 121).)*
-- [ ] Gold shop: vacations, wearables, armor, weapons, potions, class changes, repairs, extensions
+- [ ] Gold shop: vacations, wearables, armor, weapons, potions, class changes, repairs, extensions *(Class changes have a gold price since Main part 4 (ruling 114).)*
 - [ ] Armor reduces Qi losses (e.g., 10 fewer lost); weapons add to Qi gains (e.g., +10); potions boost gold and Qi gains; legendary items boost more *(Gain potions work since ruling 58: +10% gold and Qi for 24 hours. Armor, weapons and legendary items come with gear.)*
 - [ ] Items are locked to the current realm; on breakthrough, equipped gear levels up with the cultivator
 - [ ] Potions that raise the chance of gear turning legendary when it levels up at a breakthrough *(Legendary potions drop and are stored since ruling 58; their effect comes with gear.)*
@@ -396,6 +396,8 @@ Items found while implementing; each waits for a decision or a later part.
 - [ ] A realm-specific message with good and bad examples on the tribulation creation screen (ruling 87); later, an LLM check of the fit
 - [x] A core discipline change returns to early Core Formation, and climbing its levels again earns new legendary rolls; only a repent blocks re-rolls (ruling 103) *(Allowed: ruling 111.)*
 - [x] After 5 repents in a realm, every further repent kills the avatar; revival takes a week of work, so a cycler dies about every 3 weeks (57 deaths in 4 years in the simulator) *(Intended: ruling 110.)*
+- [ ] Lion pet wearables can only be worn at Lion, so a Body or Hybrid cultivator below Lion holds them unused (a studier Warrior got 3 in a year and wore none); they are forfeited at a class change
+- [ ] Legendary versions of class wearables (visual plus bonus demon damage or gold) wait for gear
 
 ## Rulings
 

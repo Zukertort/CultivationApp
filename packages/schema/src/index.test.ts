@@ -174,9 +174,22 @@ describe("realm events", () => {
     expect(parseEvent({ ...base, type: "Repented", oath, faked: ["t1"] }).type).toBe("Repented");
     expect(() => parseEvent({ ...base, type: "Repented", oath: "sorry", faked: ["t1"] })).toThrow();
     for (const type of ["NascentSoulLocked", "RealmOverride"]) expect(parseEvent({ ...base, type }).type).toBe(type);
-    expect(parseEvent({ ...base, type: "CoreFormed", choice: "Mathematics" }).type).toBe("CoreFormed");
+    expect(parseEvent({ ...base, type: "CoreFormed", choice: "Mathematics", class: "monk" }).type).toBe("CoreFormed");
+    expect(() => parseEvent({ ...base, type: "CoreFormed", choice: "Mathematics" })).toThrow(); // the class is picked with it
     expect(() => parseEvent({ ...base, type: "CoreFormed" })).toThrow(); // the core discipline is picked with it
     expect(parseEvent({ ...base, type: "BreakthroughRolled", step: 3, item: "legendary" }).type).toBe("BreakthroughRolled");
     expect(() => parseEvent({ ...base, type: "BreakthroughRolled", step: 0, item: "none" })).toThrow();
+  });
+});
+
+describe("class events", () => {
+  const base = { id: "e1", userId: "u1", at: 0 };
+  it("accepts the eight classes, class drops, wearables and cross-path tags", () => {
+    expect(parseEvent({ ...base, type: "ClassChosen", class: "warrior" }).type).toBe("ClassChosen");
+    expect(() => parseEvent({ ...base, type: "ClassChosen", class: "paladin" })).toThrow();
+    expect(parseEvent({ ...base, type: "ClassDropRolled", eventId: "e1", drop: "pet_halo" }).type).toBe("ClassDropRolled");
+    expect(parseEvent({ ...base, type: "WearableUsed", wearable: "soul", demonId: "d1" }).type).toBe("WearableUsed");
+    const task = { ...base, type: "MainTaskDefined", taskId: "t", name: "BJJ drills", difficulty: "mid", effort: "session", schedule: { kind: "once", deadline: 2e12 } };
+    expect(parseEvent({ ...task, alsoBody: true, alsoSoulDemonId: "d1" }).type).toBe("MainTaskDefined");
   });
 });

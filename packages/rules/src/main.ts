@@ -11,6 +11,7 @@ import type { Difficulty, Effort, EventOf, MainQuestDrop, Period, TaskSchedule }
 import { RULES_V1, type MainPath, type Realm, type RepetitionRules, type RulesConfig } from "./config.js";
 import type { CultivatorState } from "./engine.js";
 import { addPotion, chargeTax, earnGold, earnQi, mainQiMultiplier, potionKind, trainingGoldMultiplier } from "./economy.js";
+import { checkCrossTags } from "./class.js";
 import { violate } from "./errors.js";
 import { DAY, MINUTE, localDay, nextLocalMidnight } from "./time.js";
 
@@ -66,6 +67,9 @@ export interface MainTask {
   postponed: { qi: number; gold: number; days: number };
   /** When the task failed: a one-time task past its extension window (ruling 61). */
   failedAt: number | null;
+  /** Cross-path tags (ruling 116): also a Body routine, and the demon it also damages. */
+  crossBody: boolean;
+  crossSoulDemonId: string | null;
 }
 
 export interface MainQuest {
@@ -440,7 +444,7 @@ export function markActivity(m: MainState, path: MainPath, at: number): void {
 
 function addTask(
   s: CultivatorState,
-  e: { at: number; taskId: string; name: string; difficulty: Difficulty; effort: Effort },
+  e: { at: number; taskId: string; name: string; difficulty: Difficulty; effort: Effort; alsoBody?: boolean | undefined; alsoSoulDemonId?: string | undefined },
   schedule: TaskSchedule | null,
   questId: string | null,
 ): void {
@@ -464,6 +468,8 @@ function addTask(
     archivedAt: null,
     postponed: { qi: 0, gold: 0, days: 0 },
     failedAt: null,
+    crossBody: e.alsoBody === true,
+    crossSoulDemonId: e.alsoSoulDemonId ?? null,
   };
   s.main.tasks[e.taskId] = task;
   if (task.recurring) s.main.lineages[key]!.recurringTaskId = e.taskId;
@@ -472,6 +478,7 @@ function addTask(
 export function onTaskDefined(s: CultivatorState, e: EventOf<"MainTaskDefined">, rules: RulesConfig): void {
   if (s.main.tasks[e.taskId]) violate("duplicate_task", `task ${e.taskId} already exists`);
   checkSchedule(e.schedule, e.at, rules);
+  checkCrossTags(s, e, rules);
   const old = e.replaces === undefined ? null : replacedTask(s, e.replaces, e.at, e.schedule, rules);
   checkName(s, normalizeName(e.name), e.difficulty, e.at, rules);
   addTask(s, e, e.schedule, null);
@@ -513,6 +520,7 @@ export function onMainQuestDefined(s: CultivatorState, e: EventOf<"MainQuestDefi
     if (keys.has(key)) violate("name_in_use", "two tasks in one quest can't share a name");
     keys.add(key);
     checkName(s, key, t.difficulty, e.at, rules);
+    checkCrossTags(s, t, rules);
     // A milestone's deadline is on or before the quest's (ruling 50).
     if (t.deadline !== undefined) {
       if (t.deadline <= e.at) violate("deadline_in_past", "the deadline must be in the future");
@@ -532,7 +540,8 @@ export function onMainQuestDefined(s: CultivatorState, e: EventOf<"MainQuestDefi
   }
 }
 
-export function onTaskCompleted(s: CultivatorState, e: EventOf<"MainTaskCompleted">, rules: RulesConfig): void {
+/** Complete a Main task. Returns the repetition decay of a paying completion (for cross-path credit), or null when it paid nothing. */
+export function onTaskCompleted(s: CultivatorState, e: EventOf<"MainTaskCompleted">, rules: RulesConfig): { decay: number } | null {
   const m = s.main;
   const t = m.tasks[e.taskId];
   if (!t) violate("unknown_task", `task ${e.taskId} does not exist`);
@@ -565,6 +574,7 @@ export function onTaskCompleted(s: CultivatorState, e: EventOf<"MainTaskComplete
     t.completedAt = e.at;
   }
 
+  let paid: { decay: number } | null = null;
   if (pays) {
     lineage.paidToday += 1;
     if (lineage.firstCompletedAt === null) {
@@ -572,6 +582,7 @@ export function onTaskCompleted(s: CultivatorState, e: EventOf<"MainTaskComplete
       lineage.ageMs = 0;
     }
     const decay = decayMultiplier(lineage.ageMs, rules.main.repetition);
+    paid = { decay };
     const taper = rules.main.simpleDifficulties.includes(t.difficulty) ? rules.main.simpleTaper[m.realm] : 1;
     const w = workPoints(t.difficulty, t.effort, rules);
     const baseQi = qiForPoints(w, rules) * decay * taper;
@@ -590,6 +601,7 @@ export function onTaskCompleted(s: CultivatorState, e: EventOf<"MainTaskComplete
     payQuestStage(s, t.questId, rules);
     settleQuest(s, t.questId, e, rules);
   }
+  return paid;
 }
 
 /**
