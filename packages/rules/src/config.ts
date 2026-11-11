@@ -16,10 +16,10 @@ export type SoulColor = (typeof SOUL_COLORS)[number];
 export const WEAKENING_COLORS: readonly SoulColor[] = ["broken", "black", "violet"];
 export const GROWTH_COLORS: readonly SoulColor[] = ["green", "blue", "red", "golden", "translucent", "rainbow"];
 
-/** Class groups (rulings 113-124): which paths a tagged Main task can also hone. */
+/** Class groups (rulings 113-125): which paths a tagged Main task can also hone. */
 export type ClassGroup = "soul" | "body" | "hybrid" | "unique";
 
-/** Classes (rulings 113-124). Every number is a simulator value. */
+/** Classes (rulings 113-125). Every number is a simulator value. */
 export interface ClassRules {
   table: Record<ClassId, { group: ClassGroup; gold: number; qi: number }>;
   /** Gold to change class after the first, free choice (ruling 114). */
@@ -35,8 +35,8 @@ export interface ClassRules {
     tierBonus: Record<Tier, number>;
     uniqueLegendaryChance: number;
   };
-  /** How long a soul wearable freezes a demon's growth, and a Lion pet wearable keeps the Lion (ruling 118). */
-  wearables: { freezeDays: number; lionKeepDays: number };
+  /** How long a soul wearable freezes a demon's growth, and a keep pet wearable holds the companion's tier (ruling 118). */
+  wearables: { freezeDays: number; keepDays: number };
 }
 
 /** Main realms in order. Step 1 holds the first four; Spirit Realm starts Step 2. */
@@ -340,7 +340,7 @@ export interface RulesConfig {
 }
 
 export const RULES_V1: RulesConfig = Object.freeze({
-  version: "1.15.0",
+  version: "1.16.0",
   tiers: {
     turtle: { capacity: 30, weeklyLoss: 10, goldBonus: 0.01, coreQiBonus: 0, breakthroughLegendaryChance: 0 },
     panda: { capacity: 800, weeklyLoss: 200, goldBonus: 0.1, coreQiBonus: 0, breakthroughLegendaryChance: 0 },
@@ -549,6 +549,6 @@ export const RULES_V1: RulesConfig = Object.freeze({
       tierBonus: { turtle: 0, panda: 0.02, horse: 0.04, tiger: 0.06, lion: 0.08 },
       uniqueLegendaryChance: 0.02,
     },
-    wearables: { freezeDays: 7, lionKeepDays: 30 },
+    wearables: { freezeDays: 7, keepDays: 30 },
   },
 } satisfies RulesConfig);

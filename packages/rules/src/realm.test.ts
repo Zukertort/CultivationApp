@@ -29,7 +29,7 @@ const created = ev("CultivatorCreated", T0, { name: "Ricardo", tzOffsetMinutes: 
 const interview = ev("InterviewAnswered", T0, { interests: { main: "Mathematics", body: "BJJ", soul: "Calm" } });
 const decide = (path: "main" | "body" | "soul", choice: string, at = T0 + H) => ev("AreaDecided", at, { path, choice });
 /** Overrides from Qi Condensation early: 4 reach Foundation, 8 Core Formation, 12 Nascent Soul, 13 Spirit Realm. */
-const overrides = (n: number) => Array.from({ length: n }, (_, i) => ev("RealmOverride", T0 + i + 1, {}));
+const overrides = (n: number) => Array.from({ length: n }, (_, i) => ev("RealmOverride", T0 + i + 1, { class: "monk" }));
 /** A neutral event that lets progression catch up after the test changes balances. */
 const poke = (at: number) => ev("BodyActivityDefined", at, { activityId: `poke${++seq}`, name: `Poke ${seq}`, kind: "exercise" });
 const declare = (id: string, at: number, days = 30) => ev("TribulationDeclared", at, { tribulationId: id, title: id, criteria: `Pass ${id}`, deadline: at + days * DAY });
@@ -224,7 +224,7 @@ describe("Core Formation (rulings 78, 85, 91)", () => {
   });
 
   it("closes a realm's open tribulations when it is left, even by an override", () => {
-    const s = apply(foundation(), declare("a", T0 + 3 * H), ...Array.from({ length: 4 }, (_, i) => ev("RealmOverride", T0 + 4 * H + i, {})));
+    const s = apply(foundation(), declare("a", T0 + 3 * H), ...Array.from({ length: 4 }, (_, i) => ev("RealmOverride", T0 + 4 * H + i, { class: "monk" })));
     expect(where(s)).toEqual(["core_formation", "early"]);
     expect(s.tribulations.items.a).toMatchObject({ status: "closed" });
   });
@@ -252,7 +252,7 @@ describe("Nascent Soul (rulings 79, 95)", () => {
     s = apply(s, claim("late", T0 + 5 * DAY));
     expect(where(s)).toEqual(["spirit_realm", null]);
     expect(s.qi).toBe(5000 - 1500);
-    expect(code(() => applyEvent(s, ev("RealmOverride", T0 + 6 * DAY, {})))).toBe("final_realm");
+    expect(code(() => applyEvent(s, ev("RealmOverride", T0 + 6 * DAY, { class: "monk" })))).toBe("final_realm");
     expect(code(() => applyEvent(s, declare("x", T0 + 6 * DAY)))).toBe("not_built");
   });
 

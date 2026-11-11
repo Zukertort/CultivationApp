@@ -4,7 +4,7 @@
  * and earns a class drop on passed tribulations: wearables for Soul, Body and
  * Hybrid classes, a legendary-item roll for Unique ones.
  *
- * Settled rules live in docs/design.md, Rulings 113-124. The only random
+ * Settled rules live in docs/design.md, Rulings 113-125. The only random
  * outcome is the class drop, rolled by the server and stored in the claim or
  * a ClassDropRolled event.
  */
@@ -41,7 +41,7 @@ export interface ClassState {
   pendingDrops: Record<string, PendingClassDrop>;
   drops: Record<ClassDrop, number>;
   /** Wearables worn, by kind. */
-  worn: { soul: number; pet_lion: number; pet_halo: number };
+  worn: { soul: number; pet_keep: number; pet_halo: number };
 }
 
 export function initialClass(): ClassState {
@@ -49,8 +49,8 @@ export function initialClass(): ClassState {
     id: null,
     history: [],
     pendingDrops: {},
-    drops: { none: 0, soul_wearable: 0, pet_lion: 0, pet_halo: 0, legendary: 0 },
-    worn: { soul: 0, pet_lion: 0, pet_halo: 0 },
+    drops: { none: 0, soul_wearable: 0, pet_keep: 0, pet_halo: 0, legendary: 0 },
+    worn: { soul: 0, pet_keep: 0, pet_halo: 0 },
   };
 }
 
@@ -91,7 +91,7 @@ export function checkCrossTags(s: CultivatorState, task: { effort: Effort; alsoB
 
 function heldWearables(s: CultivatorState): number {
   const inv = s.inventory;
-  return inv.soulWearables + inv.petLionWearables + inv.petHaloWearables;
+  return inv.soulWearables + inv.petKeepWearables + inv.petHaloWearables;
 }
 
 function setClass(s: CultivatorState, to: ClassId, at: number, gold: number): void {
@@ -101,31 +101,24 @@ function setClass(s: CultivatorState, to: ClassId, at: number, gold: number): vo
     // A change forfeits the held soul and pet wearables; worn ones keep running (ruling 118).
     forfeited = heldWearables(s);
     s.inventory.soulWearables = 0;
-    s.inventory.petLionWearables = 0;
+    s.inventory.petKeepWearables = 0;
     s.inventory.petHaloWearables = 0;
   }
   c.history.push({ at, from: c.id, to, gold, forfeited });
   c.id = to;
 }
 
-/** The class picked with the end-of-Foundation choice, for free (ruling 113). */
+/** The class picked on leaving Foundation (CoreFormed or an override out of it), for free (ruling 113). */
 export function chooseClassAtCore(s: CultivatorState, to: ClassId, at: number): void {
   if (s.class.id === to) return;
   if (s.class.id !== null) violate("class_already_chosen", "the class is already chosen; change it with ClassChosen");
   setClass(s, to, at, 0);
 }
 
-/**
- * Pick the class when none was ever chosen (free, from Core Formation on), or
- * change it for gold until Spirit Realm locks it (rulings 113, 114, 123).
- */
+/** Change the class for gold until Spirit Realm locks it (rulings 113, 114, 123); the first is picked on leaving Foundation. */
 export function onClassChosen(s: CultivatorState, e: EventOf<"ClassChosen">, rules: RulesConfig): void {
   const realm = s.main.realm;
-  if (s.class.id === null) {
-    if (realm === "qi_condensation" || realm === "foundation_establishment") violate("class_not_yet", "the class is chosen at the end of Foundation");
-    setClass(s, e.class, e.at, 0);
-    return;
-  }
+  if (s.class.id === null) violate("class_not_yet", "the class is chosen on leaving Foundation");
   if (s.class.id === e.class) violate("class_unchanged", "this is already the class");
   if (realm === "spirit_realm") violate("class_locked", "the class locks on entering Spirit Realm");
   const price = rules.classes.changeGold;
@@ -164,9 +157,9 @@ export function classDropOutcome(group: ClassGroup, chance: number, u: number): 
     case "soul":
       return "soul_wearable";
     case "body":
-      return f < 0.5 ? "pet_lion" : "pet_halo";
+      return f < 0.5 ? "pet_keep" : "pet_halo";
     case "hybrid":
-      return f < 0.5 ? "soul_wearable" : f < 0.75 ? "pet_lion" : "pet_halo";
+      return f < 0.5 ? "soul_wearable" : f < 0.75 ? "pet_keep" : "pet_halo";
   }
 }
 
@@ -174,7 +167,7 @@ function applyClassDrop(s: CultivatorState, drop: ClassDrop): void {
   s.class.drops[drop] += 1;
   const inv = s.inventory;
   if (drop === "soul_wearable") inv.soulWearables += 1;
-  if (drop === "pet_lion") inv.petLionWearables += 1;
+  if (drop === "pet_keep") inv.petKeepWearables += 1;
   if (drop === "pet_halo") inv.petHaloWearables += 1;
   if (drop === "legendary") inv.legendary += 1;
 }
@@ -203,8 +196,9 @@ export function pendingClassDrops(state: CultivatorState): PendingClassDrop[] {
 
 /**
  * Wear a class wearable (ruling 118): a soul wearable freezes a demon's
- * growth for 7 days; a Lion pet wearable keeps the Lion for 30 days (only at
- * Lion); a halo pet wearable grants a halo ticket. Each is used up.
+ * growth for 7 days; a keep pet wearable keeps the companion at its tier for
+ * 30 days (no food loss, no demotion; promotions still work); a halo pet
+ * wearable grants a halo ticket. Each is used up.
  */
 export function onWearableUsed(s: CultivatorState, e: EventOf<"WearableUsed">, rules: RulesConfig): void {
   const inv = s.inventory;
@@ -220,13 +214,12 @@ export function onWearableUsed(s: CultivatorState, e: EventOf<"WearableUsed">, r
       d.frozenUntil = e.at + w.freezeDays * DAY;
       break;
     }
-    case "pet_lion": {
-      if (inv.petLionWearables < 1) violate("no_wearable", "no Lion pet wearable held");
+    case "pet_keep": {
+      if (inv.petKeepWearables < 1) violate("no_wearable", "no keep pet wearable held");
       const c = s.companion;
-      if (c.tier !== "lion") violate("not_lion", "this pet wearable keeps the Lion; the companion must be a Lion");
-      if (c.lionKeptUntil !== null && e.at < c.lionKeptUntil) violate("already_active", "the Lion is already kept");
-      inv.petLionWearables -= 1;
-      c.lionKeptUntil = e.at + w.lionKeepDays * DAY;
+      if (c.tierKeptUntil !== null && e.at < c.tierKeptUntil) violate("already_active", "the companion is already kept");
+      inv.petKeepWearables -= 1;
+      c.tierKeptUntil = e.at + w.keepDays * DAY;
       break;
     }
     case "pet_halo": {

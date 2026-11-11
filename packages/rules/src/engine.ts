@@ -97,8 +97,8 @@ export interface CultivatorState {
   companion: {
     tier: Tier;
     food: number;
-    /** A Lion pet wearable keeps the Lion until then: no food loss, no demotion (ruling 118). */
-    lionKeptUntil: number | null;
+    /** A keep pet wearable holds the companion's tier until then: no food loss, no demotion; promotions still work (ruling 118). */
+    tierKeptUntil: number | null;
     /** First paying completion of each activity version (repetition decay). */
     firstCompletedAt: Record<string, number>;
     /** Decay age of each activity version: time since its first paying completion, rest excluded (ruling 19). */
@@ -129,7 +129,7 @@ export interface CultivatorState {
     wings: boolean;
     /** Class wearables held (ruling 118). */
     soulWearables: number;
-    petLionWearables: number;
+    petKeepWearables: number;
     petHaloWearables: number;
   };
   soul: SoulState;
@@ -155,7 +155,7 @@ export function initialState(rules: RulesConfig = RULES_V1): CultivatorState {
     companion: {
       tier: "turtle",
       food: rules.tiers.turtle.capacity * rules.tierStartFraction,
-      lionKeptUntil: null,
+      tierKeptUntil: null,
       firstCompletedAt: {},
       ageMs: {},
       routineDay: -1,
@@ -177,7 +177,7 @@ export function initialState(rules: RulesConfig = RULES_V1): CultivatorState {
       scales: 0,
       wings: false,
       soulWearables: 0,
-      petLionWearables: 0,
+      petKeepWearables: 0,
       petHaloWearables: 0,
     },
     soul: initialSoul(),
@@ -341,9 +341,9 @@ function advanceCompanion(s: CultivatorState, from: number, to: number, rules: R
     const c = s.companion;
     const t = rules.tiers[c.tier];
     const perMs = t.weeklyLoss / WEEK;
-    // A kept Lion loses no food until the pet wearable's effect ends (ruling 118).
-    if (c.tier === "lion" && c.lionKeptUntil !== null && cur < c.lionKeptUntil) {
-      cur = Math.min(to, c.lionKeptUntil);
+    // A kept companion loses no food until the pet wearable's effect ends (ruling 118).
+    if (c.tierKeptUntil !== null && cur < c.tierKeptUntil) {
+      cur = Math.min(to, c.tierKeptUntil);
       continue;
     }
     const dt = to - cur;

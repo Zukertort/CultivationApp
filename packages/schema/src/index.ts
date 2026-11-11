@@ -426,7 +426,7 @@ export const ClassId = z.enum(["bard", "erudite", "warrior", "knight", "dancer",
  * A passed tribulation's class drop (rulings 119-120): a soul wearable, a pet
  * wearable of either kind, or for Unique classes a legendary item.
  */
-export const ClassDrop = z.enum(["none", "soul_wearable", "pet_lion", "pet_halo", "legendary"]);
+export const ClassDrop = z.enum(["none", "soul_wearable", "pet_keep", "pet_halo", "legendary"]);
 
 /** At the end of Foundation, forms a core in the chosen discipline and picks the class, both for free (rulings 74, 90, 113). */
 export const CoreFormed = z.object({
@@ -456,7 +456,7 @@ export const ClassDropRolled = z.object({
 export const WearableUsed = z.object({
   ...base,
   type: z.literal("WearableUsed"),
-  wearable: z.enum(["soul", "pet_lion", "pet_halo"]),
+  wearable: z.enum(["soul", "pet_keep", "pet_halo"]),
   /** The demon a soul wearable freezes. */
   demonId: id.optional(),
 });
@@ -483,6 +483,8 @@ export const Repented = z.object({
 
 /** Advances one level or realm, ignoring Qi and tribulations; logged (ruling 84). */
 export const RealmOverride = z.object({
+  /** Required on the override out of Foundation, which picks the class (ruling 113); ignored on the others. */
+  class: ClassId.optional(),
   ...base,
   type: z.literal("RealmOverride"),
 });

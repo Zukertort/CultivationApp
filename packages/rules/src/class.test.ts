@@ -28,14 +28,15 @@ const ev = <T extends GameEvent["type"]>(type: T, at: number, rest: Omit<Extract
 const created = ev("CultivatorCreated", T0, { name: "Ricardo", tzOffsetMinutes: -180, oath: OATH_TEXT });
 const interview = ev("InterviewAnswered", T0, { interests: { main: "BJJ", body: "Gym", soul: "Calm" } });
 const decide = (path: "main" | "body" | "soul", choice: string, at = T0 + H) => ev("AreaDecided", at, { path, choice });
-const overrides = (n: number, from = T0) => Array.from({ length: n }, (_, i) => ev("RealmOverride", from + i + 1, {}));
+/** Overrides from Qi Condensation early: the 8th leaves Foundation and picks the class. */
+const overrides = (n: number, from = T0, cls: ClassId = "monk") => Array.from({ length: n }, (_, i) => ev("RealmOverride", from + i + 1, { class: cls }));
 const choose = (cls: ClassId, at: number) => ev("ClassChosen", at, { class: cls });
 const demon = ev("HeartDemonCreated", T0, { demonId: "d", name: "Impatience", positiveTasks: [{ taskId: "breathe", name: "Breathe" }], negativeTasks: [] });
 const task = (id: string, at: number, tags: { alsoBody?: boolean; alsoSoulDemonId?: string } = {}, effort: "quick" | "session" = "session") =>
   ev("MainTaskDefined", at, { taskId: id, name: id, difficulty: "mid", effort, schedule: { kind: "once", deadline: at + 5 * DAY }, ...tags });
 const done = (id: string, at: number) => ev("MainTaskCompleted", at, { taskId: id });
 const declare = (id: string, at: number) => ev("TribulationDeclared", at, { tribulationId: id, title: id, criteria: `Pass ${id}`, deadline: at + 30 * DAY });
-const claim = (id: string, at: number, classDrop?: "soul_wearable" | "pet_lion" | "pet_halo" | "legendary" | "none") =>
+const claim = (id: string, at: number, classDrop?: "soul_wearable" | "pet_keep" | "pet_halo" | "legendary" | "none") =>
   ev("TribulationClaimed", at, { tribulationId: id, oath: TRIBULATION_OATH, llmReview: "skipped", ...(classDrop ? { classDrop } : {}) });
 
 function code(fn: () => unknown): string | undefined {
@@ -50,8 +51,10 @@ function code(fn: () => unknown): string | undefined {
 
 const apply = (s: CultivatorState, ...events: GameEvent[]) => events.reduce((acc, e) => applyEvent(acc, e), s);
 const rich = (s: CultivatorState, gold = 1000): CultivatorState => ({ ...s, gold });
-/** Early Core Formation by override, with the class picked afterwards (the free first choice). */
-const withClass = (cls: ClassId) => replay([created, interview, demon, ...overrides(8), choose(cls, T0 + H)]);
+/** Early Core Formation by override, the class picked by the override out of Foundation. */
+const withClass = (cls: ClassId) => replay([created, interview, demon, ...overrides(8, T0, cls)]);
+/** A state with no class, to measure what a class adds (no real cultivator in Core Formation has none). */
+const classless = (s: CultivatorState): CultivatorState => ({ ...s, class: { ...s.class, id: null } });
 const flagged = (s: CultivatorState, inv: Partial<CultivatorState["inventory"]>): CultivatorState => ({ ...s, inventory: { ...s.inventory, ...inv } });
 
 describe("choosing a class (rulings 113, 114, 123)", () => {
@@ -65,20 +68,19 @@ describe("choosing a class (rulings 113, 114, 123)", () => {
     expect(s.class.history).toEqual([{ at: T0 + 4 * DAY, from: null, to: "warrior", gold: 0, forfeited: 0 }]);
   });
 
-  it("fills a class skipped by an override once for free, then charges 500 gold per change, with no cooldown", () => {
-    const skipped = replay([created, interview, ...overrides(8)]);
-    expect(skipped.class.id).toBeNull();
-    let s = apply(skipped, choose("bard", T0 + H));
-    expect([s.class.id, s.gold]).toEqual(["bard", 0]);
+  it("is mandatory to enter Core Formation: an override out of Foundation picks it; changes cost 500 gold, with no cooldown", () => {
+    const foundation = replay([created, interview, ...overrides(7)]);
+    expect(code(() => applyEvent(foundation, ev("RealmOverride", T0 + H, {})))).toBe("class_required");
+    let s = apply(foundation, ev("RealmOverride", T0 + H, { class: "bard" }));
+    expect([s.main.realm, s.class.id, s.gold]).toEqual(["core_formation", "bard", 0]);
     expect(code(() => applyEvent(s, choose("knight", T0 + 2 * H)))).toBe("insufficient_gold");
     expect(code(() => applyEvent(s, choose("bard", T0 + 2 * H)))).toBe("class_unchanged");
     s = apply(rich(s, 1200), choose("knight", T0 + 2 * H), choose("monk", T0 + 3 * H));
     expect([s.class.id, s.gold]).toEqual(["monk", 200]);
   });
 
-  it("locks on entering Spirit Realm, except a first choice; a repent back to Nascent Soul unlocks it", () => {
-    const spirit = replay([created, interview, ...overrides(13)]);
-    let s = apply(spirit, choose("monk", T0 + H)); // never chosen: allowed
+  it("locks on entering Spirit Realm; a repent back to Nascent Soul unlocks it", () => {
+    let s = replay([created, interview, ...overrides(13)]);
     expect(code(() => applyEvent(rich(s), choose("bard", T0 + 2 * H)))).toBe("class_locked");
     s = apply(rich(s), ev("Repented", T0 + 2 * H, { oath: REPENT_OATH, faked: [] }), choose("bard", T0 + 3 * H));
     expect(s.class.id).toBe("bard");
@@ -87,8 +89,8 @@ describe("choosing a class (rulings 113, 114, 123)", () => {
 
 describe("class bonuses (ruling 115)", () => {
   it("join every gain multiplier, from the current class only", () => {
-    const none = replay([created, interview, ...overrides(8)]);
-    const monk = apply(none, choose("monk", T0 + H));
+    const monk = replay([created, interview, ...overrides(8)]);
+    const none = classless(monk);
     expect(goldMultiplier(monk) - goldMultiplier(none)).toBeCloseTo(0.15, 9);
     expect(trainingGoldMultiplier(monk) - trainingGoldMultiplier(none)).toBeCloseTo(0.15, 9);
     expect(qiMultiplier(monk) - qiMultiplier(none)).toBeCloseTo(0.05, 9);
@@ -100,7 +102,7 @@ describe("class bonuses (ruling 115)", () => {
 
 describe("cross-path tags (rulings 116, 117, 124)", () => {
   it("are checked when defined: session effort or longer, allowed by the class group, a real demon", () => {
-    expect(code(() => replay([created, interview, ...overrides(8), task("t", T0 + H, { alsoBody: true })]))).toBe("class_disallows"); // no class
+    expect(code(() => replay([created, interview, ...overrides(4), task("t", T0 + H, { alsoBody: true })]))).toBe("class_disallows"); // Foundation: no class yet
     const warrior = withClass("warrior");
     expect(code(() => applyEvent(warrior, task("t", T0 + 2 * H, { alsoBody: true }, "quick")))).toBe("cross_credit_effort");
     expect(code(() => applyEvent(warrior, task("t", T0 + 2 * H, { alsoSoulDemonId: "d" })))).toBe("class_disallows");
@@ -172,9 +174,9 @@ describe("class drops (rulings 119, 120)", () => {
     s = apply(s, claim("b", T0 + 2 * DAY));
     expect(pendingClassDrops(s)).toHaveLength(1); // inside the cooldown
     const eventId = pendingClassDrops(s)[0]!.eventId;
-    s = apply(s, ev("ClassDropRolled", T0 + 3 * DAY, { eventId, drop: "pet_lion" }));
-    expect(s.inventory.petLionWearables).toBe(1);
-    s = apply(s, ev("ClassDropRolled", T0 + 3 * DAY + H, { eventId, drop: "pet_lion" }));
+    s = apply(s, ev("ClassDropRolled", T0 + 3 * DAY, { eventId, drop: "pet_keep" }));
+    expect(s.inventory.petKeepWearables).toBe(1);
+    s = apply(s, ev("ClassDropRolled", T0 + 3 * DAY + H, { eventId, drop: "pet_keep" }));
     expect(s.anomalies.map((a) => a.code)).toEqual(["orphan_class_drop_roll"]);
     // A stored outcome applies at once.
     s = apply(s, claim("c", T0 + 9 * DAY, "pet_halo"));
@@ -196,10 +198,10 @@ describe("class drops (rulings 119, 120)", () => {
 
   it("split by group: Body's pet kinds 50/50, Hybrid's soul or pet 50/50, Unique's 2% legendary item", () => {
     expect(classDropOutcome("soul", 0.5, 0.49)).toBe("soul_wearable");
-    expect(classDropOutcome("body", 0.5, 0.2)).toBe("pet_lion");
+    expect(classDropOutcome("body", 0.5, 0.2)).toBe("pet_keep");
     expect(classDropOutcome("body", 0.5, 0.3)).toBe("pet_halo");
     expect(classDropOutcome("hybrid", 0.5, 0.2)).toBe("soul_wearable");
-    expect(classDropOutcome("hybrid", 0.5, 0.3)).toBe("pet_lion");
+    expect(classDropOutcome("hybrid", 0.5, 0.3)).toBe("pet_keep");
     expect(classDropOutcome("hybrid", 0.5, 0.4)).toBe("pet_halo");
     expect(classDropOutcome("body", 0.5, 0.5)).toBe("none");
     expect(classDropOutcome("unique", 0.02, 0.019)).toBe("legendary");
@@ -222,15 +224,19 @@ describe("wearables (ruling 118)", () => {
     expect(code(() => applyEvent(withClass("bard"), ev("WearableUsed", T0 + 2 * H, { wearable: "soul", demonId: "d" })))).toBe("no_wearable");
   });
 
-  it("a Lion pet wearable keeps the Lion, food included, for 30 days, and only at Lion", () => {
-    const base = flagged(withClass("knight"), { petLionWearables: 1 });
-    expect(code(() => applyEvent(base, ev("WearableUsed", T0 + 2 * H, { wearable: "pet_lion" })))).toBe("not_lion");
-    const lion = { ...base, companion: { ...base.companion, tier: "lion" as const, food: 2000 } };
-    const worn = apply(lion, ev("WearableUsed", T0 + 2 * H, { wearable: "pet_lion" }));
+  it("a keep pet wearable holds the companion's tier for 30 days, at any tier, while promotions still work", () => {
+    const base = flagged(withClass("knight"), { petKeepWearables: 2 });
+    const panda = { ...base, companion: { ...base.companion, tier: "panda" as const, food: 100 } };
+    const worn = apply(panda, ev("WearableUsed", T0 + 2 * H, { wearable: "pet_keep" }));
+    expect(code(() => applyEvent(worn, ev("WearableUsed", T0 + 3 * H, { wearable: "pet_keep" })))).toBe("already_active");
     const kept = advanceTo(worn, T0 + 2 * H + 30 * DAY);
-    expect([kept.companion.tier, kept.companion.food]).toEqual(["lion", worn.companion.food]);
-    expect(advanceTo(kept, T0 + 31 * DAY).companion.food).toBeLessThan(worn.companion.food);
-    expect(advanceTo(lion, T0 + 30 * DAY).companion.tier).not.toBe("lion");
+    expect([kept.companion.tier, kept.companion.food]).toEqual(["panda", worn.companion.food]); // no food loss, no demotion
+    expect(advanceTo(kept, T0 + 40 * DAY).companion.tier).toBe("turtle"); // the effect ended
+    expect(advanceTo(panda, T0 + 30 * DAY).companion.tier).toBe("turtle");
+    // A routine during the keep still promotes.
+    const gym = ev("BodyActivityDefined", T0 + 3 * H, { activityId: "gym", name: "Gym", kind: "routine" });
+    const promoted = apply(worn, gym, ...[1, 2, 3, 4].map((d) => ev("BodyActivityLogged", T0 + d * DAY, { activityId: "gym" })));
+    expect(promoted.companion.tier).toBe("horse");
   });
 
   it("a halo pet wearable grants a halo ticket; a class change forfeits the held wearables", () => {
