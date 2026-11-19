@@ -414,6 +414,19 @@ Items found while implementing; each waits for a decision or a later part.
 - [ ] Remove the temporary on-device roller (`apps/mobile/src/lib/roller.ts`) once the server rolls; it writes the same roll events, so the log needs no migration
 - [ ] Dev-only scenario loader for testing: builds a cultivator by generating and replaying a real event log (the simulator personas as seeds), plus a time-travel control to advance the clock. It exists only in the development build profile and is excluded from release builds; no cheat events in the rules engine
 
+### Roadmap (Nov 19, 2026)
+
+The order for the next sessions. Each part's plan is confirmed before it is built.
+
+1. **Dev-only scenario loader** (simulator personas as seeds) with time travel, excluded from release builds. It makes the later parts testable.
+2. **Base gear**, the start of the gear system (small): class-neutral base armor (robes) and weapons per realm, realm-locked, leveling up with the cultivator at breakthroughs as already decided. A free white robe on reaching Foundation Establishment. Small stats: armor reduces the Qi lost on a tribulation failure, weapons add to Qi gains (simulator values). Durability (companion damage, tribulation failure damage, repairs) is included here or comes right after, since buying replacements only matters once gear can be lost.
+3. **Gold shop**, small: base gear for the current realm (to replace lost equipment), the existing priced services (vacations, class change, extensions) and gain potions. Legendary items and class wearables stay drop-only. Priced against the physical-practice personas.
+4. **Legendary items**: a legendary roll gives the legendary version of the current realm's gear (ruling 121's pool per realm), plus the legendary class wearables. A proposal for what Unique classes get.
+5. **Soul cadence**, no retuning. Soul quests (one session hitting several demons, ruling 14) are the intended practice, and the app makes a session-as-quest the default way to log soul practice. After Golden, the middle loop is finding new demons: a new demon dips the color until defeated, but the Golden clock keeps running (ruling 2). A simulator persona adds a demon about every 6 weeks, with a report of the middle-loop gaps.
+6. **Minimal server** (Hono), local first: takes over all rolls (then the temporary roller is deleted), plus an LLM provider interface (Groq or Gemini via config; Gemini's free tier only with test data, since free prompts may be used by Google) and a privacy filter. Soul content is never sent unless opted in. No API keys in the app.
+7. **LLM review of tribulation claims**, and the fit check at declaration (the realm purpose and the cultivator's field as context). The LLM checks that claim and evidence match the criteria; it can't verify the achievement, so the badge is "evidence reviewed", not "verified".
+8. **Narrative**: chapters on breakthroughs and tribulation outcomes (pass or fail; not deletions or extensions), using the logs for context. The decided rules stay: tone chosen by the cultivator (pep talk, heroic, mocking), Soul content opt-in, demon names as written. Whether the weekly chronicle stays is still to be asked. Includes the Spirit Realm quote (ruling 96).
+
 ## Rulings
 
 Decisions made while implementing the rules engine. They are settled: future sessions apply them without asking again. Where code and this list disagree, the list wins.
