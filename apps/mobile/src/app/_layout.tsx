@@ -1,5 +1,5 @@
 import "../lib/web-alert";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { ActivityIndicator, View } from "react-native";
 import { Tabs } from "expo-router";
 import { StatusBar } from "expo-status-bar";
@@ -13,15 +13,33 @@ import { NotificationsProvider } from "../lib/notifications-context";
 import { StoreProvider, useStore } from "../lib/store";
 import { Button, C, Card, Field, Note, Screen, T } from "../lib/ui";
 
+/**
+ * Dev scenarios and time travel (src/dev), in development builds only. In a
+ * release bundle `__DEV__` is false, so this require is dropped with the
+ * whole src/dev tree and @cultivation/scenarios (scripts/check-release-bundle.mjs
+ * verifies it).
+ */
+// An import statement would always bundle src/dev; a require under __DEV__ is removed from release builds.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const DevRoot: typeof import("../dev/root").DevRoot | null = __DEV__ ? (require("../dev/root") as typeof import("../dev/root")).DevRoot : null;
+
+/** The app on one database; `overlay` (the dev badge) sits inside its providers. */
+function App({ dbName, overlay }: { dbName: string; overlay?: ReactNode }) {
+  return (
+    <SQLiteProvider databaseName={dbName} onInit={migrate}>
+      <StoreProvider>
+        <Gate />
+        {overlay}
+      </StoreProvider>
+    </SQLiteProvider>
+  );
+}
+
 export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <StatusBar style="light" />
-      <SQLiteProvider databaseName={DB_NAME} onInit={migrate}>
-        <StoreProvider>
-          <Gate />
-        </StoreProvider>
-      </SQLiteProvider>
+      {DevRoot ? <DevRoot render={(dbName, overlay) => <App dbName={dbName} overlay={overlay} />} /> : <App dbName={DB_NAME} />}
     </SafeAreaProvider>
   );
 }

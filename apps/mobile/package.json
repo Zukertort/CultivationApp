@@ -4,6 +4,7 @@
   "main": "expo-router/entry",
   "dependencies": {
     "@cultivation/rules": "workspace:*",
+    "@cultivation/scenarios": "workspace:*",
     "@cultivation/schema": "workspace:*",
     "@expo/metro-runtime": "~58.0.17",
     "@react-native-community/datetimepicker": "9.2.1",
@@ -34,7 +35,8 @@
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
     "export:web": "expo export --platform web",
-    "lint": "expo lint"
+    "lint": "expo lint",
+    "check:release": "node scripts/check-release-bundle.mjs"
   },
   "private": true,
   "license": "MIT"

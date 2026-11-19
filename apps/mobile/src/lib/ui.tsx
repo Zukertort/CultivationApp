@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View, type TextInputProps } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import type { SoulColor } from "@cultivation/rules";
+import { now } from "./clock";
 
 export const C = {
   bg: "#14121c",
@@ -141,8 +142,8 @@ export function Chip({ label, on, onPress }: { label: string; on?: boolean; onPr
 export const when = (at: number) => new Date(at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 
 /** The end of the local day `days` days from now (a deadline the user reads as "in N days"). */
-export function endOfDayIn(days: number, now = Date.now()): number {
-  const d = new Date(now);
+export function endOfDayIn(days: number, from = now()): number {
+  const d = new Date(from);
   d.setDate(d.getDate() + days);
   d.setHours(23, 59, 0, 0);
   return d.getTime();

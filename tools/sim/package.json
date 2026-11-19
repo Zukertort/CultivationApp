@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@cultivation/rules": "workspace:*",
+    "@cultivation/scenarios": "workspace:*",
     "@cultivation/schema": "workspace:*"
   },
   "devDependencies": {

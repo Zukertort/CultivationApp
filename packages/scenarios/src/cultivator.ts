@@ -1,0 +1,141 @@
+/**
+ * A synthetic cultivator: applies events through the real rules engine and
+ * keeps the log of every event the engine accepted, in order. The simulator
+ * uses it to measure the economy; the app's dev scenario loader replays its
+ * log into a scenario database. Both get the same events from the same habits.
+ *
+ * Pure: no clock, no I/O. Time comes from `start` (a local midnight), and
+ * random outcomes come from a seeded PRNG standing in for the server's
+ * secure RNG, so a run is reproducible.
+ */
+import type { GameEvent } from "@cultivation/schema";
+import {
+  DAY,
+  RULES_V1,
+  RuleViolation,
+  applyEvent,
+  breakthroughRollOutcome,
+  classDropOutcome,
+  initialState,
+  pendingBreakthroughRolls,
+  pendingClassDrops,
+  pendingQuestRolls,
+  pendingSoulRolls,
+  pendingTribulationRolls,
+  questDropOutcome,
+  soulDropOutcome,
+  tribulationDropOutcome,
+  type CultivatorState,
+} from "@cultivation/rules";
+
+/** Monday 2026-11-02 00:00 in Buenos Aires: the simulator's day 0. */
+export const T0 = Date.UTC(2026, 10, 2, 3);
+export const HOUR = 60 * 60 * 1000;
+
+/** Seeded PRNG (mulberry32). */
+export function rng(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+export interface CultivatorOptions {
+  /** Day 0's local midnight (epoch ms). */
+  start?: number;
+  userId?: string;
+  /** Prefix for event ids. */
+  idPrefix?: string;
+  seed?: number;
+  /**
+   * Roll every pending outcome after each event, as the server will (soul,
+   * quest, tribulation, class and breakthrough rolls). Off, only tribulation
+   * and breakthrough rolls are made: the realm simulator's economy.
+   */
+  rollAll?: boolean;
+}
+
+export class Cultivator {
+  s: CultivatorState = initialState(RULES_V1);
+  /** Every accepted event, in the order applied (the order to replay them in). */
+  readonly log: GameEvent[] = [];
+  readonly start: number;
+  private readonly userId: string;
+  private readonly idPrefix: string;
+  private readonly rollAll: boolean;
+  private readonly roll: () => number;
+  private queue: GameEvent[] = [];
+  private seq = 0;
+  waitingDays = 0;
+  /** Sum of every legendary roll's chance: the expected legendary items, free of seed luck. */
+  expectedLegendary = 0;
+
+  constructor(o: CultivatorOptions = {}) {
+    this.start = o.start ?? T0;
+    this.userId = o.userId ?? "sim";
+    this.idPrefix = o.idPrefix ?? "realm";
+    this.rollAll = o.rollAll ?? false;
+    this.roll = rng(o.seed ?? 23);
+  }
+
+  at(day: number, hour: number): number {
+    return this.start + day * DAY + hour * HOUR;
+  }
+  /** The simulator day containing `at`. */
+  dayOf(at: number): number {
+    return Math.floor((at - this.start) / DAY);
+  }
+  private event(type: GameEvent["type"], at: number, rest: object): GameEvent {
+    return { id: `${this.idPrefix}${++this.seq}`, userId: this.userId, at, type, ...rest } as GameEvent;
+  }
+  /** Queue a routine event; the day's routine is applied in time order by flush(). */
+  ev(type: GameEvent["type"], at: number, rest: object): void {
+    this.queue.push(this.event(type, at, rest));
+  }
+  flush(): void {
+    const events = this.queue.sort((a, b) => a.at - b.at);
+    this.queue = [];
+    for (const e of events) this.apply(e);
+  }
+  /** Apply at once, then roll whatever the event earned; false if the rules reject it. */
+  now(type: GameEvent["type"], at: number, rest: object): boolean {
+    try {
+      this.apply(this.event(type, at, rest));
+      return true;
+    } catch (e) {
+      if (!(e instanceof RuleViolation)) throw e;
+      return false;
+    }
+  }
+  private apply(e: GameEvent): void {
+    this.s = applyEvent(this.s, e, RULES_V1);
+    this.log.push(e);
+    // In the order the server (and the app's temporary roller) appends them.
+    if (this.rollAll) {
+      for (const p of pendingSoulRolls(this.s.soul)) {
+        const drops = Array.from({ length: p.count }, () => soulDropOutcome(p.color, p.polarity, this.roll(), RULES_V1));
+        this.record(this.event("SoulDropRolled", this.s.clock, { eventId: p.eventId, drops }));
+      }
+      for (const p of pendingQuestRolls(this.s)) this.record(this.event("MainQuestDropRolled", this.s.clock, { eventId: p.eventId, drop: questDropOutcome(p.chance, this.roll(), RULES_V1) }));
+    }
+    for (const p of pendingTribulationRolls(this.s)) {
+      this.record(this.event("TribulationDropRolled", this.s.clock, { eventId: p.eventId, drop: tribulationDropOutcome(this.roll()) }));
+    }
+    if (this.rollAll) {
+      for (const p of pendingClassDrops(this.s)) this.record(this.event("ClassDropRolled", this.s.clock, { eventId: p.eventId, drop: classDropOutcome(p.group, p.chance, this.roll()) }));
+    }
+    for (const p of pendingBreakthroughRolls(this.s)) {
+      this.expectedLegendary += p.chance;
+      this.record(this.event("BreakthroughRolled", this.s.clock, { step: p.step, item: breakthroughRollOutcome(p.chance, this.roll()) }));
+    }
+  }
+  /** Apply a roll event (rolls earn nothing new). */
+  private record(e: GameEvent): void {
+    this.s = applyEvent(this.s, e, RULES_V1);
+    this.log.push(e);
+  }
+}

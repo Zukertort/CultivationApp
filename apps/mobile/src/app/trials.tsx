@@ -16,6 +16,7 @@ import {
   type Tribulation,
 } from "@cultivation/rules";
 import { DateField, dayIn, daysLeft, endOfLocalDay } from "../lib/fields";
+import { now as clockNow } from "../lib/clock";
 import { useStore } from "../lib/store";
 import { Button, C, Card, Chip, Field, Note, Row, Screen, T, when, words } from "../lib/ui";
 
@@ -192,7 +193,7 @@ function TribulationCard({ id, t, st, onResult }: { id: string; t: Tribulation; 
     if (r.ok) setMode("none");
   };
   const del = () => {
-    const pr = tribulationDeletePrice(state, id, Date.now());
+    const pr = tribulationDeletePrice(state, id, clockNow());
     Alert.alert("Delete this tribulation?", `It costs ${price(pr)}${pr.kind === "open" ? " (taken like a failure, more than failing)" : ""} and is logged in the integrity log.`, [
       { text: "Keep it", style: "cancel" },
       { text: "Delete", style: "destructive", onPress: () => void log({ type: "TribulationDeleted", tribulationId: id }).then((r) => onResult(r.ok, r.ok ? "Deleted (logged)." : r.message)) },
@@ -255,7 +256,7 @@ function TribulationCard({ id, t, st, onResult }: { id: string; t: Tribulation; 
 function PassedRow({ id, t, onResult }: { id: string; t: Tribulation; onResult: Result }) {
   const { state, log } = useStore();
   const fake = () => {
-    const pr = tribulationDeletePrice(state, id, Date.now());
+    const pr = tribulationDeletePrice(state, id, clockNow());
     Alert.alert(
       "Was this pass faked?",
       `Deleting it costs ${price(pr)} and logs it as faked. Your level stays; the count toward the next step drops until another pass replaces it.`,

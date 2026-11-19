@@ -9,6 +9,7 @@ import * as Crypto from "expo-crypto";
 import { useSQLiteContext } from "expo-sqlite";
 import { parseEvent, type GameEvent } from "@cultivation/schema";
 import { RULES_V1, RuleViolation, advanceTo, applyEvent, initialState, replay, type CultivatorState } from "@cultivation/rules";
+import { now as clockNow, onClockChange } from "./clock";
 import { appendEvent, getUserId, loadEvents } from "./db";
 import { rollPending } from "./roller";
 
@@ -54,7 +55,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [events, setEvents] = useState<GameEvent[]>([]);
   /** State as of the last event. */
   const [base, setBase] = useState<CultivatorState>(() => initialState(RULES_V1));
-  const [now, setNow] = useState(() => Date.now());
+  const [now, setNow] = useState(() => clockNow());
 
   useEffect(() => {
     let cancelled = false;
@@ -82,8 +83,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [db]);
 
   useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), TICK_MS);
-    return () => clearInterval(t);
+    const t = setInterval(() => setNow(clockNow()), TICK_MS);
+    // Dev time travel moves the clock between ticks.
+    const off = onClockChange(() => setNow(clockNow()));
+    return () => {
+      clearInterval(t);
+      off();
+    };
   }, []);
 
   const state = useMemo(() => (base.created ? advanceTo(base, Math.max(now, base.clock), RULES_V1) : base), [base, now]);
@@ -91,7 +97,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const log = useCallback(
     async (input: EventInput): Promise<LogResult> => {
       // Events must not go back in time; a clock that moved backwards logs at the last event's time.
-      const at = Math.max(Date.now(), base.clock);
+      const at = Math.max(clockNow(), base.clock);
       try {
         const event = parseEvent({ ...input, id: Crypto.randomUUID(), userId, at });
         const before = advanceTo(base, at, RULES_V1);
@@ -99,7 +105,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         for (const e of written) await appendEvent(db, e);
         setEvents((prev) => [...prev, ...written]);
         setBase(after);
-        setNow(Date.now());
+        setNow(clockNow());
         return { ok: true, before, after };
       } catch (e) {
         if (e instanceof RuleViolation) return { ok: false, message: e.message };
