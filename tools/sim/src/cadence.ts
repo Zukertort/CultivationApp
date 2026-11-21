@@ -21,7 +21,7 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { OATH_TEXT } from "@cultivation/schema";
 import { DAY, type CultivatorState, type Realm, type Tier } from "@cultivation/rules";
-import { Cultivator, T0, study, tribulationPlan, version, weeklyProject, type Income } from "./realm.js";
+import { Cultivator, T0, study, tribulationPlan, version, weeklyProject, type Income } from "@cultivation/scenarios";
 
 const DAYS = 2 * 364;
 const WEEK_DAYS = 7;

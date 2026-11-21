@@ -31,6 +31,7 @@ decisions; apply them without asking again, and add new rulings there.
 
 - `packages/schema` — Zod event schemas and types
 - `packages/rules` — engine, config, tests
+- `packages/scenarios` — persona habits and the dev scenarios, shared by the simulator and the app's dev build
 - `tools/sim` — economy simulator (writes CSV to `tools/sim/out/`, gitignored)
 - `apps/mobile` — Expo app (not started)
 - `apps/server` — Hono on Cloud Run + Postgres (not started)

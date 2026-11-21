@@ -7,6 +7,7 @@ import { useState } from "react";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
 import type { Effort } from "@cultivation/schema";
+import { now } from "./clock";
 import { C, Field, T } from "./ui";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -19,13 +20,13 @@ export function endOfLocalDay(day: Date): number {
 }
 
 /** Whole calendar days from today to the deadline's day: "today", "1 day left", "N days left". */
-export function daysLeft(deadline: number, now = Date.now()): string {
+export function daysLeft(deadline: number, at = now()): string {
   const start = (t: number) => {
     const d = new Date(t);
     d.setHours(0, 0, 0, 0);
     return d.getTime();
   };
-  const n = Math.round((start(deadline) - start(now)) / DAY_MS);
+  const n = Math.round((start(deadline) - start(at)) / DAY_MS);
   if (n < 0) return `${-n} day${n === -1 ? "" : "s"} late`;
   if (n === 0) return "today";
   return `${n} day${n === 1 ? "" : "s"} left`;
@@ -33,7 +34,7 @@ export function daysLeft(deadline: number, now = Date.now()): string {
 
 /** A calendar day `days` from today. */
 export function dayIn(days: number): Date {
-  const d = new Date();
+  const d = new Date(now());
   d.setDate(d.getDate() + days);
   return d;
 }

@@ -13,6 +13,7 @@ import { Platform } from "react-native";
 import * as Notifications from "expo-notifications";
 import type { SQLiteDatabase } from "expo-sqlite";
 import type { PushAlert } from "@cultivation/rules";
+import { clockOffset } from "./clock";
 import { recordDelivery } from "./db";
 
 export const CHANNEL_ID = "close-losses";
@@ -23,6 +24,7 @@ export type PermissionState = "granted" | "denied" | "unsupported";
 
 let channelReady = false;
 
+/** A trigger at device time `at` (a dev scenario's clock offset already taken off). */
 const dateTrigger = (at: number): Notifications.NotificationTriggerInput => ({
   type: Notifications.SchedulableTriggerInputTypes.DATE,
   date: new Date(at),
@@ -94,10 +96,12 @@ export async function schedulePlan(plan: readonly PushAlert[], companionTier: st
   for (const n of await Notifications.getAllScheduledNotificationsAsync()) {
     if (n.content.data?.kind !== "test") await Notifications.cancelScheduledNotificationAsync(n.identifier);
   }
+  // The plan is in game time; in a dev scenario with time travel the device fires it that much earlier.
+  const offset = clockOffset();
   for (const a of plan) {
     await Notifications.scheduleNotificationAsync({
-      content: { ...alertText(a, companionTier), data: { kind: a.kind, scheduledFor: a.at } },
-      trigger: dateTrigger(a.at),
+      content: { ...alertText(a, companionTier), data: { kind: a.kind, scheduledFor: a.at, firesAt: a.at - offset } },
+      trigger: dateTrigger(a.at - offset),
     });
   }
 }
@@ -112,8 +116,9 @@ export async function scheduleTest(minutes: number): Promise<void> {
   });
 }
 
+/** When the OS was asked to show it, in device time (delays are measured against this). */
 function scheduledFor(n: Notifications.Notification): number | null {
-  const v = n.request.content.data?.scheduledFor;
+  const v = n.request.content.data?.firesAt ?? n.request.content.data?.scheduledFor;
   return typeof v === "number" ? v : null;
 }
 

@@ -17,6 +17,7 @@ import {
   type MainTask,
 } from "@cultivation/rules";
 import { DateField, EffortField, dayIn, daysLeft, effortLabel, endOfLocalDay } from "../lib/fields";
+import { now as clockNow } from "../lib/clock";
 import { useStore } from "../lib/store";
 import { Button, C, Card, Chip, Field, Note, Row, Screen, Segmented, T, relative, when, wholeNumber, words } from "../lib/ui";
 
@@ -171,7 +172,7 @@ function TaskRow({ id, t, onAct }: { id: string; t: MainTask; onAct: Act }) {
           <Button
             label="Extend"
             kind="ghost"
-            onPress={() => void onAct({ type: "MainItemExtended", item: "task", itemId: id, until: Date.now() + t.due!.originalMs }, `Extended ${t.name}`)}
+            onPress={() => void onAct({ type: "MainItemExtended", item: "task", itemId: id, until: clockNow() + t.due!.originalMs }, `Extended ${t.name}`)}
           />
         ) : null}
         {t.recurring ? (
@@ -210,7 +211,7 @@ function QuestCard({ id, q, onAct }: { id: string; q: MainQuest; onAct: Act }) {
         return ts === "open" || ts === "expired" ? <TaskRow key={tid} id={tid} t={t} onAct={onAct} /> : <T key={tid} muted>{`${t.name}: ${ts}`}</T>;
       })}
       {st === "expired" ? (
-        <Button label="Extend the quest" kind="ghost" onPress={() => void onAct({ type: "MainItemExtended", item: "quest", itemId: id, until: Date.now() + q.due.originalMs }, `Extended ${q.name}`)} />
+        <Button label="Extend the quest" kind="ghost" onPress={() => void onAct({ type: "MainItemExtended", item: "quest", itemId: id, until: clockNow() + q.due.originalMs }, `Extended ${q.name}`)} />
       ) : null}
     </Card>
   );

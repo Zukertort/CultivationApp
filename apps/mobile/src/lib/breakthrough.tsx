@@ -14,7 +14,7 @@ import { useStore } from "./store";
 const SEEN = "realm_entry_seen";
 
 /** The step that last entered a new realm: a breakthrough, or an override into a different realm. */
-function lastEntry(steps: readonly ProgressStep[]): ProgressStep | null {
+export function lastEntry(steps: readonly ProgressStep[]): ProgressStep | null {
   for (let i = steps.length - 1; i >= 0; i--) {
     const x = steps[i]!;
     if (x.repented) continue;
