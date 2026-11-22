@@ -22,6 +22,7 @@ import {
   repairPrice,
   replay,
   sellPrice,
+  shopPrice,
   stash,
   tribulationDeletePrice,
   unarmoredLoss,
@@ -134,11 +135,23 @@ describe("shop, stash and selling (rulings 137, 140)", () => {
     expect(code(() => applyEvent(s, unequip("weapon", T0 + 4 * H)))).toBe("slot_empty");
   });
 
-  it("free robes can't be sold, so breakthroughs don't mint gold (exploit)", () => {
-    const s = apply(replay([created, ...climb(8)]), unequip("armor", T0 + H));
-    expect(sellPrice(s.gear.items[YELLOW]!)).toBe(0);
-    expect(code(() => applyEvent(s, sell(YELLOW, T0 + 2 * H)))).toBe("robe_not_sellable");
-    expect(code(() => applyEvent(s, sell(WHITE, T0 + 2 * H)))).toBe("robe_not_sellable");
+  it("sells robes like other gear, free or bought; the shop sells the realm's robe at its value (ruling 157)", () => {
+    let s = rich(apply(replay([created, ...climb(8)]), unequip("armor", T0 + H)), 0, 100);
+    // The yellow robe is worth half of Core Formation's 160-gold armor.
+    expect(sellPrice(s.gear.items[YELLOW]!)).toBeCloseTo(0.7 * 80);
+    s = apply(s, sell(YELLOW, T0 + 2 * H));
+    expect(s.gold).toBeCloseTo(100 + 56);
+    // Back into armor the cheap way: a Core Formation robe for 80 gold, worn at once.
+    s = apply(s, sell(WHITE, T0 + 4 * H));
+    expect(wornItem(s, "armor")).toBeNull();
+    const gold = s.gold;
+    s = apply(s, ev("GearBought", T0 + 5 * H, { slot: "armor", kind: "robe" }, "r1"));
+    expect(s.gold).toBeCloseTo(gold - 80);
+    expect(wornItem(s, "armor")).toMatchObject({ id: "r1", kind: "robe", realm: "core_formation" });
+    expect(code(() => applyEvent(s, ev("GearBought", T0 + 6 * H, { slot: "weapon", kind: "robe" }, "r2")))).toBe("robe_is_armor");
+    // Buying a robe and reselling it always loses gold (exploit).
+    const resold = apply(s, unequip("armor", T0 + 7 * H), sell("r1", T0 + 8 * H));
+    expect(resold.gold).toBeCloseTo(gold - 80 + 56);
   });
 
   it("no item sells for more than it costs, in any realm, kind or slot (exploit)", () => {
@@ -146,8 +159,8 @@ describe("shop, stash and selling (rulings 137, 140)", () => {
       for (const slot of ["armor", "weapon"] as const) {
         for (const kind of ["robe", "shop", "legendary"] as const) {
           const item: GearItem = { id: "i", slot, kind, realm, damageBp: 0, obtainedAt: 0 };
-          // Shop gear is what can be bought; legendary gear only drops, and selling it is its value.
-          if (kind === "shop") expect(sellPrice(item)).toBeLessThan(RULES_V1.gear.shopGold[slot][realm]);
+          // Shop gear and robes can be bought; legendary gear only drops, and selling it is its value.
+          if (kind !== "legendary" && !(kind === "robe" && slot === "weapon")) expect(sellPrice(item)).toBeLessThan(shopPrice(slot, realm, RULES_V1, kind));
           expect(sellPrice(item)).toBeLessThanOrEqual(0.7 * itemValue(item));
         }
       }

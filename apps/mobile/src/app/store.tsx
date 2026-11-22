@@ -7,12 +7,17 @@
 import { useState, type ReactNode } from "react";
 import { Alert, View } from "react-native";
 import type { GearSlot } from "@cultivation/schema";
-import { GEAR_REALMS, repairPrice, sellPrice, shopPrice, stash, wearable, wornItem, type GearItem, type GearRealm } from "@cultivation/rules";
+import { GEAR_REALMS, RULES_V1, repairPrice, sellPrice, shopPrice, stash, wearable, wornItem, type GearItem, type GearRealm } from "@cultivation/rules";
 import { GearWarnings, durability, gearName, gearStats, isDead } from "../lib/gear";
 import { useStore } from "../lib/store";
 import { Button, C, Card, Meter, Note, Row, Screen, Segmented, T, words } from "../lib/ui";
 
 const SLOTS: readonly GearSlot[] = ["armor", "weapon"];
+const OFFERS: readonly { slot: GearSlot; kind: "robe" | "shop" }[] = [
+  { slot: "armor", kind: "robe" },
+  { slot: "armor", kind: "shop" },
+  { slot: "weapon", kind: "shop" },
+];
 const gold = (n: number) => `${Math.ceil(n)} gold`;
 
 export default function StoreScreen() {
@@ -78,23 +83,24 @@ export default function StoreScreen() {
           {gearRealm === null ? (
             <T muted>The shop opens in Foundation Establishment.</T>
           ) : (
-            SLOTS.map((slot) => {
-              const item = { kind: "shop" as const, slot, realm: gearRealm };
-              const price = shopPrice(slot, gearRealm);
+            // The realm's robe is the cheap way back into armor (ruling 157).
+            OFFERS.map(({ slot, kind }) => {
+              const item = { kind, slot, realm: gearRealm };
+              const price = shopPrice(slot, gearRealm, RULES_V1, kind);
               return (
-                <View key={slot} style={{ gap: 4 }}>
+                <View key={`${kind}-${slot}`} style={{ gap: 4 }}>
                   <T style={{ fontWeight: "700" }}>{gearName(item)}</T>
                   <T muted>{gearStats(item)}</T>
                   <Button
                     label={`Buy (${gold(price)})`}
                     disabled={dead || state.gold < price}
-                    onPress={() => void act({ type: "GearBought", slot }, wornItem(state, slot) ? `Bought the ${gearName(item)}: it's in the stash.` : `Bought and wearing the ${gearName(item)}.`)}
+                    onPress={() => void act({ type: "GearBought", slot, kind }, wornItem(state, slot) ? `Bought the ${gearName(item)}: it's in the stash.` : `Bought and wearing the ${gearName(item)}.`)}
                   />
                 </View>
               );
             })
           )}
-          <T muted>{`Provisional prices. Gear sells for 70% of its value less damage; free robes can't be sold. Legendary gear and class wearables only drop.`}</T>
+          <T muted>{`Provisional prices. Gear sells for 70% of its value less damage, robes included. Legendary gear and class wearables only drop.`}</T>
         </Card>
       ) : (
         <Card title="Stash">
@@ -105,19 +111,17 @@ export default function StoreScreen() {
               <Row>
                 {wearable(state, item) ? <Button label="Wear" kind="ghost" onPress={() => void act({ type: "GearEquipped", itemId: item.id }, `Wearing the ${gearName(item)}.`)} /> : null}
                 {item.damageBp > 0 ? <Button label={`Repair (${gold(repairPrice(item))})`} kind="ghost" disabled={dead} onPress={() => void act({ type: "GearRepaired", itemId: item.id }, `Repaired the ${gearName(item)}.`)} /> : null}
-                {item.kind === "robe" ? null : (
-                  <Button
-                    label={`Sell (${Math.floor(sellPrice(item))} gold)`}
-                    kind="danger"
-                    disabled={dead}
-                    onPress={() =>
-                      Alert.alert(`Sell the ${gearName(item)}?`, `It sells for ${sellPrice(item).toFixed(1)} gold.`, [
-                        { text: "Keep it", style: "cancel" },
-                        { text: "Sell", style: "destructive", onPress: () => void act({ type: "GearSold", itemId: item.id }, `Sold the ${gearName(item)}.`) },
-                      ])
-                    }
-                  />
-                )}
+                <Button
+                  label={`Sell (${Math.floor(sellPrice(item))} gold)`}
+                  kind="danger"
+                  disabled={dead}
+                  onPress={() =>
+                    Alert.alert(`Sell the ${gearName(item)}?`, `It sells for ${sellPrice(item).toFixed(1)} gold.${item.kind === "robe" ? " A free robe is given only once per realm; the shop sells robes." : ""}`, [
+                      { text: "Keep it", style: "cancel" },
+                      { text: "Sell", style: "destructive", onPress: () => void act({ type: "GearSold", itemId: item.id }, `Sold the ${gearName(item)}.`) },
+                    ])
+                  }
+                />
               </Row>
             </ItemView>
           ))}

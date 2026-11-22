@@ -577,14 +577,17 @@ export const RouletteSpun = z.object({
 export const GearSlot = z.enum(["armor", "weapon"]);
 
 /**
- * Buys the current realm's shop gear for a slot (ruling 140). The new item's
- * id is this event's id; it is worn if the slot is empty, else it goes to the
- * stash. Provisional prices until the shop (Roadmap part 3).
+ * Buys the current realm's gear for a slot (ruling 140): its shop gear, or
+ * (`kind: "robe"`, armor only) its robe at the robe's value, the cheap way
+ * back into armor (ruling 157). The new item's id is this event's id; it is
+ * worn if the slot is empty, else it goes to the stash. Provisional prices
+ * until the shop (Roadmap part 3).
  */
 export const GearBought = z.object({
   ...base,
   type: z.literal("GearBought"),
   slot: GearSlot,
+  kind: z.enum(["shop", "robe"]).optional(),
 });
 
 /** Wears an item from the stash; the item worn in its slot goes to the stash. */

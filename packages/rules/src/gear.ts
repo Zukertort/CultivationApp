@@ -1,5 +1,5 @@
 /**
- * Base gear (Roadmap part 2; rulings 137-156): one armor and one weapon slot,
+ * Base gear (Roadmap part 2; rulings 137-158): one armor and one weapon slot,
  * a stash for gear not worn, free robes on first entering each realm, shop
  * gear, selling and repairs, and durability.
  *
@@ -90,8 +90,9 @@ export function weaponQiBonus(state: CultivatorState, rules: RulesConfig = RULES
   return w && w.kind !== "robe" ? rules.gear.weapon[w.kind][w.realm] : 0;
 }
 
-export function shopPrice(slot: GearSlot, realm: GearRealm, rules: RulesConfig = RULES_V1): number {
-  return rules.gear.shopGold[slot][realm];
+/** What buying costs: the shop gear's price, or a robe's value (half the realm's shop armor; ruling 157). */
+export function shopPrice(slot: GearSlot, realm: GearRealm, rules: RulesConfig = RULES_V1, kind: "shop" | "robe" = "shop"): number {
+  return kind === "robe" ? itemValue({ kind, slot, realm }, rules) : rules.gear.shopGold[slot][realm];
 }
 
 /** An item's value (ruling 155): its kind's factor (robe half, legendary double) times its realm's shop price for the slot. */
@@ -99,9 +100,8 @@ export function itemValue(item: Pick<GearItem, "kind" | "slot" | "realm">, rules
   return rules.gear.valueFactor[item.kind] * rules.gear.shopGold[item.slot][item.realm];
 }
 
-/** What selling an item pays (ruling 155): 70% of its value, less its damage's share. Free robes can't be sold (0). */
+/** What selling an item pays (rulings 155, 157): 70% of its value, less its damage's share; robes included. */
 export function sellPrice(item: GearItem, rules: RulesConfig = RULES_V1): number {
-  if (item.kind === "robe") return 0;
   return rules.gear.sellShare * itemValue(item, rules) * (1 - item.damageBp / FULL_DURABILITY_BP);
 }
 
@@ -268,15 +268,17 @@ function spend(s: CultivatorState, gold: number): void {
   s.gold -= gold;
 }
 
-/** Buy the current realm's shop gear (ruling 140): worn if the slot is empty, else into the stash. */
+/** Buy the current realm's shop gear, or its robe (rulings 140, 157): worn if the slot is empty, else into the stash. */
 export function onGearBought(s: CultivatorState, e: EventOf<"GearBought">, rules: RulesConfig): void {
   alive(s, "bought");
   const realm = currentGearRealm(s);
   if (s.gear.items[e.id]) violate("duplicate_gear", `gear ${e.id} already exists`);
-  const price = shopPrice(e.slot, realm, rules);
+  const kind = e.kind ?? "shop";
+  if (kind === "robe" && e.slot !== "armor") violate("robe_is_armor", "a robe is armor; there is no robe weapon");
+  const price = shopPrice(e.slot, realm, rules, kind);
   spend(s, price);
   s.gear.gold.bought += price;
-  addItem(s, { id: e.id, slot: e.slot, kind: "shop", realm, damageBp: 0, obtainedAt: e.at });
+  addItem(s, { id: e.id, slot: e.slot, kind, realm, damageBp: 0, obtainedAt: e.at });
 }
 
 /** Wear an item from the stash; the one in its slot goes to the stash. Only gear of the current realm or lower (ruling 138). */
@@ -292,13 +294,11 @@ export function onGearUnequipped(s: CultivatorState, e: EventOf<"GearUnequipped"
   s.gear.worn[e.slot] = null;
 }
 
-/** Sell an item from the stash for 70% of its value less damage (ruling 155). Worn gear is taken off first; free robes can't be sold. */
+/** Sell an item from the stash for 70% of its value less damage (rulings 155, 157), robes included. Worn gear is taken off first. */
 export function onGearSold(s: CultivatorState, e: EventOf<"GearSold">, rules: RulesConfig): void {
   alive(s, "sold");
   const item = getItem(s, e.itemId);
   if (Object.values(s.gear.worn).includes(item.id)) violate("gear_worn", "take the item off before selling it");
-  // A free robe can't be sold, so breakthroughs don't mint gold (ruling 155).
-  if (item.kind === "robe") violate("robe_not_sellable", "a free robe can't be sold");
   const price = sellPrice(item, rules);
   delete s.gear.items[item.id];
   s.gold += price;

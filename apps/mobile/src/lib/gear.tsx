@@ -1,7 +1,7 @@
 /**
  * Gear names, stat lines, the gear warnings with their one-tap actions, and
  * the System messages: an item lost, and a new robe put in the stash
- * (rulings 137-156). Numbers come from @cultivation/rules.
+ * (rulings 137-158). Numbers come from @cultivation/rules.
  */
 import { useEffect, useState } from "react";
 import { Alert, View } from "react-native";
