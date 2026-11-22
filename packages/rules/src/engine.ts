@@ -19,7 +19,7 @@ import {
   type SoulState,
 } from "./soul.js";
 import { DAY, WEEK, localDay, nextLocalMidnight } from "./time.js";
-import { addPotion, earnGold, earnQi, goldMultiplier, losePotion, potionKind, qiMultiplier, trainingGoldMultiplier } from "./economy.js";
+import { addPotion, earnGold, earnQi, goldMultiplier, potionKind, qiMultiplier, trainingGoldMultiplier } from "./economy.js";
 import {
   advanceMain,
   decayMultiplier,
@@ -39,6 +39,7 @@ import {
   shiftDeadlinesAfterRest,
   type MainState,
 } from "./main.js";
+import { gearMidnight, initialGear, onGearBought, onGearEquipped, onGearRepaired, onGearSold, onGearUnequipped, syncGear, weaponWear, type GearState } from "./gear.js";
 import { initialClass, onClassChosen, onClassDropRolled, onWearableUsed, classCovers, type ClassState } from "./class.js";
 import {
   advanceProgress,
@@ -52,6 +53,7 @@ import {
   checkRevival,
   clampWhileDead,
   deathSnapshot,
+  loseItems,
   onRealmOverride,
   progressMidnight,
   type ProgressState,
@@ -65,6 +67,7 @@ import {
   onTribulationDropRolled,
   onTribulationEdited,
   onTribulationRescheduled,
+  settleOverdueTribulations,
   shiftTribulationsAfterRest,
   tribulationMidnight,
   type TribulationState,
@@ -89,6 +92,8 @@ export interface RestPeriod {
 export interface CultivatorState {
   rulesVersion: string;
   created: boolean;
+  /** The cultivator's user id, from CultivatorCreated; it seeds the gear damage pick (ruling 144). */
+  userId: string;
   name: string;
   tzOffsetMinutes: number;
   /** Last instant the state has been advanced to. Events must not go back in time. */
@@ -123,11 +128,14 @@ export interface CultivatorState {
   prefs: { reminderMinutes: number | null; quiet: { start: number; end: number } | null };
   /**
    * Potions by kind (ruling 58); a drunk gain potion is active until
-   * `gainPotionUntil`. `legendary` counts legendary items.
+   * `gainPotionUntil`, and a drunk legendary potion stays armed until the next
+   * realm breakthrough's legendary roll (ruling 151). `legendary` counts
+   * legendary items.
    */
   inventory: {
     gainPotions: number;
     legendaryPotions: number;
+    legendaryPotionArmed: boolean;
     gainPotionUntil: number | null;
     legendary: number;
     scales: number;
@@ -144,6 +152,8 @@ export interface CultivatorState {
   progress: ProgressState;
   /** The class, its changes and its drops (part 4). */
   class: ClassState;
+  /** Base gear: worn, stash, robes given (rulings 137-145). */
+  gear: GearState;
   /** Things that should be impossible (e.g. a second set of wings); flagged, never silently fixed. */
   anomalies: { at: number; code: string }[];
 }
@@ -152,6 +162,7 @@ export function initialState(rules: RulesConfig = RULES_V1): CultivatorState {
   return {
     rulesVersion: rules.version,
     created: false,
+    userId: "",
     name: "",
     tzOffsetMinutes: 0,
     clock: 0,
@@ -179,6 +190,7 @@ export function initialState(rules: RulesConfig = RULES_V1): CultivatorState {
     inventory: {
       gainPotions: 0,
       legendaryPotions: 0,
+      legendaryPotionArmed: false,
       gainPotionUntil: null,
       legendary: 0,
       scales: 0,
@@ -192,6 +204,7 @@ export function initialState(rules: RulesConfig = RULES_V1): CultivatorState {
     tribulations: initialTribulations(),
     progress: initialProgress(),
     class: initialClass(),
+    gear: initialGear(),
     anomalies: [],
   };
 }
@@ -325,8 +338,12 @@ function advanceMut(s: CultivatorState, to: number, rules: RulesConfig): void {
     }
     // Periods close and tax is charged at every midnight (a day with rest is never taxed).
     if (cur === dayEnd) {
+      // Read before mainMidnight starts the next day.
+      const rested = s.main.day.rested;
       mainMidnight(s, cur, rules);
       tribulationMidnight(s, cur, rules);
+      // The companion damages one worn item a day, never on a day with rest (ruling 144).
+      gearMidnight(s, cur, rested, rules);
       progressMidnight(s, cur, rules);
     }
     // Rest freezes the soul color; a midnight that ends the rest is evaluated.
@@ -378,6 +395,7 @@ type Handler<T extends GameEvent["type"]> = (s: CultivatorState, e: EventOf<T>, 
 const onCreated: Handler<"CultivatorCreated"> = (s, e) => {
   if (s.created) violate("already_created", "cultivator already exists");
   s.created = true;
+  s.userId = e.userId;
   s.name = e.name;
   s.tzOffsetMinutes = e.tzOffsetMinutes;
 };
@@ -527,6 +545,7 @@ const onRouletteSpun: Handler<"RouletteSpun"> = (s, e, rules) => {
       break;
     case "qi":
       earnQi(s, rules.roulette.qiPrize * qiMultiplier(s, rules));
+      weaponWear(s, "other", e.at, rules);
       break;
     case "gain_potion":
       addPotion(s, "gain");
@@ -577,10 +596,19 @@ const onCompanionPetted: Handler<"CompanionPetted"> = (s, e, rules) => {
   if (c.pettedDay === day) violate("already_petted", "the Lion was already petted today");
   c.pettedDay = day;
   earnQi(s, rules.lionPetQi * qiMultiplier(s, rules));
+  weaponWear(s, "other", e.at, rules);
 };
 
 const onPotionUsed: Handler<"PotionUsed"> = (s, e, rules) => {
   const inv = s.inventory;
+  if (e.potion === "legendary") {
+    // Armed for the next realm breakthrough's legendary roll, one at a time (ruling 151).
+    if (inv.legendaryPotions < 1) violate("no_potion", "no legendary potion to drink");
+    if (inv.legendaryPotionArmed) violate("potion_active", "a legendary potion is already armed for the next breakthrough");
+    inv.legendaryPotions -= 1;
+    inv.legendaryPotionArmed = true;
+    return;
+  }
   if (inv.gainPotions < 1) violate("no_potion", "no gain potion to drink");
   if (inv.gainPotionUntil !== null && e.at < inv.gainPotionUntil) violate("potion_active", "a gain potion is already active");
   inv.gainPotions -= 1;
@@ -589,8 +617,9 @@ const onPotionUsed: Handler<"PotionUsed"> = (s, e, rules) => {
 
 /**
  * Apply a server-rolled soul drop. Gains get the gold/Qi multipliers; losses
- * never take a balance below 0. Until gear exists an item is a potion, and a
- * lost item is a potion (a gain potion first; never a legendary item).
+ * never take a balance below 0. A gained item is a potion until Roadmap part 4
+ * adds legendary items; a lost item follows the repent order, then stash gear
+ * (rulings 15, 146).
  */
 function applySoulDrop(s: CultivatorState, drop: SoulDrop, rules: RulesConfig): void {
   const d = rules.soul.drops;
@@ -604,6 +633,7 @@ function applySoulDrop(s: CultivatorState, drop: SoulDrop, rules: RulesConfig): 
       break;
     case "qi":
       earnQi(s, d.qi * qiMultiplier(s, rules));
+      weaponWear(s, "other", s.clock, rules);
       break;
     case "gain_potion":
       addPotion(s, "gain");
@@ -621,7 +651,8 @@ function applySoulDrop(s: CultivatorState, drop: SoulDrop, rules: RulesConfig): 
       s.qi = Math.max(0, s.qi - d.loseQi);
       break;
     case "lose_item":
-      losePotion(s);
+      // A potion first, then a class wearable, then stash gear; never worn gear or a legendary (rulings 15, 145, 146).
+      loseItems(s, 1, s.clock, rules, "soul");
       break;
   }
 }
@@ -703,6 +734,27 @@ const handlers: { [T in GameEvent["type"]]: Handler<T> } = {
   BreakthroughRolled: (s, e) => {
     if (!onBreakthroughRolled(s, e)) s.anomalies.push({ at: e.at, code: "orphan_breakthrough_roll" });
   },
+  // Every gear event first applies missed deadlines, so a failure hits the armor worn at its deadline (ruling 147).
+  GearBought: (s, e, rules) => {
+    settleOverdueTribulations(s, e.at, rules);
+    onGearBought(s, e, rules);
+  },
+  GearEquipped: (s, e, rules) => {
+    settleOverdueTribulations(s, e.at, rules);
+    onGearEquipped(s, e);
+  },
+  GearUnequipped: (s, e, rules) => {
+    settleOverdueTribulations(s, e.at, rules);
+    onGearUnequipped(s, e);
+  },
+  GearSold: (s, e, rules) => {
+    settleOverdueTribulations(s, e.at, rules);
+    onGearSold(s, e, rules);
+  },
+  GearRepaired: (s, e, rules) => {
+    settleOverdueTribulations(s, e.at, rules);
+    onGearRepaired(s, e, rules);
+  },
 };
 
 // ---- Public API ---------------------------------------------------------------------
@@ -723,6 +775,8 @@ function applyMut(s: CultivatorState, e: GameEvent, rules: RulesConfig): void {
   (handlers[e.type] as Handler<typeof e.type>)(s, e as never, rules);
   // Level-ups and breakthroughs are derived: whatever an event makes possible happens at once (ruling 74).
   advanceProgress(s, e.at, rules);
+  // Free robes on entering a realm, and higher-realm gear off after a repent (rulings 138, 139).
+  syncGear(s, e.at);
   clampWhileDead(s, dead);
   checkRevival(s, e.at, rules);
 }

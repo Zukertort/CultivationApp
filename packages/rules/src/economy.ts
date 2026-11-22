@@ -4,6 +4,7 @@
  */
 import { RULES_V1, type MainPath, type RulesConfig } from "./config.js";
 import type { CultivatorState } from "./engine.js";
+import { weaponQiBonus } from "./gear.js";
 
 /** The current class's gold and Qi bonus (ruling 115); read here to keep economy free of the class module. */
 function classShare(state: CultivatorState, rules: RulesConfig): { gold: number; qi: number } {
@@ -55,17 +56,30 @@ export function addPotion(s: CultivatorState, kind: PotionKind): void {
   else s.inventory.legendaryPotions += 1;
 }
 
-/** A lost item is a potion: a gain potion if there is one, else a legendary potion. */
-export function losePotion(s: CultivatorState): void {
-  const inv = s.inventory;
-  if (inv.gainPotions > 0) inv.gainPotions -= 1;
-  else if (inv.legendaryPotions > 0) inv.legendaryPotions -= 1;
-}
-
 /** The active gain potion's share of the additive pool (0 when none is active). */
 export function potionBonus(state: CultivatorState, rules: RulesConfig = RULES_V1): number {
-  const until = state.inventory.gainPotionUntil;
-  return until !== null && state.clock < until ? rules.potions.gain.bonus : 0;
+  return potionStatus(state, state.clock).gainActiveUntil !== null ? rules.potions.gain.bonus : 0;
+}
+
+export interface PotionStatus {
+  gainHeld: number;
+  /** When the drunk gain potion stops, while it is still active at `at`; null otherwise. */
+  gainActiveUntil: number | null;
+  legendaryHeld: number;
+  /** A drunk legendary potion waiting for the next realm breakthrough's roll (rulings 151, 156). */
+  legendaryArmed: boolean;
+}
+
+/** The potions as they stand at `at` (the app passes its clock): a gain potion is active only before its expiry. */
+export function potionStatus(state: CultivatorState, at: number): PotionStatus {
+  const inv = state.inventory;
+  const until = inv.gainPotionUntil;
+  return {
+    gainHeld: inv.gainPotions,
+    gainActiveUntil: until !== null && at < until ? until : null,
+    legendaryHeld: inv.legendaryPotions,
+    legendaryArmed: inv.legendaryPotionArmed,
+  };
 }
 
 // ---- Multipliers ------------------------------------------------------------
@@ -80,14 +94,14 @@ export function trainingGoldMultiplier(state: CultivatorState, rules: RulesConfi
   return (1 + rules.tiers[state.companion.tier].goldBonus + classShare(state, rules).gold + potionBonus(state, rules)) * goldItems(state, rules);
 }
 
-/** Qi multiplier for every Qi gain: the pose bonus joins the pool (ruling 35). */
+/** Qi multiplier for every Qi gain: the pose bonus and the worn weapon join the pool (rulings 35, 143). */
 export function qiMultiplier(state: CultivatorState, rules: RulesConfig = RULES_V1): number {
-  return (1 + (currentPose(state, rules)?.qiBonus ?? 0) + classShare(state, rules).qi + potionBonus(state, rules)) * qiItems(state, rules);
+  return (1 + (currentPose(state, rules)?.qiBonus ?? 0) + classShare(state, rules).qi + potionBonus(state, rules) + weaponQiBonus(state, rules)) * qiItems(state, rules);
 }
 
 /** Qi multiplier for Main tasks and quests: the pose plus the fitness tier's core Qi bonus. */
 export function mainQiMultiplier(state: CultivatorState, rules: RulesConfig = RULES_V1): number {
-  const pool = 1 + (currentPose(state, rules)?.qiBonus ?? 0) + rules.tiers[state.companion.tier].coreQiBonus + classShare(state, rules).qi + potionBonus(state, rules);
+  const pool = 1 + (currentPose(state, rules)?.qiBonus ?? 0) + rules.tiers[state.companion.tier].coreQiBonus + classShare(state, rules).qi + potionBonus(state, rules) + weaponQiBonus(state, rules);
   return pool * qiItems(state, rules);
 }
 
@@ -112,30 +126,47 @@ export function earnQi(s: CultivatorState, amount: number): void {
 }
 
 /**
- * Charge procrastination tax: taken from the balances, the rest becomes debt
- * (balances never go below 0), capped. Reaching either cap starts Qi
- * deviation (ruling 33). Debt from `postponed` tax is tracked apart, since
- * the comeback doesn't forgive it (ruling 59).
+ * Add debt, capped (ruling 33); new debt at either cap starts Qi deviation.
+ * Unforgivable debt (postponed tax, ruling 59; failure losses, ruling 148) is
+ * tracked apart, since the comeback doesn't forgive it; at the cap it takes
+ * the place of forgivable debt. Returns what was added (the cap may keep
+ * part of it out).
  */
-export function chargeTax(s: CultivatorState, path: MainPath, qi: number, gold: number, at: number, rules: RulesConfig, postponed = false): void {
+export function addDebt(s: CultivatorState, qi: number, gold: number, at: number, rules: RulesConfig, unforgivable: boolean): { qi: number; gold: number } {
   const m = s.main;
   const cap = rules.main.debtCap;
+  const add = (key: "qi" | "gold", amount: number): number => {
+    const debt = m.debt[key];
+    const next = Math.max(debt, Math.min(cap[key], debt + Math.max(0, amount)));
+    m.debt[key] = next;
+    if (!unforgivable) return next - debt;
+    // At the cap, unforgivable debt takes the place of forgivable debt.
+    const post = m.debtPostponed[key];
+    m.debtPostponed[key] = Math.min(next, post + Math.max(0, amount));
+    return m.debtPostponed[key] - post;
+  };
+  const added = { qi: add("qi", qi), gold: add("gold", gold) };
+  // Only new debt starts deviation: debt the comeback left at the cap doesn't re-trigger it (ruling 156).
+  const fresh = qi > 0 || gold > 0;
+  if (fresh && m.deviation === null && (m.debt.qi >= cap.qi || m.debt.gold >= cap.gold)) {
+    m.deviation = { since: at, windowStart: at, done: 0 };
+    m.deviationsEntered += 1;
+  }
+  return added;
+}
+
+/**
+ * Charge procrastination tax: taken from the balances, the rest becomes debt
+ * (balances never go below 0), capped (ruling 33). Debt from `postponed` tax
+ * is unforgivable (ruling 59).
+ */
+export function chargeTax(s: CultivatorState, path: MainPath, qi: number, gold: number, at: number, rules: RulesConfig, postponed = false): void {
   const fromQi = Math.min(s.qi, qi);
   const fromGold = Math.min(s.gold, gold);
   s.qi -= fromQi;
   s.gold -= fromGold;
-  const before = { ...m.debt };
-  m.debt.qi = Math.min(cap.qi, m.debt.qi + (qi - fromQi));
-  m.debt.gold = Math.min(cap.gold, m.debt.gold + (gold - fromGold));
-  if (postponed) {
-    m.debtPostponed.qi += m.debt.qi - before.qi;
-    m.debtPostponed.gold += m.debt.gold - before.gold;
-  }
-  const paid = m.taxPaid[path];
+  addDebt(s, qi - fromQi, gold - fromGold, at, rules, postponed);
+  const paid = s.main.taxPaid[path];
   paid.qi += qi;
   paid.gold += gold;
-  if (m.deviation === null && (m.debt.qi >= cap.qi || m.debt.gold >= cap.gold)) {
-    m.deviation = { since: at, windowStart: at, done: 0 };
-    m.deviationsEntered += 1;
-  }
 }

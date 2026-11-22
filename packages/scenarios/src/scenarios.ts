@@ -14,7 +14,13 @@ import { OATH_TEXT, type ClassId, type GameEvent } from "@cultivation/schema";
 import {
   DAY,
   RULES_V1,
+  advanceTo,
+  armorAtRisk,
+  bestStashArmor,
   deviationStatus,
+  shopPrice,
+  stash,
+  wornItem,
   effectiveDeadline,
   localDay,
   realmStatus,
@@ -160,6 +166,30 @@ const FULL_CLIMB = [
   "breakthrough spirit_realm null",
 ];
 
+/** After the persona's day: in Core Formation, buy the realm's shop weapon and armor once the gold allows, and wear them. */
+function gearUp(c: Cultivator, day: number): void {
+  if (c.s.main.realm !== "core_formation") return;
+  const at = c.at(day, 23);
+  const realm = "core_formation" as const;
+  const weapon = wornItem(c.s, "weapon");
+  if (!(weapon?.kind === "shop" && weapon.realm === realm) && c.s.gold >= shopPrice("weapon", realm)) c.now("GearBought", at, { slot: "weapon" });
+  const armor = wornItem(c.s, "armor");
+  if (!(armor?.kind === "shop" && armor.realm === realm) && c.s.gold >= shopPrice("armor", realm)) {
+    c.now("GearBought", at, { slot: "armor" });
+    // Bought into the stash when a robe is worn: put it on.
+    const bought = stash(c.s).find((i) => i.kind === "shop" && i.slot === "armor" && i.realm === realm);
+    if (bought) c.now("GearEquipped", at, { itemId: bought.id });
+  }
+}
+
+const geared = (s: CultivatorState) => {
+  const a = wornItem(s, "armor");
+  const w = wornItem(s, "weapon");
+  return a?.kind === "shop" && a.realm === "core_formation" && w?.kind === "shop" && w.realm === "core_formation";
+};
+
+const WHITE_ROBE = "robe:foundation_establishment";
+
 // ---- The catalog ------------------------------------------------------------
 
 export const SCENARIOS: readonly Scenario[] = [
@@ -253,6 +283,66 @@ export const SCENARIOS: readonly Scenario[] = [
     (s) => {
       const steps = s.progress.steps.filter((x) => !x.repented && x.kind !== "restart").map((x) => `${x.kind} ${x.realm} ${x.level}`);
       return [inRealm(s, "spirit_realm"), steps.join("|") === FULL_CLIMB.join("|") || `steps: ${steps.join(", ")}`, alive(s)];
+    },
+  ),
+  scenario(
+    {
+      id: "core-geared",
+      title: "Core Formation, shop armor and weapon",
+      description: "Weekly projects into Core Formation as an Acrobat, then the realm's shop armor and weapon bought and worn; the robes wait in the stash.",
+      days: 200,
+      seed: 5,
+      day: () => {
+        const base = persona({ income: weeklyProject }, { class: "acrobat" satisfies ClassId })();
+        return (c, day, days) => {
+          base(c, day, days);
+          gearUp(c, day);
+        };
+      },
+      stop: (c) => geared(c.s),
+    },
+    (s) => [inRealm(s, "core_formation"), geared(s) || "shop armor and weapon of Core Formation aren't both worn", stash(s).some((i) => i.kind === "robe") || "no robe in the stash", alive(s)],
+  ),
+  scenario(
+    {
+      id: "robe-wearing-out",
+      title: "Foundation, robe wearing out",
+      description: "A studier who never trains (the Turtle bites 5% a day) in Foundation, with the white robe at 80% damage or more: the 95% warning and push come within days.",
+      days: 30,
+      day: persona({ income: study, gym: [] }, {}),
+      stop: (c, day) => (advanceTo(c.s, Math.max(c.s.clock, c.at(day + 1, 0) + 1)).gear.items[WHITE_ROBE]?.damageBp ?? 0) >= 8000,
+    },
+    (s) => [
+      inRealm(s, "foundation_establishment"),
+      wornItem(s, "armor")?.id === WHITE_ROBE || "the white robe isn't worn (broken?)",
+      (s.gear.items[WHITE_ROBE]?.damageBp ?? 0) >= 8000 || `robe damage ${s.gear.items[WHITE_ROBE]?.damageBp}`,
+      alive(s),
+    ],
+  ),
+  scenario(
+    {
+      id: "armor-at-risk",
+      title: "Armor at risk before a deadline",
+      description: "Foundation, Turtle, the white robe at about 85% with a tribulation due tomorrow, and Foundation shop armor in the stash: the before-deadline warning with its Swap and Repair actions (ruling 149).",
+      days: 23,
+      day: () => (c, day, days) => {
+        routineDay(c, { income: study, gym: [] }, day);
+        areasThenLock(c, day);
+        if (day !== days - 2) return;
+        const at = c.at(day, 22);
+        if (c.s.gold >= shopPrice("armor", "foundation_establishment")) c.now("GearBought", at, { slot: "armor" });
+        c.now("TribulationDeclared", at, { tribulationId: "armor-risk", title: "Run a 10 km race", criteria: "Finish a 10 km race under 60 minutes", deadline: c.at(days + 1, 23) + 59 * 60_000 });
+      },
+    },
+    (s, now) => {
+      const at = advanceTo(s, Math.max(s.clock, now));
+      return [
+        inRealm(s, "foundation_establishment"),
+        armorAtRisk(at)?.item.id === WHITE_ROBE || `not at risk (robe damage ${at.gear.items[WHITE_ROBE]?.damageBp})`,
+        (at.gear.items[WHITE_ROBE]?.damageBp ?? 0) < RULES_V1.gear.warnAtBp || "the robe is already at the 95% warning",
+        bestStashArmor(at)?.kind === "shop" || "no shop armor in the stash to swap",
+        alive(s),
+      ];
     },
   ),
   scenario(

@@ -1,17 +1,19 @@
 # Cultivation
 
-A xianxia-themed life gamification app. The game design lives in the
-*Cultivation System — Design To-Do* doc; this repo implements it.
+A xianxia-themed life gamification app. The game design, and its settled
+rulings, live in [docs/design.md](docs/design.md), the source of truth this
+repo implements.
 
 ## Layout
 
 | Path | What it is | Status |
 | --- | --- | --- |
-| `packages/schema` | Event types and Zod validators shared by every consumer | Body path |
-| `packages/rules` | Deterministic rules engine: events in, state out | Body path |
-| `tools/sim` | Economy simulator that runs the real rules engine | Food economy |
-| `apps/mobile` | Expo app (iOS, Android, web) | Not started |
-| `apps/server` | Hono API on Cloud Run + Postgres event store | Not started |
+| `packages/schema` | Event types and Zod validators shared by every consumer | Body, Soul, Main, tribulations, realms, classes, base gear |
+| `packages/rules` | Deterministic rules engine: events in, state out | Step 1 rules through Roadmap part 2 (base gear) |
+| `packages/scenarios` | Persona habits and dev scenarios, shared by the simulator and the app | Used by the simulator and dev builds |
+| `tools/sim` | Economy simulator that runs the real rules engine | Food, Soul, Main, tribulations, realms, classes, cadence and gear reports |
+| `apps/mobile` | Expo app (iOS, Android, web) | Dogfooding screens; dev scenario loader in development builds |
+| `apps/server` | Hono API on Cloud Run + Postgres event store | Not started (Roadmap part 6) |
 
 ## The two rules everything depends on
 
@@ -31,7 +33,7 @@ A xianxia-themed life gamification app. The game design lives in the
 pnpm install
 pnpm test        # all packages
 pnpm typecheck
-pnpm sim         # food-economy simulation, prints a summary and writes CSV to tools/sim/out
+pnpm sim         # economy simulation: prints a summary and writes CSV to tools/sim/out
 ```
 
 Requires Node 22+ and pnpm (`corepack enable` installs the version pinned in `package.json`).

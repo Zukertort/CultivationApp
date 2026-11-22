@@ -6,6 +6,7 @@ import { StatusBar } from "expo-status-bar";
 import { SQLiteProvider, useSQLiteContext } from "expo-sqlite";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { OATH_TEXT } from "@cultivation/schema";
+import { GearWatcher } from "../lib/gear";
 import { BreakthroughWatcher } from "../lib/breakthrough";
 import { DB_NAME, getMeta, migrate, setMeta } from "../lib/db";
 import { AreasStep, Interview } from "../lib/onboarding";
@@ -90,9 +91,11 @@ function Gate() {
         <Tabs.Screen name="trials" options={{ title: "Trials" }} />
         <Tabs.Screen name="body" options={{ title: "Body" }} />
         <Tabs.Screen name="soul" options={{ title: "Soul" }} />
+        <Tabs.Screen name="store" options={{ title: "Store" }} />
         <Tabs.Screen name="alerts" options={{ title: "Alerts" }} />
       </Tabs>
       <BreakthroughWatcher />
+      <GearWatcher />
     </NotificationsProvider>
   );
 }

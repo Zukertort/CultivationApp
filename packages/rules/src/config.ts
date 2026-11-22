@@ -56,7 +56,7 @@ export type Realm = (typeof REALMS)[number];
 
 export type MainPath = "main" | "body" | "soul";
 
-/** Bands a soul drop roll lands in; the "item" band (a common item) splits into the two potion kinds until gear exists. */
+/** Bands a soul drop roll lands in; the "item" band (a common item) splits into the two potion kinds until Roadmap part 4 adds legendary items. */
 export type SoulDropBand = "gold" | "qi" | "item" | "legendary" | "lose_gold" | "lose_qi" | "lose_item";
 
 /** Age-based repetition decay (Body and Main, rulings 18-19). */
@@ -99,7 +99,7 @@ export interface MainRules {
    * Item drops from completed quests (ruling 52): the chance by the members'
    * total effort in days, through these [days, chance] anchors (flat past the
    * last); server-rolled; at most maxRollsPerDay per local day. An item is a
-   * potion until gear exists.
+   * potion until Roadmap part 4 adds legendary items.
    */
   questDrops: { chance: readonly (readonly [number, number])[]; maxRollsPerDay: number };
   /**
@@ -275,6 +275,50 @@ export interface TierRules {
   breakthroughLegendaryChance: number;
 }
 
+/** Realms gear exists for (rulings 137-139): from Foundation, where the first free robe is given, to Spirit Realm. */
+export const GEAR_REALMS = ["foundation_establishment", "core_formation", "nascent_soul", "spirit_realm"] as const;
+export type GearRealm = (typeof GEAR_REALMS)[number];
+/** Robe: the free armor given on first entering a realm; shop: bought; legendary: from a legendary roll (Roadmap part 4). */
+export type GearKind = "robe" | "shop" | "legendary";
+
+/**
+ * Base gear (rulings 137-145). Stats are fixed per realm and kind and never
+ * change with the cultivator's realm or the item's damage. The ladder at any
+ * realm R: robe(R) < shop(R) < robe(R+1) < legendary(R) < shop(R+1). Every
+ * number is a simulator value; prices are provisional until the shop.
+ */
+export interface GearRules {
+  /** Armor: Qi and gold taken off a tribulation failure's loss (never below 0). Robes are armor. */
+  armor: Record<GearKind, Record<GearRealm, { qi: number; gold: number }>>;
+  /** Weapons: a share added to the additive Qi pool on every Qi gain. There is no free weapon. */
+  weapon: Record<Exclude<GearKind, "robe">, Record<GearRealm, number>>;
+  /** Shop price of the realm's gear by slot. */
+  shopGold: Record<"armor" | "weapon", Record<GearRealm, number>>;
+  /** An item's value: its kind's factor x its realm's shop price for the slot (ruling 155). Buying costs the full shop price. */
+  valueFactor: Record<GearKind, number>;
+  /** SIM: an item sells for this share of its value, less its damage's share; free robes can't be sold (ruling 155). */
+  sellShare: number;
+  /** SIM: a full repair costs this share of the item's value (at most 10%), prorated by damage (ruling 155). */
+  repairShare: number;
+  /**
+   * SIM: a midnight that would damage armor, with no armor worn that day, takes Qi and gold instead (ruling 154): each
+   * this many times the repair of the current realm's shop armor for that damage. Never in Qi Condensation.
+   */
+  unarmoredLossFactor: number;
+  /** Damage, in basis points of durability, at each local midnight without rest, by fitness tier, to every armor worn that local day (the weapon isn't hit). */
+  companionDamageBp: Record<Tier, number>;
+  /** Damage to the armor worn at a failed tribulation's deadline. */
+  failureDamageBp: number;
+  /** SIM: weapon wear on each Qi gain it boosts: a Main task by its effort, any other Qi gain (drops, roulette, the Lion) as `other`. */
+  weaponWearBp: Record<Effort | "other", number>;
+  /** The push and the avatar's warning fire at this much damage (95%). */
+  warnAtBp: number;
+  /** The avatar's "getting damaged" line (in the app, no push) from this much damage on (50%; ruling 153). */
+  careAtBp: number;
+  /** The before-deadline warning looks at tribulations due within this many hours (ruling 153). */
+  riskHours: number;
+}
+
 export interface RulesConfig {
   version: string;
   tiers: Record<Tier, TierRules>;
@@ -323,14 +367,15 @@ export interface RulesConfig {
     legendaryShare: number;
     /** A gain potion adds this to the additive gold and Qi pool for `hours`; one active at a time. */
     gain: { bonus: number; hours: number };
-    /** Stored for now; with gear: + this legendary chance at the next breakthrough, `perBreakthrough` at most. */
-    legendary: { chanceBonus: number; perBreakthrough: number };
+    /** A drunk legendary potion is armed (one at a time) and adds this to the next realm breakthrough's legendary roll (ruling 151). */
+    legendary: { chanceBonus: number };
   };
   soul: SoulRules;
   main: MainRules;
   tribulations: TribulationRules;
   realms: RealmRules;
   classes: ClassRules;
+  gear: GearRules;
   notifications: {
     /** Push notifications per local day; the most urgent are kept. */
     maxPerDay: number;
@@ -344,7 +389,7 @@ export interface RulesConfig {
 }
 
 export const RULES_V1: RulesConfig = Object.freeze({
-  version: "1.18.0",
+  version: "1.23.0",
   tiers: {
     turtle: { capacity: 30, weeklyLoss: 10, goldBonus: 0.01, coreQiBonus: 0, breakthroughLegendaryChance: 0 },
     panda: { capacity: 800, weeklyLoss: 200, goldBonus: 0.1, coreQiBonus: 0, breakthroughLegendaryChance: 0 },
@@ -380,7 +425,7 @@ export const RULES_V1: RulesConfig = Object.freeze({
   },
   scales: { goldBonusEach: 0.1, qiBonusEach: 0.05, forWings: 9 },
   wings: { goldBonus: 1.0, qiBonus: 0.5 },
-  potions: { legendaryShare: 0.5, gain: { bonus: 0.1, hours: 24 }, legendary: { chanceBonus: 0.05, perBreakthrough: 1 } },
+  potions: { legendaryShare: 0.5, gain: { bonus: 0.1, hours: 24 }, legendary: { chanceBonus: 0.05 } },
   notifications: { maxPerDay: 3, horizonDays: 14, companionHungryFraction: 0.05, defaultReminderMinutes: 9 * 60 },
   soul: {
     startHp: 50,
@@ -536,6 +581,47 @@ export const RULES_V1: RulesConfig = Object.freeze({
       revivalWorkDays: 7,
     },
     closedDoorFlagHours: 72,
+  },
+  gear: {
+    armor: {
+      robe: {
+        foundation_establishment: { qi: 8, gold: 4 },
+        core_formation: { qi: 16, gold: 8 },
+        nascent_soul: { qi: 35, gold: 15 },
+        spirit_realm: { qi: 70, gold: 25 },
+      },
+      shop: {
+        foundation_establishment: { qi: 12, gold: 6 },
+        core_formation: { qi: 25, gold: 12 },
+        nascent_soul: { qi: 60, gold: 22 },
+        spirit_realm: { qi: 100, gold: 30 },
+      },
+      legendary: {
+        foundation_establishment: { qi: 20, gold: 10 },
+        core_formation: { qi: 45, gold: 18 },
+        nascent_soul: { qi: 85, gold: 28 },
+        spirit_realm: { qi: 120, gold: 33 },
+      },
+    },
+    weapon: {
+      shop: { foundation_establishment: 0.02, core_formation: 0.04, nascent_soul: 0.06, spirit_realm: 0.08 },
+      legendary: { foundation_establishment: 0.03, core_formation: 0.05, nascent_soul: 0.07, spirit_realm: 0.09 },
+    },
+    shopGold: {
+      armor: { foundation_establishment: 80, core_formation: 160, nascent_soul: 320, spirit_realm: 480 },
+      weapon: { foundation_establishment: 100, core_formation: 200, nascent_soul: 400, spirit_realm: 600 },
+    },
+    valueFactor: { robe: 0.5, shop: 1, legendary: 2 },
+    sellShare: 0.7,
+    // Below a failure's Qi and gold in every realm (the pricing rule).
+    repairShare: 0.1,
+    unarmoredLossFactor: 3,
+    companionDamageBp: { turtle: 500, panda: 300, horse: 200, tiger: 100, lion: 0 },
+    failureDamageBp: 2000,
+    weaponWearBp: { quick: 15, session: 40, day: 100, project: 250, other: 15 },
+    warnAtBp: 9500,
+    careAtBp: 5000,
+    riskHours: 72,
   },
   classes: {
     table: {

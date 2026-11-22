@@ -6,6 +6,7 @@
  */
 import { RULES_V1, type RulesConfig } from "./config.js";
 import { companionAlertAt, demonAlerts, type CultivatorState, type DemonAlertKind } from "./engine.js";
+import { armorRiskAlerts, gearAlerts } from "./gear-alerts.js";
 import { questDeadlineAlerts } from "./main.js";
 import { tribulationDeadlineAlerts } from "./tribulation.js";
 import { DAY, MINUTE, localDay } from "./time.js";
@@ -18,6 +19,8 @@ export type PushKind =
   | "demon_near_revival"
   | "demon_near_violet"
   | "companion_hungry"
+  | "armor_at_risk"
+  | "gear_breaking"
   | "daily_reminder";
 
 export interface PushAlert {
@@ -26,13 +29,15 @@ export interface PushAlert {
   demonId?: string;
   questId?: string;
   tribulationId?: string;
+  /** The worn armor within 5% of breaking, or at risk before a deadline. */
+  itemId?: string;
   /** Hours left before a quest or tribulation deadline. */
   hoursLeft?: number;
   /** Moved earlier, out of quiet hours (ruling 129). */
   movedForQuiet?: boolean;
 }
 
-/** Most urgent first, in the doc's order (equipment comes with gear). The return date is never crowded out. */
+/** Most urgent first, in the doc's order. The return date is never crowded out. */
 const PRIORITY: readonly PushKind[] = [
   "tribulation_deadline",
   "rest_ending",
@@ -41,6 +46,8 @@ const PRIORITY: readonly PushKind[] = [
   "demon_near_revival",
   "demon_near_violet",
   "companion_hungry",
+  "armor_at_risk",
+  "gear_breaking",
   "daily_reminder",
 ];
 
@@ -99,6 +106,16 @@ export function pushAlertPlan(state: CultivatorState, now: number, rules: RulesC
   if (state.rest) candidates.push({ kind: "rest_ending", at: state.rest.end });
   const hungry = companionAlertAt(state, n.companionHungryFraction, rules);
   if (hungry !== null) candidates.push({ kind: "companion_hungry", at: hungry });
+  // An item reaching 95% damage at a midnight pushes that day at the reminder time (ruling 144).
+  const reminder = state.prefs.reminderMinutes ?? n.defaultReminderMinutes;
+  for (const g of gearAlerts(state, n.horizonDays * DAY, rules)) {
+    const at = Math.max(g.at, dayStart(localDay(g.at, state.tzOffsetMinutes), state.tzOffsetMinutes) + reminder * MINUTE);
+    candidates.push({ kind: "gear_breaking", at, itemId: g.itemId });
+  }
+  // Worn armor a failure would break, with a tribulation due within 72 hours (ruling 149).
+  for (const r of armorRiskAlerts(state, n.horizonDays * DAY, rules)) {
+    candidates.push({ kind: "armor_at_risk", at: r.at, itemId: r.itemId, tribulationId: r.tribulationId });
+  }
   for (const a of demonAlerts(state, rules)) {
     const kind = FROM_DEMON[a.kind];
     if (kind) candidates.push({ kind, at: a.at, demonId: a.demonId });

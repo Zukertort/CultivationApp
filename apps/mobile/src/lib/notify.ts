@@ -18,6 +18,10 @@ import { recordDelivery } from "./db";
 
 export const CHANNEL_ID = "close-losses";
 
+/** The armor pushes carry two one-tap actions (ruling 149); each opens the app, which logs the event. */
+export const GEAR_CATEGORY = "gear";
+const GEAR_KINDS: readonly PushAlert["kind"][] = ["gear_breaking", "armor_at_risk"];
+
 export const notificationsSupported = Platform.OS !== "web";
 
 export type PermissionState = "granted" | "denied" | "unsupported";
@@ -56,6 +60,14 @@ export async function setupNotifications(): Promise<PermissionState> {
       console.warn("Notification channel not created; using the default channel.", e);
     }
   }
+  try {
+    await Notifications.setNotificationCategoryAsync(GEAR_CATEGORY, [
+      { identifier: "swap", buttonTitle: "Swap armor", options: { opensAppToForeground: true } },
+      { identifier: "repair", buttonTitle: "Repair", options: { opensAppToForeground: true } },
+    ]);
+  } catch (e) {
+    console.warn("Notification actions not set up; the armor pushes open the Store instead.", e);
+  }
   const current = await Notifications.getPermissionsAsync();
   if (current.granted) return "granted";
   const asked = await Notifications.requestPermissionsAsync();
@@ -85,13 +97,20 @@ export function alertText(a: PushAlert, companionTier: string): { title: string;
       return { title: "A heart demon is awakening", body: "A demon is close to 70%. Pushing it back before midnight keeps my soul's color." };
     case "companion_hungry":
       return { title: `The ${companionTier} is hungry`, body: "Train soon, or my companion will leave." };
+    case "gear_breaking":
+      return { title: "My equipment is almost broken", body: "I should repair it before it's lost." };
+    case "armor_at_risk":
+      return { title: "My armor would break on a failure", body: "A tribulation is due within 72 hours. Repair the armor or wear another." };
     case "daily_reminder":
       return { title: "Time to cultivate", body: "Nothing urgent today. A look at my to-do list keeps the path moving." };
   }
 }
 
+/** The database file a notification was scheduled from, so one scheduled from a dev scenario is never logged into the real log's delivery table. */
+export const dbTag = (db: SQLiteDatabase) => db.databasePath.split(/[\\/]/).pop() ?? "";
+
 /** Replace the scheduled plan notifications with the given plan (test notifications are kept). */
-export async function schedulePlan(plan: readonly PushAlert[], companionTier: string): Promise<void> {
+export async function schedulePlan(plan: readonly PushAlert[], companionTier: string, db: string): Promise<void> {
   if (!notificationsSupported) return;
   for (const n of await Notifications.getAllScheduledNotificationsAsync()) {
     if (n.content.data?.kind !== "test") await Notifications.cancelScheduledNotificationAsync(n.identifier);
@@ -100,7 +119,11 @@ export async function schedulePlan(plan: readonly PushAlert[], companionTier: st
   const offset = clockOffset();
   for (const a of plan) {
     await Notifications.scheduleNotificationAsync({
-      content: { ...alertText(a, companionTier), data: { kind: a.kind, scheduledFor: a.at, firesAt: a.at - offset } },
+      content: {
+        ...alertText(a, companionTier),
+        data: { kind: a.kind, scheduledFor: a.at, firesAt: a.at - offset, db },
+        ...(GEAR_KINDS.includes(a.kind) ? { categoryIdentifier: GEAR_CATEGORY } : {}),
+      },
       trigger: dateTrigger(a.at - offset),
     });
   }
@@ -123,6 +146,9 @@ function scheduledFor(n: Notifications.Notification): number | null {
 }
 
 async function record(db: SQLiteDatabase, n: Notifications.Notification): Promise<void> {
+  // Scheduled from another database (a dev scenario's, or the real log's while a scenario is open): not ours to log.
+  const from = n.request.content.data?.db;
+  if (typeof from === "string" && from !== dbTag(db)) return;
   const planned = scheduledFor(n);
   if (planned === null) return;
   const kind = String(n.request.content.data?.kind ?? "unknown");
@@ -138,6 +164,32 @@ export function trackDeliveries(db: SQLiteDatabase, onRecorded: () => void): () 
   if (!notificationsSupported) return () => {};
   const sub = Notifications.addNotificationReceivedListener((n) => {
     void record(db, n).then(onRecorded);
+  });
+  return () => sub.remove();
+}
+
+/** What a tap on an armor push asks for: one of its actions, or (a plain tap) to open the Store. Null for other pushes or another database's. */
+export type GearTap = { id: string; action: "swap" | "repair" | "open" };
+
+export function gearTap(r: Notifications.NotificationResponse, db: SQLiteDatabase): GearTap | null {
+  const data = r.notification.request.content.data;
+  if (!GEAR_KINDS.includes(data?.kind as PushAlert["kind"])) return null;
+  if (typeof data?.db === "string" && data.db !== dbTag(db)) return null;
+  const a = r.actionIdentifier;
+  const action = a === "swap" || a === "repair" ? a : "open";
+  return { id: `${r.notification.request.identifier}:${a}`, action };
+}
+
+/** Listen for taps on armor pushes, including the one that launched the app. Returns an unsubscribe function. */
+export function onGearTap(db: SQLiteDatabase, handle: (t: GearTap) => void): () => void {
+  if (!notificationsSupported) return () => {};
+  void Notifications.getLastNotificationResponseAsync().then((r) => {
+    const t = r ? gearTap(r, db) : null;
+    if (t) handle(t);
+  });
+  const sub = Notifications.addNotificationResponseReceivedListener((r) => {
+    const t = gearTap(r, db);
+    if (t) handle(t);
   });
   return () => sub.remove();
 }

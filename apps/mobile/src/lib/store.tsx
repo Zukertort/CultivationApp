@@ -5,6 +5,7 @@
  * rolled right after it by the temporary on-device roller (./roller).
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { AppState } from "react-native";
 import * as Crypto from "expo-crypto";
 import { useSQLiteContext } from "expo-sqlite";
 import { parseEvent, type GameEvent } from "@cultivation/schema";
@@ -86,9 +87,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const t = setInterval(() => setNow(clockNow()), TICK_MS);
     // Dev time travel moves the clock between ticks.
     const off = onClockChange(() => setNow(clockNow()));
+    // Timers pause in the background: catch up as soon as the app is back.
+    const sub = AppState.addEventListener("change", (s) => {
+      if (s === "active") setNow(clockNow());
+    });
     return () => {
       clearInterval(t);
       off();
+      sub.remove();
     };
   }, []);
 

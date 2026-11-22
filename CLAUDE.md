@@ -4,12 +4,12 @@ Guidance for Claude Code working in this repository.
 
 ## What this is
 
-A xianxia-themed life gamification app (a deeper Habitica). The full game
-design is the *Cultivation System — Design To-Do* doc; when code and doc
-disagree, ask before changing either. 
+A xianxia-themed life gamification app (a deeper Habitica). The source of
+truth for the game design is docs/design.md: the design checklist, the New
+to-dos, the Roadmap, and the "Rulings" section of settled decisions. Apply
+rulings without asking again, and add new rulings there.
 
-The design spec is docs/design.md. Its "Rulings" section records settled
-decisions; apply them without asking again, and add new rulings there.
+Where code and a ruling disagree, the ruling wins: fix the code. Where code and the rest of docs/design.md disagree, ask before changing either.
 
 ## Non-negotiable architecture rules
 
@@ -33,7 +33,7 @@ decisions; apply them without asking again, and add new rulings there.
 - `packages/rules` — engine, config, tests
 - `packages/scenarios` — persona habits and the dev scenarios, shared by the simulator and the app's dev build
 - `tools/sim` — economy simulator (writes CSV to `tools/sim/out/`, gitignored)
-- `apps/mobile` — Expo app (not started)
+- `apps/mobile` — Expo app (dogfooding screens; dev scenario loader in `src/dev`, development builds only)
 - `apps/server` — Hono on Cloud Run + Postgres (not started)
 - `assets/` — art and lore, CC BY-NC 4.0 (code is MIT)
 

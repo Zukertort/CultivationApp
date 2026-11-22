@@ -2,19 +2,30 @@ import { describe, expect, it } from "vitest";
 import { OATH_TEXT, TRIBULATION_OATH, type GameEvent } from "@cultivation/schema";
 import {
   DAY,
-  RULES_V1,
+  RULES_V1 as RULES,
   RuleViolation,
-  advanceTo,
-  applyEvent,
+  addDebt,
+  advanceTo as advanceToWith,
+  applyEvent as applyEventWith,
+  earnQi,
   pendingTribulationRolls,
   pushAlertPlan,
-  replay,
+  replay as replayWith,
   tribulationDeletePrice,
   tribulationDropOutcome,
   tribulationEditPrice,
   tribulationStatus,
   type CultivatorState,
+  type RulesConfig,
 } from "./index.js";
+import { noWear } from "./test-support.js";
+
+// These tests measure Main and tribulation rules, not gear wear (rulings 147, 154).
+const RULES_V1 = noWear(RULES);
+const advanceTo = (state: CultivatorState, to: number, rules: RulesConfig = RULES_V1) => advanceToWith(state, to, rules);
+const applyEvent = (state: CultivatorState, e: GameEvent, rules: RulesConfig = RULES_V1) => applyEventWith(state, e, rules);
+const replay = (events: readonly GameEvent[], rules: RulesConfig = RULES_V1, until?: number) => replayWith(events, rules, until);
+
 
 // Day 0 = Monday 2026-11-02 00:00 in Buenos Aires (UTC-3).
 const T0 = Date.UTC(2026, 10, 2, 3);
@@ -27,7 +38,8 @@ const created = ev("CultivatorCreated", T0, { name: "Ricardo", tzOffsetMinutes: 
 const interview = ev("InterviewAnswered", T0, { interests: { main: "Mathematics", body: "BJJ", soul: "" } });
 // Tribulations exist from Foundation on (ruling 89); overrides reach early Core Formation, whose next threshold is 550 Qi.
 const toCore = Array.from({ length: 8 }, (_, i) => ev("RealmOverride", T0 + i + 1, { class: "monk" }));
-const start = [created, ...toCore];
+// The free robe is taken off so these tests measure ruling 80's loss alone; armor is tested in gear.test.ts.
+const start = [created, ...toCore, ev("GearUnequipped", T0 + 10, { slot: "armor" })];
 /** Declared at day 0 08:00 with a 10-day span: the last quarter starts at day 7 20:00. */
 const DECLARED = T0 + 8 * H;
 const DEADLINE = DECLARED + 10 * DAY;
@@ -132,13 +144,37 @@ describe("missed deadlines (rulings 65-66)", () => {
     expect(failed.gold).toBe(955);
   });
 
-  it("floors the loss at the balances and never makes debt or deviation", () => {
+  it("takes what the balances hold; the rest becomes unforgivable debt, capped, and the cap starts deviation (ruling 148)", () => {
     // No interview, so no tax clock: only the failure touches the balances.
     const s = advanceTo(rich(replay([...start, declare()]), 10, 0), T0 + 11 * DAY);
     expect(s.qi).toBe(0);
-    expect(s.tribulations.spent.failures).toEqual({ qi: 10, gold: 0, count: 1 });
-    expect(s.main.debt).toEqual({ qi: 0, gold: 0 });
+    expect(s.gold).toBe(0);
+    // The loss is 137.5 Qi and 45 gold: 10 Qi paid, 127.5 owed but capped at 50; 45 gold owed.
+    expect(s.tribulations.spent.failures).toEqual({ qi: 60, gold: 45, count: 1 });
+    expect(s.tribulations.spent.debt).toEqual({ qi: 50, gold: 45 });
+    expect(s.main.debt).toEqual({ qi: 50, gold: 45 });
+    expect(s.main.debtPostponed).toEqual({ qi: 50, gold: 45 });
+    expect(s.main.deviation).not.toBeNull();
+  });
+
+  it("a small unpaid failure is debt below the cap, without deviation, repaid first from gains (ruling 148)", () => {
+    const s = advanceTo(rich(replay([...start, declare()]), 135, 40), T0 + 11 * DAY);
+    expect(s.main.debt.qi).toBeCloseTo(2.5);
+    expect(s.main.debt.gold).toBeCloseTo(5);
     expect(s.main.deviation).toBeNull();
+    const paid = structuredClone(s);
+    earnQi(paid, 10);
+    expect(paid.qi).toBeCloseTo(7.5);
+    expect(paid.main.debt.qi).toBe(0);
+    expect(paid.main.debtPostponed.qi).toBe(0);
+  });
+
+  it("at the cap, failure debt takes the place of forgivable tax debt, so the comeback can't forgive it (ruling 148)", () => {
+    const s = structuredClone(replay([...start, declare()]));
+    s.main.debt = { qi: 50, gold: 0 };
+    const after = advanceTo(rich(s, 0, 100), T0 + 11 * DAY);
+    expect(after.main.debt.qi).toBe(50);
+    expect(after.main.debtPostponed.qi).toBe(50);
   });
 
   it("applies the failure at the next event about the tribulation when that comes first", () => {
@@ -227,6 +263,33 @@ describe("editing and deleting (ruling 67)", () => {
       expect(deleted.qi).toBeLessThan(failed.qi);
       expect(deleted.gold).toBeLessThan(failed.gold);
     }
+  });
+
+  it("a deletion or late edit the balances can't cover leaves unforgivable debt, so deleting is never cheaper than failing (ruling 156)", () => {
+    // Broke: 10 Qi, no gold. The failure loss is 137.5 Qi and 45 gold.
+    const broke = () => rich(replay([...start, declare()]), 10, 0);
+    const deleted = apply(broke(), del(T0 + DAY));
+    const failed = advanceTo(broke(), T0 + 11 * DAY);
+    expect(deleted.qi).toBe(0);
+    expect(deleted.main.debt.qi).toBeGreaterThanOrEqual(failed.main.debt.qi);
+    expect(deleted.main.debt.gold).toBeGreaterThan(failed.main.debt.gold);
+    expect(deleted.main.debtPostponed).toEqual(deleted.main.debt);
+    expect(deleted.tribulations.spent.debt.gold).toBeGreaterThan(0);
+    // A late edit (last quarter) with nothing to pay is owed the same way.
+    const late = apply(broke(), edit(DEADLINE - H));
+    expect(late.main.debt.gold).toBeCloseTo(45);
+    expect(late.tribulations.items.x!.status).toBe("open");
+  });
+
+  it("debt left at the cap after a comeback doesn't start deviation again until new debt is added (ruling 156)", () => {
+    const s = structuredClone(replay([...start]));
+    s.main.debt = { qi: 50, gold: 0 };
+    s.main.debtPostponed = { qi: 50, gold: 0 };
+    s.main.deviation = null;
+    addDebt(s, 0, 0, T0 + DAY, RULES_V1, false);
+    expect(s.main.deviation).toBeNull();
+    addDebt(s, 0, 5, T0 + DAY, RULES_V1, false);
+    expect(s.main.deviation).not.toBeNull();
   });
 });
 

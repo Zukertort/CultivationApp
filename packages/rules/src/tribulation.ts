@@ -13,9 +13,10 @@ import type { EventOf, MainQuestDrop } from "@cultivation/schema";
 import { RULES_V1, type Realm, type RulesConfig } from "./config.js";
 import type { CultivatorState } from "./engine.js";
 import { earnClassDrop } from "./class.js";
-import { addPotion, potionKind } from "./economy.js";
+import { addDebt, addPotion, potionKind } from "./economy.js";
 import { violate } from "./errors.js";
 import { effectiveDeadline, markActivity, type Due } from "./main.js";
+import { gearOnFailure } from "./gear.js";
 import { checkClaimable, checkDeclarable, failureQiLoss, isUnlockedNascent } from "./realm.js";
 import { DAY, MINUTE } from "./time.js";
 
@@ -66,8 +67,8 @@ export interface TribulationState {
   lastRollAt: number | null;
   pendingRolls: Record<string, PendingTribulationRoll>;
   drops: Record<MainQuestDrop, number>;
-  /** What failures, edits and deletions actually took (failures are floored at the balances). */
-  spent: { failures: Cost; edits: Cost; deletions: Cost };
+  /** What failures, edits and deletions took, debt they left included; `debt` is that debt on its own (rulings 148, 156). */
+  spent: { failures: Cost; edits: Cost; deletions: Cost; debt: { qi: number; gold: number } };
   /** The largest Qi a single failure took, for the simulator and the integrity view (ruling 80). */
   largestFailureQi: number;
 }
@@ -79,7 +80,7 @@ export function initialTribulations(): TribulationState {
     lastRollAt: null,
     pendingRolls: {},
     drops: { none: 0, gain_potion: 0, legendary_potion: 0 },
-    spent: { failures: cost(), edits: cost(), deletions: cost() },
+    spent: { failures: cost(), edits: cost(), deletions: cost(), debt: { qi: 0, gold: 0 } },
     largestFailureQi: 0,
   };
 }
@@ -106,12 +107,13 @@ function statusAt(s: CultivatorState, t: Tribulation, at: number): TribulationSt
 
 /**
  * Apply a missed deadline (ruling 66): the tribulation fails, dated at its
- * effective deadline, and the failure cost is taken from the balances,
- * floored at 0, never as debt (ruling 65). The Qi part is measured against
- * the current level's threshold (ruling 80). Called at each midnight and
- * before any event about the tribulation.
+ * effective deadline, and the failure cost is taken from the balances; what
+ * they can't cover becomes debt the comeback quest doesn't forgive (ruling
+ * 148, amending 65). The Qi part is measured against the current level's
+ * threshold (ruling 80). Called at each midnight, before any event about the
+ * tribulation, and before every gear event (ruling 147).
  */
-function settleFailure(s: CultivatorState, t: Tribulation, at: number, rules: RulesConfig): void {
+function settleFailure(s: CultivatorState, id: string, t: Tribulation, at: number, rules: RulesConfig): void {
   if (t.status !== "open" || !t.due) return;
   const deadline = effectiveDeadline(t.due, s.rest, at);
   if (at <= deadline) return;
@@ -119,11 +121,35 @@ function settleFailure(s: CultivatorState, t: Tribulation, at: number, rules: Ru
   t.failedAt = deadline;
   t.failures += 1;
   t.due = null;
-  const taken = take(s, failureQiLoss(s, rules), rules.tribulations.failure.gold, s.tribulations.spent.failures);
-  s.tribulations.largestFailureQi = Math.max(s.tribulations.largestFailureQi, taken.qi);
+  // Worn armor lowers the ruling 80 loss and takes the failure's damage (rulings 142, 147).
+  const loss = gearOnFailure(s, { qi: failureQiLoss(s, rules), gold: rules.tribulations.failure.gold }, deadline, rules);
+  const took = takeOrOwe(s, loss.qi, loss.gold, s.tribulations.spent.failures, deadline, rules);
+  s.tribulations.largestFailureQi = Math.max(s.tribulations.largestFailureQi, took.qi);
 }
 
-/** Take a loss from the balances, floored at 0, never as debt (rulings 65, 93). */
+/**
+ * Take a failure-priced loss (a failure, a late edit, an open deletion): what
+ * the balances can't cover becomes unforgivable debt (rulings 148, 156), so
+ * deleting or editing late is never cheaper than failing (ruling 93).
+ * Returns what was taken and owed.
+ */
+function takeOrOwe(s: CultivatorState, qi: number, gold: number, into: Cost, at: number, rules: RulesConfig): { qi: number; gold: number } {
+  const taken = take(s, qi, gold, into);
+  const owed = addDebt(s, qi - taken.qi, gold - taken.gold, at, rules, true);
+  into.qi += owed.qi;
+  into.gold += owed.gold;
+  const debt = s.tribulations.spent.debt;
+  debt.qi += owed.qi;
+  debt.gold += owed.gold;
+  return { qi: taken.qi + owed.qi, gold: taken.gold + owed.gold };
+}
+
+/** Apply every missed deadline up to `at` (also before a gear event, so the armor worn at the deadline takes the failure; ruling 147). */
+export function settleOverdueTribulations(s: CultivatorState, at: number, rules: RulesConfig): void {
+  for (const [id, t] of Object.entries(s.tribulations.items)) settleFailure(s, id, t, at, rules);
+}
+
+/** Take a loss from the balances, floored at 0; `takeOrOwe` turns the unpaid part into debt. */
 function take(s: CultivatorState, qi: number, gold: number, into: Cost): { qi: number; gold: number } {
   const taken = { qi: Math.min(s.qi, qi), gold: Math.min(s.gold, gold) };
   s.qi -= taken.qi;
@@ -226,11 +252,11 @@ export function onTribulationDeclared(s: CultivatorState, e: EventOf<"Tribulatio
 
 export function onTribulationEdited(s: CultivatorState, e: EventOf<"TribulationEdited">, rules: RulesConfig): void {
   const t = get(s, e.tribulationId);
-  settleFailure(s, t, e.at, rules);
+  settleFailure(s, e.tribulationId, t, e.at, rules);
   checkChangeable(t);
   if (e.title === undefined && e.criteria === undefined) violate("nothing_to_edit", "an edit changes the title or the criteria");
   const price = tribulationEditPrice(s, e.tribulationId, e.at, rules);
-  if (price.kind === "late") take(s, price.qi, price.gold, s.tribulations.spent.edits);
+  if (price.kind === "late") takeOrOwe(s, price.qi, price.gold, s.tribulations.spent.edits, e.at, rules);
   else pay(s, price.qi, price.gold, s.tribulations.spent.edits);
   if (e.title !== undefined) t.title = e.title;
   if (e.criteria !== undefined) t.criteria = e.criteria;
@@ -240,14 +266,14 @@ export function onTribulationEdited(s: CultivatorState, e: EventOf<"TribulationE
 
 export function onTribulationDeleted(s: CultivatorState, e: EventOf<"TribulationDeleted">, rules: RulesConfig): void {
   const t = get(s, e.tribulationId);
-  settleFailure(s, t, e.at, rules);
+  settleFailure(s, e.tribulationId, t, e.at, rules);
   if (t.status === "passed") {
     // Only a pass of the current realm, still counting, is deleted as faked; an earlier realm's is repented (rulings 101, 126).
     if (t.realm !== s.main.realm || t.closedAt !== null) violate("tribulation_passed", "a passed tribulation of an earlier realm is repented, not deleted");
   } else checkChangeable(t);
   const price = tribulationDeletePrice(s, e.tribulationId, e.at, rules);
   if (price.kind === "failed") pay(s, price.qi, price.gold, s.tribulations.spent.deletions);
-  else take(s, price.qi, price.gold, s.tribulations.spent.deletions);
+  else takeOrOwe(s, price.qi, price.gold, s.tribulations.spent.deletions, e.at, rules);
   t.status = "deleted";
   t.due = null;
   // Every deletion is logged, free ones included (ruling 108); a faked pass also as faked (ruling 126).
@@ -257,7 +283,7 @@ export function onTribulationDeleted(s: CultivatorState, e: EventOf<"Tribulation
 
 export function onTribulationRescheduled(s: CultivatorState, e: EventOf<"TribulationRescheduled">, rules: RulesConfig): void {
   const t = get(s, e.tribulationId);
-  settleFailure(s, t, e.at, rules);
+  settleFailure(s, e.tribulationId, t, e.at, rules);
   checkChangeable(t);
   if (t.status !== "failed") violate("not_failed", "only a failed tribulation gets a new deadline; there are no extensions");
   checkDeadline(e.deadline, e.at, rules);
@@ -274,7 +300,7 @@ export function onTribulationRescheduled(s: CultivatorState, e: EventOf<"Tribula
  */
 export function onTribulationClaimed(s: CultivatorState, e: EventOf<"TribulationClaimed">, rules: RulesConfig): void {
   const t = get(s, e.tribulationId);
-  settleFailure(s, t, e.at, rules);
+  settleFailure(s, e.tribulationId, t, e.at, rules);
   checkChangeable(t);
   if (t.status === "failed") violate("tribulation_failed", "the deadline has passed; set a new one to try again");
   checkClaimable(s, t);
@@ -328,7 +354,7 @@ export function tribulationDropOutcome(u: number, rules: RulesConfig = RULES_V1)
 
 /** At each local midnight: apply missed deadlines (ruling 66). */
 export function tribulationMidnight(s: CultivatorState, midnight: number, rules: RulesConfig): void {
-  for (const t of Object.values(s.tribulations.items)) settleFailure(s, t, midnight, rules);
+  settleOverdueTribulations(s, midnight, rules);
 }
 
 /** Closed-door rest pushes open tribulation deadlines back by the time spent inside (ruling 70); vacation keeps them. */
@@ -363,13 +389,20 @@ export function pendingTribulationRolls(state: CultivatorState): PendingTribulat
   return Object.values(state.tribulations.pendingRolls).sort((a, b) => a.at - b.at);
 }
 
+/** Open tribulations and their deadlines, soonest first. During closed-door rest a deadline keeps moving; it is projected from where it would stand at the rest's end. */
+export function openTribulationDeadlines(state: CultivatorState): { tribulationId: string; deadline: number }[] {
+  const out: { tribulationId: string; deadline: number }[] = [];
+  for (const [tribulationId, t] of Object.entries(state.tribulations.items)) {
+    if (statusAt(state, t, state.clock) !== "open" || !t.due) continue;
+    out.push({ tribulationId, deadline: state.rest ? effectiveDeadline(t.due, state.rest, state.rest.end) : t.due.deadline });
+  }
+  return out.sort((a, b) => a.deadline - b.deadline);
+}
+
 /** Push alerts for open tribulations at 72, 48, 24 and 1 hour before the deadline. */
 export function tribulationDeadlineAlerts(state: CultivatorState, rules: RulesConfig = RULES_V1): { tribulationId: string; at: number; hoursLeft: number }[] {
   const out: { tribulationId: string; at: number; hoursLeft: number }[] = [];
-  for (const [tribulationId, t] of Object.entries(state.tribulations.items)) {
-    if (statusAt(state, t, state.clock) !== "open" || !t.due) continue;
-    // During closed-door rest the deadline keeps moving; alerts are projected from where it would stand at the rest's end.
-    const deadline = state.rest ? effectiveDeadline(t.due, state.rest, state.rest.end) : t.due.deadline;
+  for (const { tribulationId, deadline } of openTribulationDeadlines(state)) {
     for (const h of rules.tribulations.alertHours) {
       const at = deadline - h * HOUR;
       if (at >= state.clock) out.push({ tribulationId, at, hoursLeft: h });
