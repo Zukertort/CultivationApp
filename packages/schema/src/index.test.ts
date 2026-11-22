@@ -119,10 +119,11 @@ describe("parseEvent", () => {
     expect(parseEvent({ ...task, schedule: { kind: "recurring", count: 1, per: "day" }, replaces: "t0" }).type).toBe("MainTaskDefined");
   });
 
-  it("accepts drinking a gain potion and potion outcomes of both kinds", () => {
+  it("accepts drinking either potion kind and potion outcomes of both kinds", () => {
     const base = { id: "e1", userId: "u1", at: 0 };
     expect(parseEvent({ ...base, type: "PotionUsed", potion: "gain" }).type).toBe("PotionUsed");
-    expect(() => parseEvent({ ...base, type: "PotionUsed", potion: "legendary" })).toThrow();
+    expect(parseEvent({ ...base, type: "PotionUsed", potion: "legendary" }).type).toBe("PotionUsed");
+    expect(() => parseEvent({ ...base, type: "PotionUsed", potion: "scale" })).toThrow();
     expect(parseEvent({ ...base, type: "RouletteSpun", prize: "legendary_potion" }).type).toBe("RouletteSpun");
     expect(() => parseEvent({ ...base, type: "RouletteSpun", prize: "potion" })).toThrow();
     expect(parseEvent({ ...base, type: "SoulTaskLogged", taskId: "t", drop: "gain_potion" }).type).toBe("SoulTaskLogged");

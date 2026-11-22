@@ -6,7 +6,7 @@
  */
 import { RULES_V1, type RulesConfig } from "./config.js";
 import { companionAlertAt, demonAlerts, type CultivatorState, type DemonAlertKind } from "./engine.js";
-import { gearAlerts } from "./gear.js";
+import { armorRiskAlerts, gearAlerts } from "./gear-alerts.js";
 import { questDeadlineAlerts } from "./main.js";
 import { tribulationDeadlineAlerts } from "./tribulation.js";
 import { DAY, MINUTE, localDay } from "./time.js";
@@ -19,6 +19,7 @@ export type PushKind =
   | "demon_near_revival"
   | "demon_near_violet"
   | "companion_hungry"
+  | "armor_at_risk"
   | "gear_breaking"
   | "daily_reminder";
 
@@ -28,7 +29,7 @@ export interface PushAlert {
   demonId?: string;
   questId?: string;
   tribulationId?: string;
-  /** The worn item within 5% of breaking. */
+  /** The worn armor within 5% of breaking, or at risk before a deadline. */
   itemId?: string;
   /** Hours left before a quest or tribulation deadline. */
   hoursLeft?: number;
@@ -45,6 +46,7 @@ const PRIORITY: readonly PushKind[] = [
   "demon_near_revival",
   "demon_near_violet",
   "companion_hungry",
+  "armor_at_risk",
   "gear_breaking",
   "daily_reminder",
 ];
@@ -109,6 +111,10 @@ export function pushAlertPlan(state: CultivatorState, now: number, rules: RulesC
   for (const g of gearAlerts(state, n.horizonDays * DAY, rules)) {
     const at = Math.max(g.at, dayStart(localDay(g.at, state.tzOffsetMinutes), state.tzOffsetMinutes) + reminder * MINUTE);
     candidates.push({ kind: "gear_breaking", at, itemId: g.itemId });
+  }
+  // Worn armor a failure would break, with a tribulation due within 72 hours (ruling 149).
+  for (const r of armorRiskAlerts(state, n.horizonDays * DAY, rules)) {
+    candidates.push({ kind: "armor_at_risk", at: r.at, itemId: r.itemId, tribulationId: r.tribulationId });
   }
   for (const a of demonAlerts(state, rules)) {
     const kind = FROM_DEMON[a.kind];

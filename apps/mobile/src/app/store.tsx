@@ -1,13 +1,14 @@
 /**
  * The Store (ruling 137): what is worn, with durability and repairs, then two
  * tabs: the Shop (the current realm's gear, provisional prices until Roadmap
- * part 3) and the Stash (gear not worn: wear, repair or sell it).
+ * part 3) and the Stash (gear not worn: wear, repair or sell it; and potions,
+ * drunk from here). While dead nothing is bought, sold or repaired (ruling 150).
  */
 import { useState, type ReactNode } from "react";
 import { Alert, View } from "react-native";
 import type { GearSlot } from "@cultivation/schema";
 import { GEAR_REALMS, repairPrice, sellPrice, shopPrice, stash, wearable, wornItem, type GearItem, type GearRealm } from "@cultivation/rules";
-import { durability, gearName, gearStats, gearWarning } from "../lib/gear";
+import { GearWarnings, durability, gearName, gearStats, isDead } from "../lib/gear";
 import { useStore } from "../lib/store";
 import { Button, C, Card, Meter, Note, Row, Screen, Segmented, T, words } from "../lib/ui";
 
@@ -20,7 +21,9 @@ export default function StoreScreen() {
   const [note, setNote] = useState<{ text: string; error: boolean } | null>(null);
   const realm = state.main.realm;
   const gearRealm = (GEAR_REALMS as readonly string[]).includes(realm) ? (realm as GearRealm) : null;
-  const warning = gearWarning(state);
+  const dead = isDead(state);
+  const inv = state.inventory;
+  const gainActive = inv.gainPotionUntil !== null && state.clock < inv.gainPotionUntil;
 
   const act = async (input: Parameters<typeof log>[0], ok: string) => {
     const r = await log(input);
@@ -33,7 +36,8 @@ export default function StoreScreen() {
         <T style={{ fontSize: 22, fontWeight: "800" }}>Store</T>
         <T style={{ color: C.gold }}>Gold {state.gold.toFixed(1)}</T>
       </Row>
-      {warning ? <T style={{ color: C.danger, fontStyle: "italic" }}>{warning}</T> : null}
+      <GearWarnings />
+      {dead ? <T muted>While dead nothing can be bought, sold or repaired, and nothing pays.</T> : null}
 
       <Card title="Wearing">
         {gearRealm === null ? <T muted>Ordinary clothes. Gear is worn from Foundation Establishment on, starting with a free white robe.</T> : null}
@@ -45,7 +49,7 @@ export default function StoreScreen() {
               {item ? (
                 <ItemView item={item}>
                   <Row>
-                    {item.damageBp > 0 ? <Button label={`Repair (${gold(repairPrice(item))})`} kind="ghost" onPress={() => void act({ type: "GearRepaired", itemId: item.id }, `Repaired the ${gearName(item)}.`)} /> : null}
+                    {item.damageBp > 0 ? <Button label={`Repair (${gold(repairPrice(item))})`} kind="ghost" disabled={dead} onPress={() => void act({ type: "GearRepaired", itemId: item.id }, `Repaired the ${gearName(item)}.`)} /> : null}
                     <Button label="Take off" kind="ghost" onPress={() => void act({ type: "GearUnequipped", slot }, `The ${gearName(item)} is in the stash.`)} />
                   </Row>
                 </ItemView>
@@ -55,7 +59,7 @@ export default function StoreScreen() {
             </View>
           );
         })}
-        <T muted>The companion damages one worn item each day (the Lion never does), and a failed tribulation damages one by 20%. At 100% the item is lost. Damage never weakens it before that.</T>
+        <T muted>Armor takes the damage: each night the companion damages every armor worn that day (the Lion never does), and a failed tribulation damages the armor worn at its deadline by 20%. The weapon wears a little with each Qi gain it boosts. At 100% an item is lost; damage never weakens it before that.</T>
       </Card>
 
       <Note text={note?.text ?? null} error={note?.error} />
@@ -83,7 +87,7 @@ export default function StoreScreen() {
                   <T muted>{gearStats(item)}</T>
                   <Button
                     label={`Buy (${gold(price)})`}
-                    disabled={state.gold < price}
+                    disabled={dead || state.gold < price}
                     onPress={() => void act({ type: "GearBought", slot }, wornItem(state, slot) ? `Bought the ${gearName(item)}: it's in the stash.` : `Bought and wearing the ${gearName(item)}.`)}
                   />
                 </View>
@@ -100,10 +104,11 @@ export default function StoreScreen() {
               {wearable(state, item) ? null : <T muted>{`A higher realm's gear: it can be worn again on reaching ${words(item.realm)}.`}</T>}
               <Row>
                 {wearable(state, item) ? <Button label="Wear" kind="ghost" onPress={() => void act({ type: "GearEquipped", itemId: item.id }, `Wearing the ${gearName(item)}.`)} /> : null}
-                {item.damageBp > 0 ? <Button label={`Repair (${gold(repairPrice(item))})`} kind="ghost" onPress={() => void act({ type: "GearRepaired", itemId: item.id }, `Repaired the ${gearName(item)}.`)} /> : null}
+                {item.damageBp > 0 ? <Button label={`Repair (${gold(repairPrice(item))})`} kind="ghost" disabled={dead} onPress={() => void act({ type: "GearRepaired", itemId: item.id }, `Repaired the ${gearName(item)}.`)} /> : null}
                 <Button
                   label={`Sell (${Math.floor(sellPrice(item))} gold)`}
                   kind="danger"
+                  disabled={dead}
                   onPress={() =>
                     Alert.alert(`Sell the ${gearName(item)}?`, `It sells for ${sellPrice(item).toFixed(1)} gold.${item.kind === "robe" ? " A free robe is given only once." : ""}`, [
                       { text: "Keep it", style: "cancel" },
@@ -114,6 +119,16 @@ export default function StoreScreen() {
               </Row>
             </ItemView>
           ))}
+          <T style={{ fontWeight: "700" }}>Potions</T>
+          <T muted>{`Gain potions: ${inv.gainPotions}${gainActive ? " (one active)" : ""}. +10% gold and Qi for 24 hours.`}</T>
+          <Button label="Drink a gain potion" kind="ghost" disabled={inv.gainPotions < 1 || gainActive} onPress={() => void act({ type: "PotionUsed", potion: "gain" }, "The gain potion is active for 24 hours.")} />
+          <T muted>{`Legendary potions: ${inv.legendaryPotions}${inv.legendaryPotionArmed ? " (one armed)" : ""}. Drunk, it adds 5% to the next realm breakthrough's legendary roll; one armed at a time.`}</T>
+          <Button
+            label="Drink a legendary potion"
+            kind="ghost"
+            disabled={inv.legendaryPotions < 1 || inv.legendaryPotionArmed}
+            onPress={() => void act({ type: "PotionUsed", potion: "legendary" }, "Armed for the next realm breakthrough.")}
+          />
         </Card>
       )}
     </Screen>

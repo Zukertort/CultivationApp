@@ -299,12 +299,17 @@ export interface GearRules {
   sellKindFactor: Record<GearKind, number>;
   /** A full repair by the item's realm (robes and shop gear, legendary gear); a partial one costs its damage's share. */
   repairGold: Record<"base" | "legendary", Record<GearRealm, number>>;
-  /** Damage, in basis points of durability, to one worn item at each local midnight without rest, by fitness tier. */
+  /** Damage, in basis points of durability, at each local midnight without rest, by fitness tier, to every armor worn that local day (the weapon isn't hit). */
   companionDamageBp: Record<Tier, number>;
-  /** Damage to one worn item when a tribulation fails. */
+  /** Damage to the armor worn at a failed tribulation's deadline. */
   failureDamageBp: number;
+  /** SIM: weapon wear on each Qi gain it boosts: a Main task by its effort, any other Qi gain (drops, roulette, the Lion) as `other`. */
+  weaponWearBp: Record<Effort | "other", number>;
   /** The push and the avatar's warning fire at this much damage (95%). */
   warnAtBp: number;
+  /** Worn armor above this much damage with a tribulation due within `riskHours` gets the before-deadline warning (80%: a failure's 20% would break it). */
+  riskAtBp: number;
+  riskHours: number;
 }
 
 export interface RulesConfig {
@@ -355,8 +360,8 @@ export interface RulesConfig {
     legendaryShare: number;
     /** A gain potion adds this to the additive gold and Qi pool for `hours`; one active at a time. */
     gain: { bonus: number; hours: number };
-    /** Each held legendary potion adds this to the next realm breakthrough's legendary roll, used up there, `perBreakthrough` at most (ruling 141). */
-    legendary: { chanceBonus: number; perBreakthrough: number };
+    /** A drunk legendary potion is armed (one at a time) and adds this to the next realm breakthrough's legendary roll (ruling 151). */
+    legendary: { chanceBonus: number };
   };
   soul: SoulRules;
   main: MainRules;
@@ -377,7 +382,7 @@ export interface RulesConfig {
 }
 
 export const RULES_V1: RulesConfig = Object.freeze({
-  version: "1.19.0",
+  version: "1.20.0",
   tiers: {
     turtle: { capacity: 30, weeklyLoss: 10, goldBonus: 0.01, coreQiBonus: 0, breakthroughLegendaryChance: 0 },
     panda: { capacity: 800, weeklyLoss: 200, goldBonus: 0.1, coreQiBonus: 0, breakthroughLegendaryChance: 0 },
@@ -413,7 +418,7 @@ export const RULES_V1: RulesConfig = Object.freeze({
   },
   scales: { goldBonusEach: 0.1, qiBonusEach: 0.05, forWings: 9 },
   wings: { goldBonus: 1.0, qiBonus: 0.5 },
-  potions: { legendaryShare: 0.5, gain: { bonus: 0.1, hours: 24 }, legendary: { chanceBonus: 0.05, perBreakthrough: 1 } },
+  potions: { legendaryShare: 0.5, gain: { bonus: 0.1, hours: 24 }, legendary: { chanceBonus: 0.05 } },
   notifications: { maxPerDay: 3, horizonDays: 14, companionHungryFraction: 0.05, defaultReminderMinutes: 9 * 60 },
   soul: {
     startHp: 50,
@@ -608,7 +613,10 @@ export const RULES_V1: RulesConfig = Object.freeze({
     },
     companionDamageBp: { turtle: 500, panda: 300, horse: 200, tiger: 100, lion: 0 },
     failureDamageBp: 2000,
+    weaponWearBp: { quick: 15, session: 40, day: 100, project: 250, other: 15 },
     warnAtBp: 9500,
+    riskAtBp: 8000,
+    riskHours: 72,
   },
   classes: {
     table: {

@@ -10,3 +10,4 @@ export * from "./tribulation.js";
 export * from "./realm.js";
 export * from "./class.js";
 export * from "./gear.js";
+export * from "./gear-alerts.js";

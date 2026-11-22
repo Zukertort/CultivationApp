@@ -56,13 +56,6 @@ export function addPotion(s: CultivatorState, kind: PotionKind): void {
   else s.inventory.legendaryPotions += 1;
 }
 
-/** A lost item is a potion: a gain potion if there is one, else a legendary potion. */
-export function losePotion(s: CultivatorState): void {
-  const inv = s.inventory;
-  if (inv.gainPotions > 0) inv.gainPotions -= 1;
-  else if (inv.legendaryPotions > 0) inv.legendaryPotions -= 1;
-}
-
 /** The active gain potion's share of the additive pool (0 when none is active). */
 export function potionBonus(state: CultivatorState, rules: RulesConfig = RULES_V1): number {
   const until = state.inventory.gainPotionUntil;
@@ -113,30 +106,45 @@ export function earnQi(s: CultivatorState, amount: number): void {
 }
 
 /**
- * Charge procrastination tax: taken from the balances, the rest becomes debt
- * (balances never go below 0), capped. Reaching either cap starts Qi
- * deviation (ruling 33). Debt from `postponed` tax is tracked apart, since
- * the comeback doesn't forgive it (ruling 59).
+ * Add debt, capped (ruling 33); reaching either cap starts Qi deviation.
+ * Unforgivable debt (postponed tax, ruling 59; failure losses, ruling 148) is
+ * tracked apart, since the comeback doesn't forgive it; at the cap it takes
+ * the place of forgivable debt. Returns what was added (the cap may keep
+ * part of it out).
  */
-export function chargeTax(s: CultivatorState, path: MainPath, qi: number, gold: number, at: number, rules: RulesConfig, postponed = false): void {
+export function addDebt(s: CultivatorState, qi: number, gold: number, at: number, rules: RulesConfig, unforgivable: boolean): { qi: number; gold: number } {
   const m = s.main;
   const cap = rules.main.debtCap;
-  const fromQi = Math.min(s.qi, qi);
-  const fromGold = Math.min(s.gold, gold);
-  s.qi -= fromQi;
-  s.gold -= fromGold;
-  const before = { ...m.debt };
-  m.debt.qi = Math.min(cap.qi, m.debt.qi + (qi - fromQi));
-  m.debt.gold = Math.min(cap.gold, m.debt.gold + (gold - fromGold));
-  if (postponed) {
-    m.debtPostponed.qi += m.debt.qi - before.qi;
-    m.debtPostponed.gold += m.debt.gold - before.gold;
-  }
-  const paid = m.taxPaid[path];
-  paid.qi += qi;
-  paid.gold += gold;
+  const add = (key: "qi" | "gold", amount: number): number => {
+    const debt = m.debt[key];
+    const next = Math.max(debt, Math.min(cap[key], debt + Math.max(0, amount)));
+    m.debt[key] = next;
+    if (!unforgivable) return next - debt;
+    // At the cap, unforgivable debt takes the place of forgivable debt.
+    const post = m.debtPostponed[key];
+    m.debtPostponed[key] = Math.min(next, post + Math.max(0, amount));
+    return m.debtPostponed[key] - post;
+  };
+  const added = { qi: add("qi", qi), gold: add("gold", gold) };
   if (m.deviation === null && (m.debt.qi >= cap.qi || m.debt.gold >= cap.gold)) {
     m.deviation = { since: at, windowStart: at, done: 0 };
     m.deviationsEntered += 1;
   }
+  return added;
+}
+
+/**
+ * Charge procrastination tax: taken from the balances, the rest becomes debt
+ * (balances never go below 0), capped (ruling 33). Debt from `postponed` tax
+ * is unforgivable (ruling 59).
+ */
+export function chargeTax(s: CultivatorState, path: MainPath, qi: number, gold: number, at: number, rules: RulesConfig, postponed = false): void {
+  const fromQi = Math.min(s.qi, qi);
+  const fromGold = Math.min(s.gold, gold);
+  s.qi -= fromQi;
+  s.gold -= fromGold;
+  addDebt(s, qi - fromQi, gold - fromGold, at, rules, postponed);
+  const paid = s.main.taxPaid[path];
+  paid.qi += qi;
+  paid.gold += gold;
 }

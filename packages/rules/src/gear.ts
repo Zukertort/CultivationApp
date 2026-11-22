@@ -1,5 +1,5 @@
 /**
- * Base gear (Roadmap part 2; rulings 137-145): one armor and one weapon slot,
+ * Base gear (Roadmap part 2; rulings 137-152): one armor and one weapon slot,
  * a stash for gear not worn, free robes on first entering each realm, shop
  * gear, selling and repairs, and durability.
  *
@@ -7,16 +7,15 @@
  * level gear up, and damage doesn't weaken it until it breaks at 100%. Gear
  * of the current or a lower realm can be worn, never a higher realm's.
  *
- * Which worn item takes damage is a deterministic pseudo-random pick (ruling
- * 144): a hash of the user id and the local day for the companion's daily
- * damage, and of the tribulation id and its failure count for a failure. No
- * event carries it, and replay is stable.
+ * Damage goes by slot (ruling 147): the companion's daily damage hits every
+ * armor worn at any point that local day, a failure's damage hits the armor
+ * worn at the deadline, and the weapon wears with use, on each Qi gain it
+ * boosts. No event carries damage; replay derives it.
  */
-import type { EventOf, GearSlot } from "@cultivation/schema";
+import type { Effort, EventOf, GearSlot } from "@cultivation/schema";
 import { GEAR_REALMS, REALMS, RULES_V1, type GearKind, type GearRealm, type Realm, type RulesConfig } from "./config.js";
 import type { CultivatorState } from "./engine.js";
 import { violate } from "./errors.js";
-import { DAY, MINUTE, localDay, nextLocalMidnight } from "./time.js";
 
 export const FULL_DURABILITY_BP = 10_000;
 const SLOTS: readonly GearSlot[] = ["armor", "weapon"];
@@ -32,6 +31,8 @@ export interface GearItem {
   obtainedAt: number;
 }
 
+export type GearLossReason = "broken" | "repent" | "soul" | "death";
+
 export interface GearState {
   /** Every item held, worn or in the stash. */
   items: Record<string, GearItem>;
@@ -39,30 +40,22 @@ export interface GearState {
   worn: Record<GearSlot, string | null>;
   /** Realms whose free robe was given (once per lifetime, ruling 139). */
   robesGranted: GearRealm[];
-  /** Items lost: broken at 100%, taken by a repent or by death. */
-  lost: { at: number; item: GearItem; reason: "broken" | "repent" | "death" }[];
+  /** Every armor worn at any point in the current local day: the companion's midnight damage hits each (ruling 147). */
+  armorWornToday: string[];
+  /** Items lost: broken at 100%, taken by a repent, a soul drop or death. */
+  lost: { at: number; item: GearItem; reason: GearLossReason }[];
   /** Gold spent and earned on gear, for the simulator and the app. */
   gold: { bought: number; repaired: number; sold: number };
 }
 
 export function initialGear(): GearState {
-  return { items: {}, worn: { armor: null, weapon: null }, robesGranted: [], lost: [], gold: { bought: 0, repaired: 0, sold: 0 } };
+  return { items: {}, worn: { armor: null, weapon: null }, robesGranted: [], armorWornToday: [], lost: [], gold: { bought: 0, repaired: 0, sold: 0 } };
 }
 
 const realmIndex = (r: Realm) => REALMS.indexOf(r);
 
-function isGearRealm(r: Realm): r is GearRealm {
+export function isGearRealm(r: Realm): r is GearRealm {
   return (GEAR_REALMS as readonly Realm[]).includes(r);
-}
-
-/** 32-bit FNV-1a: a stable, pure hash for the damage picks. */
-export function fnv1a(text: string): number {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < text.length; i++) {
-    h ^= text.charCodeAt(i);
-    h = Math.imul(h, 0x01000193) >>> 0;
-  }
-  return h >>> 0;
 }
 
 // ---- Lookups ----------------------------------------------------------------
@@ -77,10 +70,15 @@ export function stash(state: CultivatorState): GearItem[] {
   return Object.values(state.gear.items).filter((i) => !worn.has(i.id));
 }
 
-/** Qi and gold a worn armor takes off a tribulation failure (ruling 142). */
+/** Qi and gold an armor takes off a tribulation failure (ruling 142). */
+export function armorStats(item: Pick<GearItem, "kind" | "realm">, rules: RulesConfig = RULES_V1): { qi: number; gold: number } {
+  return rules.gear.armor[item.kind][item.realm];
+}
+
+/** Qi and gold the worn armor takes off a tribulation failure (ruling 142). */
 export function armorReduction(state: CultivatorState, rules: RulesConfig = RULES_V1): { qi: number; gold: number } {
   const a = wornItem(state, "armor");
-  return a ? rules.gear.armor[a.kind][a.realm] : { qi: 0, gold: 0 };
+  return a ? armorStats(a, rules) : { qi: 0, gold: 0 };
 }
 
 /** The worn weapon's share of the additive Qi pool (ruling 143). */
@@ -110,11 +108,18 @@ export function wearable(state: CultivatorState, item: GearItem): boolean {
   return realmIndex(item.realm) <= realmIndex(state.main.realm);
 }
 
-// ---- Changes ----------------------------------------------------------------
-
-function wornIds(s: CultivatorState): string[] {
-  return SLOTS.map((slot) => s.gear.worn[slot]).filter((id): id is string => id !== null);
+/**
+ * The stash armor a one-tap swap would wear (ruling 149): wearable, below
+ * the risk line (a failure wouldn't break it), the best failure reduction,
+ * then the least damaged. Null when there is none.
+ */
+export function bestStashArmor(state: CultivatorState, rules: RulesConfig = RULES_V1): GearItem | null {
+  const options = stash(state).filter((i) => i.slot === "armor" && wearable(state, i) && i.damageBp < rules.gear.riskAtBp);
+  options.sort((a, b) => armorStats(b, rules).qi - armorStats(a, rules).qi || a.damageBp - b.damageBp || a.obtainedAt - b.obtainedAt);
+  return options[0] ?? null;
 }
+
+// ---- Changes ----------------------------------------------------------------
 
 /** Add an item: worn if its slot is empty and it can be worn, else into the stash. */
 function addItem(s: CultivatorState, item: GearItem): void {
@@ -122,7 +127,7 @@ function addItem(s: CultivatorState, item: GearItem): void {
   if (s.gear.worn[item.slot] === null && wearable(s, item)) s.gear.worn[item.slot] = item.id;
 }
 
-function removeItem(s: CultivatorState, id: string, at: number, reason: "broken" | "repent" | "death"): void {
+function removeItem(s: CultivatorState, id: string, at: number, reason: GearLossReason): void {
   const g = s.gear;
   const item = g.items[id];
   if (!item) return;
@@ -139,17 +144,15 @@ function damage(s: CultivatorState, id: string, bp: number, at: number): void {
   if (item.damageBp >= FULL_DURABILITY_BP) removeItem(s, id, at, "broken");
 }
 
-/** The worn item a hash picks, or null with nothing worn. */
-function pickWorn(ids: readonly string[], key: string): string | null {
-  return ids.length === 0 ? null : ids[fnv1a(key) % ids.length]!;
+function noteWornArmor(s: CultivatorState): void {
+  const id = s.gear.worn.armor;
+  if (id !== null && !s.gear.armorWornToday.includes(id)) s.gear.armorWornToday.push(id);
 }
-
-const dayKey = (s: CultivatorState, day: number) => `${s.userId}|${day}`;
 
 /**
  * After every event: give the current realm's free robe on first entering it
- * (ruling 139), and move worn gear of a higher realm to the stash (after a
- * repent, ruling 138).
+ * (ruling 139), move worn gear of a higher realm to the stash (after a
+ * repent, ruling 138), and note the worn armor for tonight's damage (ruling 147).
  */
 export function syncGear(s: CultivatorState, at: number): void {
   if (!s.created) return;
@@ -159,47 +162,62 @@ export function syncGear(s: CultivatorState, at: number): void {
     if (item && !wearable(s, item)) g.worn[slot] = null;
   }
   const realm = s.main.realm;
-  if (!isGearRealm(realm) || g.robesGranted.includes(realm)) return;
-  g.robesGranted.push(realm);
-  // While dead nothing is given (ruling 106); entering a realm while dead doesn't happen, but stay safe.
-  if (s.progress.diedAt !== null) return;
-  addItem(s, { id: `robe:${realm}`, slot: "armor", kind: "robe", realm, damageBp: 0, obtainedAt: at });
+  if (isGearRealm(realm) && !g.robesGranted.includes(realm)) {
+    g.robesGranted.push(realm);
+    // While dead nothing is given (ruling 106); entering a realm while dead doesn't happen, but stay safe.
+    if (s.progress.diedAt === null) addItem(s, { id: `robe:${realm}`, slot: "armor", kind: "robe", realm, damageBp: 0, obtainedAt: at });
+  }
+  noteWornArmor(s);
 }
 
 /**
- * At a local midnight closing a day without rest: the companion damages one
- * worn item, picked by the user id and the day that ended (ruling 144).
- * It keeps going while dead.
+ * At a local midnight: after a day without rest, the companion damages every
+ * armor worn at any point that day and still held (ruling 147); the weapon
+ * isn't hit. It keeps going while dead. Then the day's list starts again
+ * from the armor worn now.
  */
 export function gearMidnight(s: CultivatorState, midnight: number, rested: boolean, rules: RulesConfig): void {
-  if (rested) return;
+  const g = s.gear;
   const bp = rules.gear.companionDamageBp[s.companion.tier];
-  if (bp <= 0) return;
-  const id = pickWorn(wornIds(s), dayKey(s, localDay(midnight - 1, s.tzOffsetMinutes)));
-  if (id !== null) damage(s, id, bp, midnight);
+  if (!rested && bp > 0) for (const id of g.armorWornToday) damage(s, id, bp, midnight);
+  g.armorWornToday = [];
+  noteWornArmor(s);
 }
 
 /**
- * A tribulation failure (ruling 142): worn armor takes its Qi and gold off
- * the loss, then one worn item, picked by the tribulation and its failure
- * count, takes the failure damage. With nothing worn, neither applies.
+ * A tribulation failure (rulings 142, 147): the worn armor takes its Qi and
+ * gold off the ruling 80 loss, then takes the failure's damage. With no
+ * armor worn, neither applies. Gear events settle overdue failures first, so
+ * the armor worn when a failure is applied is the armor worn at its deadline.
  */
-export function gearOnFailure(s: CultivatorState, tribulationId: string, failures: number, loss: { qi: number; gold: number }, at: number, rules: RulesConfig): { qi: number; gold: number } {
+export function gearOnFailure(s: CultivatorState, loss: { qi: number; gold: number }, at: number, rules: RulesConfig): { qi: number; gold: number } {
   const a = armorReduction(s, rules);
   const reduced = { qi: Math.max(0, loss.qi - a.qi), gold: Math.max(0, loss.gold - a.gold) };
-  const id = pickWorn(wornIds(s), `${tribulationId}|${failures}`);
+  const id = s.gear.worn.armor;
   if (id !== null) damage(s, id, rules.gear.failureDamageBp, at);
   return reduced;
 }
 
 /**
- * Repent penalties take from the stash, least valuable (by sell price) first,
- * never worn gear (ruling 145). Returns how many were taken.
+ * The worn weapon wears on each Qi gain it boosts (ruling 147): a Main task
+ * by its effort, any other gain as `other`. Its bonus stays whole until it
+ * breaks. Nothing pays while dead (ruling 106), so nothing wears.
  */
-export function loseStashItems(s: CultivatorState, n: number, at: number, rules: RulesConfig): number {
+export function weaponWear(s: CultivatorState, effort: Effort | "other", at: number, rules: RulesConfig): void {
+  const id = s.gear.worn.weapon;
+  if (id === null || s.progress.diedAt !== null || weaponQiBonus(s, rules) <= 0) return;
+  damage(s, id, rules.gear.weaponWearBp[effort], at);
+}
+
+/**
+ * Repent penalties and soul "lose item" drops take from the stash, least
+ * valuable (by sell price) first, never worn gear (rulings 145, 146).
+ * Returns how many were taken.
+ */
+export function loseStashItems(s: CultivatorState, n: number, at: number, rules: RulesConfig, reason: "repent" | "soul"): number {
   const items = stash(s).sort((a, b) => sellPrice(a, rules) - sellPrice(b, rules) || a.obtainedAt - b.obtainedAt);
   const taken = items.slice(0, Math.max(0, n));
-  for (const i of taken) removeItem(s, i.id, at, "repent");
+  for (const i of taken) removeItem(s, i.id, at, reason);
   return taken.length;
 }
 
@@ -222,6 +240,11 @@ function getItem(s: CultivatorState, id: string): GearItem {
   return item;
 }
 
+/** While dead nothing is bought, sold or repaired, and nothing pays (rulings 106, 150). */
+function alive(s: CultivatorState, what: string): void {
+  if (s.progress.diedAt !== null) violate("dead", `nothing can be ${what} while the avatar is dead`);
+}
+
 function spend(s: CultivatorState, gold: number): void {
   if (s.gold < gold) violate("insufficient_gold", `this costs ${Math.ceil(gold)} gold`);
   s.gold -= gold;
@@ -229,6 +252,7 @@ function spend(s: CultivatorState, gold: number): void {
 
 /** Buy the current realm's shop gear (ruling 140): worn if the slot is empty, else into the stash. */
 export function onGearBought(s: CultivatorState, e: EventOf<"GearBought">, rules: RulesConfig): void {
+  alive(s, "bought");
   const realm = currentGearRealm(s);
   if (s.gear.items[e.id]) violate("duplicate_gear", `gear ${e.id} already exists`);
   const price = shopPrice(e.slot, realm, rules);
@@ -250,12 +274,11 @@ export function onGearUnequipped(s: CultivatorState, e: EventOf<"GearUnequipped"
   s.gear.worn[e.slot] = null;
 }
 
-/** Sell an item from the stash (provisional price). Worn gear is taken off first; nothing is sold while dead. */
+/** Sell an item from the stash (provisional price). Worn gear is taken off first. */
 export function onGearSold(s: CultivatorState, e: EventOf<"GearSold">, rules: RulesConfig): void {
+  alive(s, "sold");
   const item = getItem(s, e.itemId);
   if (Object.values(s.gear.worn).includes(item.id)) violate("gear_worn", "take the item off before selling it");
-  // While dead nothing pays (ruling 106), so a sale would lose the item for nothing.
-  if (s.progress.diedAt !== null) violate("dead", "nothing can be sold while the avatar is dead");
   const price = sellPrice(item, rules);
   delete s.gear.items[item.id];
   s.gold += price;
@@ -264,6 +287,7 @@ export function onGearSold(s: CultivatorState, e: EventOf<"GearSold">, rules: Ru
 
 /** Repair an item fully, worn or in the stash, for its damage's share of the repair price (ruling 144). */
 export function onGearRepaired(s: CultivatorState, e: EventOf<"GearRepaired">, rules: RulesConfig): void {
+  alive(s, "repaired");
   const item = getItem(s, e.itemId);
   if (item.damageBp <= 0) violate("nothing_to_repair", "this item has no damage");
   const price = repairPrice(item, rules);
@@ -277,31 +301,4 @@ export function onGearRepaired(s: CultivatorState, e: EventOf<"GearRepaired">, r
 /** Held items at or above the warning line (95% damage), for the avatar's warning (ruling 144). */
 export function gearWarnings(state: CultivatorState, rules: RulesConfig = RULES_V1): GearItem[] {
   return Object.values(state.gear.items).filter((i) => i.damageBp >= rules.gear.warnAtBp);
-}
-
-/**
- * When each worn item will first reach the warning line from the companion's
- * daily damage, assuming no new events, the current tier, and no rest beyond
- * the current one: the midnight it crosses, within `horizonMs`. Failures
- * aren't projected (the app shows those).
- */
-export function gearAlerts(state: CultivatorState, horizonMs: number, rules: RulesConfig = RULES_V1): { itemId: string; at: number }[] {
-  const bp = rules.gear.companionDamageBp[state.companion.tier];
-  const ids = wornIds(state);
-  if (bp <= 0 || ids.length === 0) return [];
-  const damageBp: Record<string, number> = Object.fromEntries(ids.map((id) => [id, state.gear.items[id]!.damageBp]));
-  const out: { itemId: string; at: number }[] = [];
-  const rest = state.rest;
-  let alive = [...ids];
-  for (let m = nextLocalMidnight(state.clock, state.tzOffsetMinutes); m <= state.clock + horizonMs && alive.length > 0; m = nextLocalMidnight(m + MINUTE, state.tzOffsetMinutes)) {
-    // A day that overlaps a rest takes no damage.
-    if (rest && rest.start < m && rest.end > m - DAY) continue;
-    const id = pickWorn(alive, dayKey(state, localDay(m - 1, state.tzOffsetMinutes)))!;
-    const before = damageBp[id]!;
-    const after = Math.min(FULL_DURABILITY_BP, before + bp);
-    damageBp[id] = after;
-    if (before < rules.gear.warnAtBp && after >= rules.gear.warnAtBp) out.push({ itemId: id, at: m });
-    if (after >= FULL_DURABILITY_BP) alive = alive.filter((x) => x !== id);
-  }
-  return out;
 }

@@ -3,7 +3,7 @@ import { Alert, View } from "react-native";
 import type { ClassId } from "@cultivation/schema";
 import { DAY, RULES_V1, conqueredTribulations, foundationPasses, realmStatus, type Realm } from "@cultivation/rules";
 import { ClassPicker } from "../lib/classes";
-import { gearWarning } from "../lib/gear";
+import { GearWarnings } from "../lib/gear";
 import { AreaDecisions } from "../lib/onboarding";
 import { useStore } from "../lib/store";
 import { Button, C, Card, Field, Meter, Note, Row, SOUL_HEX, Screen, T, cap, when, words } from "../lib/ui";
@@ -41,7 +41,7 @@ export default function RealmScreen() {
           <T>Gold {state.gold.toFixed(1)}</T>
           <T muted>{state.class.id ? `Class: ${cap(state.class.id)}` : "No class yet"}</T>
         </Row>
-        {gearWarning(state) ? <T style={{ color: C.danger, fontStyle: "italic" }}>{gearWarning(state)}</T> : null}
+        <GearWarnings />
         {status.dead ? <T style={{ color: C.danger }}>The avatar is dead: nothing pays until a revival quest of a week of work is completed.</T> : null}
       </View>
 

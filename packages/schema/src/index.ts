@@ -555,14 +555,14 @@ export const QuietHoursSet = z.object({
 });
 
 /**
- * Drinks a stored potion (ruling 58): +10% gold and Qi for 24 hours, one
- * active at a time. Only gain potions are drunk; a legendary potion is used up
- * by the next realm breakthrough's legendary roll on its own (ruling 141).
+ * Drinks a stored potion. A gain potion: +10% gold and Qi for 24 hours, one
+ * active at a time (ruling 58). A legendary potion: armed for the next realm
+ * breakthrough's legendary roll (+5%), one armed at a time (ruling 151).
  */
 export const PotionUsed = z.object({
   ...base,
   type: z.literal("PotionUsed"),
-  potion: z.enum(["gain"]),
+  potion: z.enum(["gain", "legendary"]),
 });
 
 /** Rolled on the server with `rouletteOutcome(u)` and stored here. */

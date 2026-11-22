@@ -15,7 +15,8 @@ const ALERT_LABEL: Record<PushKind, string> = {
   demon_near_revival: "A defeated demon nears revival",
   demon_near_violet: "A demon nears 70%",
   companion_hungry: "The companion nears empty",
-  gear_breaking: "A worn item reaches 95% damage",
+  armor_at_risk: "Worn armor a failure would break, 72 hours before a deadline",
+  gear_breaking: "The worn armor reaches 95% damage",
   daily_reminder: "Daily reminder to check the to-do list",
 };
 

@@ -7,7 +7,10 @@ import {
   RuleViolation,
   advanceTo,
   applyEvent,
+  armorAtRisk,
   armorReduction,
+  armorRiskAlerts,
+  bestStashArmor,
   failureQiLoss,
   gearAlerts,
   gearWarnings,
@@ -163,11 +166,11 @@ describe("stats (rulings 138, 142, 143)", () => {
   });
 });
 
-describe("failures with gear (rulings 142, 144)", () => {
+describe("failures with gear (rulings 142, 147, 148)", () => {
   const declare = (at = T0 + H, deadline = T0 + H + 2 * DAY) =>
     ev("TribulationDeclared", at, { tribulationId: "x", title: "Pass the exam", criteria: "Score at least 80", deadline });
 
-  it("worn armor lowers the Qi and gold a failure takes, and one worn item takes 20% damage", () => {
+  it("worn armor lowers the Qi and gold a failure takes, and takes the failure's 20% damage", () => {
     const s = advanceTo(apply(rich(foundation(), 100, 100), declare()), T0 + 3 * DAY + 1);
     // Foundation's next threshold is 250: the loss is 62.5 Qi and 45 gold, less the white robe's 8 and 4.
     expect(s.qi).toBeCloseTo(100 - 54.5);
@@ -176,11 +179,37 @@ describe("failures with gear (rulings 142, 144)", () => {
     expect(damageOf(s, WHITE)).toBe(500 + 500 + 2000 + 500);
   });
 
-  it("with nothing worn, the full loss applies and nothing is damaged (ruling 142)", () => {
+  it("with no armor worn, the full loss applies and the failure damages nothing (ruling 142)", () => {
     const s = advanceTo(apply(rich(foundation(), 100, 100), unequip("armor", T0 + 10), declare()), T0 + 3 * DAY + 1);
     expect(s.qi).toBeCloseTo(100 - 62.5);
     expect(s.gold).toBeCloseTo(100 - 45);
-    expect(damageOf(s, WHITE)).toBe(0);
+    // Only day 0's Turtle damage, since the robe was worn that day (ruling 147).
+    expect(damageOf(s, WHITE)).toBe(500);
+  });
+
+  it("the weapon never takes failure damage", () => {
+    const s = advanceTo(apply(rich(foundation(), 100, 500), buy("weapon", T0 + 5, "w1"), unequip("armor", T0 + 10), declare()), T0 + 3 * DAY + 1);
+    expect(damageOf(s, "w1")).toBe(0);
+  });
+
+  it("the armor worn at the deadline takes the failure: swapping after the deadline doesn't move it (exploit)", () => {
+    // The deadline passes at T0 + H + 2 days; a gear event later that day applies the failure first.
+    let s = apply(rich(foundation(), 100, 500), buy("armor", T0 + 5, "a1"), declare());
+    const deadline = T0 + H + 2 * DAY;
+    s = apply(s, equip("a1", deadline + H));
+    expect(s.tribulations.items.x!.status).toBe("failed");
+    // The white robe took the 20% and its 8 Qi off; the shop armor took nothing from the failure.
+    expect(damageOf(s, WHITE)).toBe(500 + 500 + 2000);
+    expect(damageOf(s, "a1")).toBe(0);
+    expect(s.qi).toBeCloseTo(100 - 54.5);
+  });
+
+  it("an armored cultivator ends above the 75% line by the armor's Qi on a failure (ruling 147)", () => {
+    // 1,000 Qi at Foundation (threshold 250): the loss brings Qi to 187.5, and the robe keeps 8 more.
+    const s = advanceTo(apply(rich(foundation(), 1000, 100), declare()), T0 + 3 * DAY + 1);
+    expect(s.qi).toBeCloseTo(187.5 + 8);
+    const bare = advanceTo(apply(rich(foundation(), 1000, 100), unequip("armor", T0 + 10), declare()), T0 + 3 * DAY + 1);
+    expect(bare.qi).toBeCloseTo(187.5);
   });
 
   it("doesn't lower deletions or late edits, which stay above a failure (ruling 93)", () => {
@@ -200,8 +229,8 @@ describe("failures with gear (rulings 142, 144)", () => {
   });
 });
 
-describe("durability (ruling 144)", () => {
-  it("the Turtle damages a worn item 5% a midnight; it warns at 95% and breaks at 100%, lost", () => {
+describe("durability (rulings 144, 147)", () => {
+  it("the Turtle damages the worn armor 5% a midnight; it warns at 95% and breaks at 100%, lost", () => {
     const s = foundation();
     const day19 = advanceTo(s, T0 + 19 * DAY + 1);
     expect(damageOf(day19, WHITE)).toBe(9500);
@@ -222,27 +251,54 @@ describe("durability (ruling 144)", () => {
     expect(damageOf(advanceTo(lion, T0 + 3 * DAY + 1), WHITE)).toBe(0);
   });
 
-  it("only worn gear takes damage, and the pick among worn items is a stable pseudo-random choice", () => {
-    const run = (userId: string) => {
-      const start = rich(replay([created, ...climb(4)].map((e) => ({ ...e, userId }))), 0, 500);
-      const bought = apply(start, ...[buy("weapon", T0 + H, "w1"), buy("armor", T0 + 2 * H, "a1")].map((e) => ({ ...e, userId })));
-      return advanceTo(bought, T0 + 12 * DAY + 1);
-    };
-    /** The worn weapon's damage after each of the first 12 midnights. */
-    const daily = (userId: string) => {
-      const start = rich(replay([created, ...climb(4)].map((e) => ({ ...e, userId }))), 0, 500);
-      const bought = apply(start, { ...buy("weapon", T0 + H, "w1"), userId });
-      return Array.from({ length: 12 }, (_, d) => damageOf(advanceTo(bought, T0 + (d + 1) * DAY + 1), "w1"));
-    };
-    const s = run("u1");
-    const again = run("u1");
-    expect(damageOf(s, WHITE)! + damageOf(s, "w1")!).toBe(12 * 500);
-    expect(damageOf(s, WHITE)).toBeGreaterThan(0);
-    expect(damageOf(s, "w1")).toBeGreaterThan(0);
+  it("the companion never damages the weapon or armor left in the stash all day", () => {
+    const s = advanceTo(apply(rich(foundation(), 0, 500), buy("weapon", T0 + H, "w1"), buy("armor", T0 + 2 * H, "a1")), T0 + 3 * DAY + 1);
+    expect(damageOf(s, WHITE)).toBe(3 * 500);
+    expect(damageOf(s, "w1")).toBe(0);
     expect(damageOf(s, "a1")).toBe(0);
-    expect(s.gear).toEqual(again.gear);
-    // Another cultivator gets other picks.
-    expect(daily("u2")).not.toEqual(daily("u1"));
+  });
+
+  it("taking armor off before midnight doesn't dodge the damage (exploit)", () => {
+    let s = apply(foundation(), unequip("armor", T0 + 22 * H));
+    s = advanceTo(s, T0 + DAY + 1);
+    expect(damageOf(s, WHITE)).toBe(500);
+    // Off all the next day: no damage that night.
+    s = advanceTo(s, T0 + 2 * DAY + 1);
+    expect(damageOf(s, WHITE)).toBe(500);
+  });
+
+  it("every armor worn during the day takes the damage: swapping costs damage on each", () => {
+    let s = apply(rich(foundation(), 0, 500), buy("armor", T0 + H, "a1"), equip("a1", T0 + 2 * H), equip(WHITE, T0 + 3 * H));
+    s = advanceTo(s, T0 + DAY + 1);
+    expect(damageOf(s, WHITE)).toBe(500);
+    expect(damageOf(s, "a1")).toBe(500);
+    // The next day only the white robe is worn.
+    s = advanceTo(s, T0 + 2 * DAY + 1);
+    expect(damageOf(s, WHITE)).toBe(1000);
+    expect(damageOf(s, "a1")).toBe(500);
+  });
+
+  it("the weapon wears on each Qi gain it boosts, by the task's effort; its bonus stays whole", () => {
+    const task = (taskId: string, effort: "quick" | "session" | "day" | "project", at: number) =>
+      ev("MainTaskDefined", at, { taskId, name: taskId, difficulty: "mid", effort, schedule: { kind: "once", deadline: at + 10 * DAY } });
+    const done = (taskId: string, at: number) => ev("MainTaskCompleted", at, { taskId });
+    let s = apply(rich(foundation(), 0, 500), buy("weapon", T0 + H, "w1"));
+    s = apply(s, task("q", "quick", T0 + 2 * H), done("q", T0 + 3 * H));
+    expect(damageOf(s, "w1")).toBe(RULES_V1.gear.weaponWearBp.quick);
+    s = apply(s, task("p", "project", T0 + 4 * H), done("p", T0 + 5 * H));
+    expect(damageOf(s, "w1")).toBe(RULES_V1.gear.weaponWearBp.quick + RULES_V1.gear.weaponWearBp.project);
+    expect(weaponQiBonus(s)).toBe(0.02);
+    // Without a weapon worn nothing wears.
+    const bare = apply(s, unequip("weapon", T0 + 6 * H), task("d", "day", T0 + 7 * H), done("d", T0 + 8 * H));
+    expect(damageOf(bare, "w1")).toBe(damageOf(s, "w1"));
+  });
+
+  it("other Qi gains (the Lion, soul drops, the roulette) wear the weapon as `other`", () => {
+    const lion = structuredClone(apply(rich(foundation(), 0, 500), buy("weapon", T0 + H, "w1")));
+    lion.companion.tier = "lion";
+    lion.companion.food = 2500;
+    const s = apply(lion, ev("CompanionPetted", T0 + 2 * H, {}));
+    expect(damageOf(s, "w1")).toBe(RULES_V1.gear.weaponWearBp.other);
   });
 
   it("repairs fully for the damage's share of the realm's price; nothing to repair is rejected", () => {
@@ -270,7 +326,7 @@ describe("durability (ruling 144)", () => {
     }
   });
 
-  it("pushes at the reminder time on the day an item reaches 95% (ruling 144)", () => {
+  it("pushes at the reminder time on the day the armor reaches 95% (ruling 144)", () => {
     const s = structuredClone(foundation());
     s.gear.items[WHITE]!.damageBp = 9000;
     expect(gearAlerts(s, 14 * DAY)).toEqual([{ itemId: WHITE, at: T0 + DAY }]);
@@ -279,7 +335,46 @@ describe("durability (ruling 144)", () => {
   });
 });
 
-describe("repent, death and potions (rulings 141, 145)", () => {
+describe("armor at risk before a deadline (ruling 149)", () => {
+  const declare = (deadline: number) => ev("TribulationDeclared", T0 + H, { tribulationId: "x", title: "Pass", criteria: "Score 80", deadline });
+
+  it("warns when the worn armor is at 80% or more and a tribulation is due within 72 hours", () => {
+    const s = structuredClone(apply(foundation(), declare(T0 + 2 * DAY)));
+    expect(armorAtRisk(s)).toBeNull();
+    s.gear.items[WHITE]!.damageBp = 8000;
+    expect(armorAtRisk(s)).toMatchObject({ item: { id: WHITE }, tribulationId: "x", deadline: T0 + 2 * DAY });
+    const far = structuredClone(apply(foundation(), declare(T0 + 10 * DAY)));
+    far.gear.items[WHITE]!.damageBp = 9000;
+    expect(armorAtRisk(far)).toBeNull();
+  });
+
+  it("pushes when the risk starts: 72 hours before the deadline, or the midnight the armor reaches 80%", () => {
+    // At Lion the armor stays at 85% until the window opens.
+    const s = structuredClone(apply(foundation(), declare(T0 + 10 * DAY)));
+    s.companion.tier = "lion";
+    s.companion.food = 2500;
+    s.gear.items[WHITE]!.damageBp = 8500;
+    expect(armorRiskAlerts(s, 14 * DAY)).toEqual([{ itemId: WHITE, tribulationId: "x", at: T0 + 7 * DAY }]);
+    // At 65% the Turtle reaches 80% at the third midnight, inside the window that opened at the second.
+    const crossing = structuredClone(apply(foundation(), declare(T0 + 5 * DAY)));
+    crossing.gear.items[WHITE]!.damageBp = 6500;
+    expect(armorRiskAlerts(crossing, 14 * DAY)).toEqual([{ itemId: WHITE, tribulationId: "x", at: T0 + 3 * DAY }]);
+    expect(pushAlertPlan(crossing, crossing.clock).find((a) => a.kind === "armor_at_risk")).toMatchObject({ itemId: WHITE, tribulationId: "x" });
+  });
+
+  it("the one-tap swap picks the best wearable stash armor below 80%, never a higher realm's", () => {
+    let s = rich(replay([created, ...climb(8)]), 0, 1000);
+    // Worn: white robe. Stash: yellow robe (Core Formation, 16 Qi).
+    expect(bestStashArmor(s)?.id).toBe(YELLOW);
+    s = apply(s, buy("armor", T0 + H, "a1"));
+    expect(bestStashArmor(s)?.id).toBe("a1");
+    const worn = structuredClone(s);
+    worn.gear.items.a1!.damageBp = 8000;
+    expect(bestStashArmor(worn)?.id).toBe(YELLOW);
+  });
+});
+
+describe("repent, death and potions (rulings 145, 150, 151)", () => {
   const atNascent = () => replay([created, ...climb(12)]);
 
   it("repent penalties take stash gear, least valuable first, never worn gear", () => {
@@ -293,27 +388,42 @@ describe("repent, death and potions (rulings 141, 145)", () => {
     expect(s.gear.lost).toMatchObject([{ item: { id: YELLOW }, reason: "repent" }]);
   });
 
-  it("death takes worn gear too, leaving ordinary clothes; nothing is sold while dead", () => {
+  it("death takes worn gear too, leaving ordinary clothes; nothing is bought, sold or repaired while dead", () => {
     let s = atNascent();
     for (let i = 0; i < 5; i++) s = apply(s, repent(T0 + (10 * i + 1) * H), ...(i < 4 ? climb(4, (10 * i + 2) * H) : []));
     expect(s.progress.diedAt).not.toBeNull();
     expect(s.gear.items).toEqual({});
     expect(s.gear.worn).toEqual({ armor: null, weapon: null });
-    // A death that leaves stash gear (bought after dying) still can't sell it.
-    s = apply(rich(s, 0, 500), buy("armor", T0 + 60 * H, "a1"), unequip("armor", T0 + 61 * H));
-    expect(code(() => applyEvent(s, sell("a1", T0 + 62 * H)))).toBe("dead");
+    const rich500 = rich(s, 0, 500);
+    expect(code(() => applyEvent(rich500, buy("armor", T0 + 60 * H, "a1")))).toBe("dead");
+    // Gear held at death is gone, but a state with stash gear still can't sell or repair it.
+    const held = structuredClone(rich500);
+    held.gear.items.a1 = { id: "a1", slot: "armor", kind: "shop", realm: "foundation_establishment", damageBp: 1000, obtainedAt: 0 };
+    expect(code(() => applyEvent(held, sell("a1", T0 + 62 * H)))).toBe("dead");
+    expect(code(() => applyEvent(held, repair("a1", T0 + 62 * H)))).toBe("dead");
   });
 
-  it("a held legendary potion adds 5% to the next realm breakthrough's legendary roll and is used up there, not at level-ups", () => {
+  it("a drunk legendary potion is armed for the next realm breakthrough's roll (+5%), one at a time; held ones do nothing", () => {
     let s = structuredClone(replay([created, ev("InterviewAnswered", T0 + 1, { interests: { main: "Math", body: "BJJ", soul: "Calm" } })]));
     s.inventory.legendaryPotions = 2;
-    s = apply(s, ...(["main", "body", "soul"] as const).map((path, i) => ev("AreaDecided", T0 + 2 + i, { path, choice: "x" })));
-    expect(s.inventory.legendaryPotions).toBe(2);
-    s = apply(s, ev("AreasLocked", T0 + H, {}));
+    s = apply(s, ...(["main", "body"] as const).map((path, i) => ev("AreaDecided", T0 + 2 + i, { path, choice: "x" })));
+    s = apply(s, ev("PotionUsed", T0 + 10, { potion: "legendary" }));
+    expect(s.inventory).toMatchObject({ legendaryPotions: 1, legendaryPotionArmed: true });
+    expect(code(() => applyEvent(s, ev("PotionUsed", T0 + 11, { potion: "legendary" })))).toBe("potion_active");
+    s = apply(s, ev("AreaDecided", T0 + 20, { path: "soul", choice: "x" }), ev("AreasLocked", T0 + H, {}));
     expect(s.main.realm).toBe("foundation_establishment");
     const step = s.progress.steps.at(-1)!;
     expect(step.kind).toBe("breakthrough");
     expect(s.progress.pendingRolls[String(step.step)]?.chance).toBeCloseTo(0.05 + 0.05);
-    expect(s.inventory.legendaryPotions).toBe(1);
+    expect(s.inventory).toMatchObject({ legendaryPotions: 1, legendaryPotionArmed: false });
+    // Held but not drunk: the next breakthrough gets no bonus.
+    const held = replay([created, ...climb(4)]);
+    const heldPotion = structuredClone(held);
+    heldPotion.inventory.legendaryPotions = 1;
+    const a = apply(heldPotion, ...climb(4, 10 * H));
+    const b = apply(held, ...climb(4, 10 * H));
+    expect(a.inventory.legendaryPotions).toBe(1);
+    expect(a.progress.pendingRolls).toEqual(b.progress.pendingRolls);
+    expect(code(() => applyEvent(b, ev("PotionUsed", T0 + 20 * H, { potion: "legendary" })))).toBe("no_potion");
   });
 });

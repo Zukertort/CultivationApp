@@ -15,6 +15,8 @@ import {
   DAY,
   RULES_V1,
   advanceTo,
+  armorAtRisk,
+  bestStashArmor,
   deviationStatus,
   shopPrice,
   stash,
@@ -316,6 +318,32 @@ export const SCENARIOS: readonly Scenario[] = [
       (s.gear.items[WHITE_ROBE]?.damageBp ?? 0) >= 8000 || `robe damage ${s.gear.items[WHITE_ROBE]?.damageBp}`,
       alive(s),
     ],
+  ),
+  scenario(
+    {
+      id: "armor-at-risk",
+      title: "Armor at risk before a deadline",
+      description: "Foundation, Turtle, the white robe at about 85% with a tribulation due tomorrow, and Foundation shop armor in the stash: the before-deadline warning with its Swap and Repair actions (ruling 149).",
+      days: 23,
+      day: () => (c, day, days) => {
+        routineDay(c, { income: study, gym: [] }, day);
+        areasThenLock(c, day);
+        if (day !== days - 2) return;
+        const at = c.at(day, 22);
+        if (c.s.gold >= shopPrice("armor", "foundation_establishment")) c.now("GearBought", at, { slot: "armor" });
+        c.now("TribulationDeclared", at, { tribulationId: "armor-risk", title: "Run a 10 km race", criteria: "Finish a 10 km race under 60 minutes", deadline: c.at(days + 1, 23) + 59 * 60_000 });
+      },
+    },
+    (s, now) => {
+      const at = advanceTo(s, Math.max(s.clock, now));
+      return [
+        inRealm(s, "foundation_establishment"),
+        armorAtRisk(at)?.item.id === WHITE_ROBE || `not at risk (robe damage ${at.gear.items[WHITE_ROBE]?.damageBp})`,
+        (at.gear.items[WHITE_ROBE]?.damageBp ?? 0) < RULES_V1.gear.warnAtBp || "the robe is already at the 95% warning",
+        bestStashArmor(at)?.kind === "shop" || "no shop armor in the stash to swap",
+        alive(s),
+      ];
+    },
   ),
   scenario(
     {

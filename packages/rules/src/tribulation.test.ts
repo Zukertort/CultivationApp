@@ -6,6 +6,7 @@ import {
   RuleViolation,
   advanceTo,
   applyEvent,
+  earnQi,
   pendingTribulationRolls,
   pushAlertPlan,
   replay,
@@ -133,13 +134,37 @@ describe("missed deadlines (rulings 65-66)", () => {
     expect(failed.gold).toBe(955);
   });
 
-  it("floors the loss at the balances and never makes debt or deviation", () => {
+  it("takes what the balances hold; the rest becomes unforgivable debt, capped, and the cap starts deviation (ruling 148)", () => {
     // No interview, so no tax clock: only the failure touches the balances.
     const s = advanceTo(rich(replay([...start, declare()]), 10, 0), T0 + 11 * DAY);
     expect(s.qi).toBe(0);
-    expect(s.tribulations.spent.failures).toEqual({ qi: 10, gold: 0, count: 1 });
-    expect(s.main.debt).toEqual({ qi: 0, gold: 0 });
+    expect(s.gold).toBe(0);
+    // The loss is 137.5 Qi and 45 gold: 10 Qi paid, 127.5 owed but capped at 50; 45 gold owed.
+    expect(s.tribulations.spent.failures).toEqual({ qi: 60, gold: 45, count: 1 });
+    expect(s.tribulations.spent.failureDebt).toEqual({ qi: 50, gold: 45 });
+    expect(s.main.debt).toEqual({ qi: 50, gold: 45 });
+    expect(s.main.debtPostponed).toEqual({ qi: 50, gold: 45 });
+    expect(s.main.deviation).not.toBeNull();
+  });
+
+  it("a small unpaid failure is debt below the cap, without deviation, repaid first from gains (ruling 148)", () => {
+    const s = advanceTo(rich(replay([...start, declare()]), 135, 40), T0 + 11 * DAY);
+    expect(s.main.debt.qi).toBeCloseTo(2.5);
+    expect(s.main.debt.gold).toBeCloseTo(5);
     expect(s.main.deviation).toBeNull();
+    const paid = structuredClone(s);
+    earnQi(paid, 10);
+    expect(paid.qi).toBeCloseTo(7.5);
+    expect(paid.main.debt.qi).toBe(0);
+    expect(paid.main.debtPostponed.qi).toBe(0);
+  });
+
+  it("at the cap, failure debt takes the place of forgivable tax debt, so the comeback can't forgive it (ruling 148)", () => {
+    const s = structuredClone(replay([...start, declare()]));
+    s.main.debt = { qi: 50, gold: 0 };
+    const after = advanceTo(rich(s, 0, 100), T0 + 11 * DAY);
+    expect(after.main.debt.qi).toBe(50);
+    expect(after.main.debtPostponed.qi).toBe(50);
   });
 
   it("applies the failure at the next event about the tribulation when that comes first", () => {

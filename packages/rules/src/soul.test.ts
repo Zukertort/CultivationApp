@@ -571,6 +571,29 @@ describe("soul drops", () => {
     expect(loss("lose_item", stocked).inventory).toMatchObject({ gainPotions: 0, legendaryPotions: 1 }); // a gain potion goes first
   });
 
+  it("a lost item with no potions or wearables takes stash gear, never worn gear; with nothing, nothing is lost (rulings 145, 146)", () => {
+    const at = T0 + DAY + H;
+    const item = (id: string, kind: "robe" | "shop") => ({ id, slot: "armor" as const, kind, realm: "foundation_establishment" as const, damageBp: 0, obtainedAt: 0 });
+    const geared = structuredClone(violet());
+    geared.gear.items = { worn: item("worn", "shop"), cheap: item("cheap", "robe"), dear: item("dear", "shop") };
+    geared.gear.worn.armor = "worn";
+    const once = applyEvent(geared, task("a-", at, "lose_item"));
+    expect(Object.keys(once.gear.items).sort()).toEqual(["dear", "worn"]);
+    expect(once.gear.lost).toMatchObject([{ item: { id: "cheap" }, reason: "soul" }]);
+    // A wearable goes before stash gear.
+    const wearer = structuredClone(geared);
+    wearer.inventory.soulWearables = 1;
+    const w = applyEvent(wearer, task("a-", at, "lose_item"));
+    expect(w.inventory.soulWearables).toBe(0);
+    expect(Object.keys(w.gear.items)).toHaveLength(3);
+    // Only worn gear: nothing is lost, and nothing is converted.
+    const bare = structuredClone(geared);
+    bare.gear.items = { worn: item("worn", "shop") };
+    const b = applyEvent(bare, task("a-", at, "lose_item"));
+    expect(b.gear.items.worn).toBeDefined();
+    expect(b.gold).toBe(bare.gold);
+  });
+
   it("rejects an outcome of the wrong polarity", () => {
     expect(code(() => applyEvent(green(), task("a+", T0 + DAY + H, "lose_gold")))).toBe("drop_wrong_polarity");
     expect(code(() => applyEvent(violet(), task("a-", T0 + DAY + H, "gold")))).toBe("drop_wrong_polarity");

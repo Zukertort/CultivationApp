@@ -19,7 +19,7 @@ import {
   type SoulState,
 } from "./soul.js";
 import { DAY, WEEK, localDay, nextLocalMidnight } from "./time.js";
-import { addPotion, earnGold, earnQi, goldMultiplier, losePotion, potionKind, qiMultiplier, trainingGoldMultiplier } from "./economy.js";
+import { addPotion, earnGold, earnQi, goldMultiplier, potionKind, qiMultiplier, trainingGoldMultiplier } from "./economy.js";
 import {
   advanceMain,
   decayMultiplier,
@@ -39,7 +39,7 @@ import {
   shiftDeadlinesAfterRest,
   type MainState,
 } from "./main.js";
-import { gearMidnight, initialGear, onGearBought, onGearEquipped, onGearRepaired, onGearSold, onGearUnequipped, syncGear, type GearState } from "./gear.js";
+import { gearMidnight, initialGear, onGearBought, onGearEquipped, onGearRepaired, onGearSold, onGearUnequipped, syncGear, weaponWear, type GearState } from "./gear.js";
 import { initialClass, onClassChosen, onClassDropRolled, onWearableUsed, classCovers, type ClassState } from "./class.js";
 import {
   advanceProgress,
@@ -53,6 +53,7 @@ import {
   checkRevival,
   clampWhileDead,
   deathSnapshot,
+  loseItems,
   onRealmOverride,
   progressMidnight,
   type ProgressState,
@@ -66,6 +67,7 @@ import {
   onTribulationDropRolled,
   onTribulationEdited,
   onTribulationRescheduled,
+  settleOverdueTribulations,
   shiftTribulationsAfterRest,
   tribulationMidnight,
   type TribulationState,
@@ -126,11 +128,14 @@ export interface CultivatorState {
   prefs: { reminderMinutes: number | null; quiet: { start: number; end: number } | null };
   /**
    * Potions by kind (ruling 58); a drunk gain potion is active until
-   * `gainPotionUntil`. `legendary` counts legendary items.
+   * `gainPotionUntil`, and a drunk legendary potion stays armed until the next
+   * realm breakthrough's legendary roll (ruling 151). `legendary` counts
+   * legendary items.
    */
   inventory: {
     gainPotions: number;
     legendaryPotions: number;
+    legendaryPotionArmed: boolean;
     gainPotionUntil: number | null;
     legendary: number;
     scales: number;
@@ -185,6 +190,7 @@ export function initialState(rules: RulesConfig = RULES_V1): CultivatorState {
     inventory: {
       gainPotions: 0,
       legendaryPotions: 0,
+      legendaryPotionArmed: false,
       gainPotionUntil: null,
       legendary: 0,
       scales: 0,
@@ -539,6 +545,7 @@ const onRouletteSpun: Handler<"RouletteSpun"> = (s, e, rules) => {
       break;
     case "qi":
       earnQi(s, rules.roulette.qiPrize * qiMultiplier(s, rules));
+      weaponWear(s, "other", e.at, rules);
       break;
     case "gain_potion":
       addPotion(s, "gain");
@@ -589,10 +596,19 @@ const onCompanionPetted: Handler<"CompanionPetted"> = (s, e, rules) => {
   if (c.pettedDay === day) violate("already_petted", "the Lion was already petted today");
   c.pettedDay = day;
   earnQi(s, rules.lionPetQi * qiMultiplier(s, rules));
+  weaponWear(s, "other", e.at, rules);
 };
 
 const onPotionUsed: Handler<"PotionUsed"> = (s, e, rules) => {
   const inv = s.inventory;
+  if (e.potion === "legendary") {
+    // Armed for the next realm breakthrough's legendary roll, one at a time (ruling 151).
+    if (inv.legendaryPotions < 1) violate("no_potion", "no legendary potion to drink");
+    if (inv.legendaryPotionArmed) violate("potion_active", "a legendary potion is already armed for the next breakthrough");
+    inv.legendaryPotions -= 1;
+    inv.legendaryPotionArmed = true;
+    return;
+  }
   if (inv.gainPotions < 1) violate("no_potion", "no gain potion to drink");
   if (inv.gainPotionUntil !== null && e.at < inv.gainPotionUntil) violate("potion_active", "a gain potion is already active");
   inv.gainPotions -= 1;
@@ -616,6 +632,7 @@ function applySoulDrop(s: CultivatorState, drop: SoulDrop, rules: RulesConfig): 
       break;
     case "qi":
       earnQi(s, d.qi * qiMultiplier(s, rules));
+      weaponWear(s, "other", s.clock, rules);
       break;
     case "gain_potion":
       addPotion(s, "gain");
@@ -633,7 +650,8 @@ function applySoulDrop(s: CultivatorState, drop: SoulDrop, rules: RulesConfig): 
       s.qi = Math.max(0, s.qi - d.loseQi);
       break;
     case "lose_item":
-      losePotion(s);
+      // A potion first, then a class wearable, then stash gear; never worn gear or a legendary (rulings 15, 145, 146).
+      loseItems(s, 1, s.clock, rules, "soul");
       break;
   }
 }
@@ -715,11 +733,27 @@ const handlers: { [T in GameEvent["type"]]: Handler<T> } = {
   BreakthroughRolled: (s, e) => {
     if (!onBreakthroughRolled(s, e)) s.anomalies.push({ at: e.at, code: "orphan_breakthrough_roll" });
   },
-  GearBought: onGearBought,
-  GearEquipped: (s, e) => onGearEquipped(s, e),
-  GearUnequipped: (s, e) => onGearUnequipped(s, e),
-  GearSold: onGearSold,
-  GearRepaired: onGearRepaired,
+  // Every gear event first applies missed deadlines, so a failure hits the armor worn at its deadline (ruling 147).
+  GearBought: (s, e, rules) => {
+    settleOverdueTribulations(s, e.at, rules);
+    onGearBought(s, e, rules);
+  },
+  GearEquipped: (s, e, rules) => {
+    settleOverdueTribulations(s, e.at, rules);
+    onGearEquipped(s, e);
+  },
+  GearUnequipped: (s, e, rules) => {
+    settleOverdueTribulations(s, e.at, rules);
+    onGearUnequipped(s, e);
+  },
+  GearSold: (s, e, rules) => {
+    settleOverdueTribulations(s, e.at, rules);
+    onGearSold(s, e, rules);
+  },
+  GearRepaired: (s, e, rules) => {
+    settleOverdueTribulations(s, e.at, rules);
+    onGearRepaired(s, e, rules);
+  },
 };
 
 // ---- Public API ---------------------------------------------------------------------
