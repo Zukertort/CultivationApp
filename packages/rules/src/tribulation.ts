@@ -67,8 +67,8 @@ export interface TribulationState {
   lastRollAt: number | null;
   pendingRolls: Record<string, PendingTribulationRoll>;
   drops: Record<MainQuestDrop, number>;
-  /** What failures, edits and deletions took (edits and deletions are floored at the balances; failures include the debt they left, also kept apart). */
-  spent: { failures: Cost; edits: Cost; deletions: Cost; failureDebt: { qi: number; gold: number } };
+  /** What failures, edits and deletions took, debt they left included; `debt` is that debt on its own (rulings 148, 156). */
+  spent: { failures: Cost; edits: Cost; deletions: Cost; debt: { qi: number; gold: number } };
   /** The largest Qi a single failure took, for the simulator and the integrity view (ruling 80). */
   largestFailureQi: number;
 }
@@ -80,7 +80,7 @@ export function initialTribulations(): TribulationState {
     lastRollAt: null,
     pendingRolls: {},
     drops: { none: 0, gain_potion: 0, legendary_potion: 0 },
-    spent: { failures: cost(), edits: cost(), deletions: cost(), failureDebt: { qi: 0, gold: 0 } },
+    spent: { failures: cost(), edits: cost(), deletions: cost(), debt: { qi: 0, gold: 0 } },
     largestFailureQi: 0,
   };
 }
@@ -123,15 +123,25 @@ function settleFailure(s: CultivatorState, id: string, t: Tribulation, at: numbe
   t.due = null;
   // Worn armor lowers the ruling 80 loss and takes the failure's damage (rulings 142, 147).
   const loss = gearOnFailure(s, { qi: failureQiLoss(s, rules), gold: rules.tribulations.failure.gold }, deadline, rules);
-  const taken = take(s, loss.qi, loss.gold, s.tribulations.spent.failures);
-  // What the balances can't cover becomes unforgivable debt (ruling 148).
-  const owed = addDebt(s, loss.qi - taken.qi, loss.gold - taken.gold, deadline, rules, true);
-  const sp = s.tribulations.spent;
-  sp.failures.qi += owed.qi;
-  sp.failures.gold += owed.gold;
-  sp.failureDebt.qi += owed.qi;
-  sp.failureDebt.gold += owed.gold;
-  s.tribulations.largestFailureQi = Math.max(s.tribulations.largestFailureQi, taken.qi + owed.qi);
+  const took = takeOrOwe(s, loss.qi, loss.gold, s.tribulations.spent.failures, deadline, rules);
+  s.tribulations.largestFailureQi = Math.max(s.tribulations.largestFailureQi, took.qi);
+}
+
+/**
+ * Take a failure-priced loss (a failure, a late edit, an open deletion): what
+ * the balances can't cover becomes unforgivable debt (rulings 148, 156), so
+ * deleting or editing late is never cheaper than failing (ruling 93).
+ * Returns what was taken and owed.
+ */
+function takeOrOwe(s: CultivatorState, qi: number, gold: number, into: Cost, at: number, rules: RulesConfig): { qi: number; gold: number } {
+  const taken = take(s, qi, gold, into);
+  const owed = addDebt(s, qi - taken.qi, gold - taken.gold, at, rules, true);
+  into.qi += owed.qi;
+  into.gold += owed.gold;
+  const debt = s.tribulations.spent.debt;
+  debt.qi += owed.qi;
+  debt.gold += owed.gold;
+  return { qi: taken.qi + owed.qi, gold: taken.gold + owed.gold };
 }
 
 /** Apply every missed deadline up to `at` (also before a gear event, so the armor worn at the deadline takes the failure; ruling 147). */
@@ -139,7 +149,7 @@ export function settleOverdueTribulations(s: CultivatorState, at: number, rules:
   for (const [id, t] of Object.entries(s.tribulations.items)) settleFailure(s, id, t, at, rules);
 }
 
-/** Take a loss from the balances, floored at 0 (rulings 65, 93); a failure's unpaid part then becomes debt (ruling 148). */
+/** Take a loss from the balances, floored at 0; `takeOrOwe` turns the unpaid part into debt. */
 function take(s: CultivatorState, qi: number, gold: number, into: Cost): { qi: number; gold: number } {
   const taken = { qi: Math.min(s.qi, qi), gold: Math.min(s.gold, gold) };
   s.qi -= taken.qi;
@@ -246,7 +256,7 @@ export function onTribulationEdited(s: CultivatorState, e: EventOf<"TribulationE
   checkChangeable(t);
   if (e.title === undefined && e.criteria === undefined) violate("nothing_to_edit", "an edit changes the title or the criteria");
   const price = tribulationEditPrice(s, e.tribulationId, e.at, rules);
-  if (price.kind === "late") take(s, price.qi, price.gold, s.tribulations.spent.edits);
+  if (price.kind === "late") takeOrOwe(s, price.qi, price.gold, s.tribulations.spent.edits, e.at, rules);
   else pay(s, price.qi, price.gold, s.tribulations.spent.edits);
   if (e.title !== undefined) t.title = e.title;
   if (e.criteria !== undefined) t.criteria = e.criteria;
@@ -263,7 +273,7 @@ export function onTribulationDeleted(s: CultivatorState, e: EventOf<"Tribulation
   } else checkChangeable(t);
   const price = tribulationDeletePrice(s, e.tribulationId, e.at, rules);
   if (price.kind === "failed") pay(s, price.qi, price.gold, s.tribulations.spent.deletions);
-  else take(s, price.qi, price.gold, s.tribulations.spent.deletions);
+  else takeOrOwe(s, price.qi, price.gold, s.tribulations.spent.deletions, e.at, rules);
   t.status = "deleted";
   t.due = null;
   // Every deletion is logged, free ones included (ruling 108); a faked pass also as faked (ruling 126).

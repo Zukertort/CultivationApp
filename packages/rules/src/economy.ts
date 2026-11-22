@@ -106,7 +106,7 @@ export function earnQi(s: CultivatorState, amount: number): void {
 }
 
 /**
- * Add debt, capped (ruling 33); reaching either cap starts Qi deviation.
+ * Add debt, capped (ruling 33); new debt at either cap starts Qi deviation.
  * Unforgivable debt (postponed tax, ruling 59; failure losses, ruling 148) is
  * tracked apart, since the comeback doesn't forgive it; at the cap it takes
  * the place of forgivable debt. Returns what was added (the cap may keep
@@ -126,7 +126,9 @@ export function addDebt(s: CultivatorState, qi: number, gold: number, at: number
     return m.debtPostponed[key] - post;
   };
   const added = { qi: add("qi", qi), gold: add("gold", gold) };
-  if (m.deviation === null && (m.debt.qi >= cap.qi || m.debt.gold >= cap.gold)) {
+  // Only new debt starts deviation: debt the comeback left at the cap doesn't re-trigger it (ruling 156).
+  const fresh = qi > 0 || gold > 0;
+  if (fresh && m.deviation === null && (m.debt.qi >= cap.qi || m.debt.gold >= cap.gold)) {
     m.deviation = { since: at, windowStart: at, done: 0 };
     m.deviationsEntered += 1;
   }

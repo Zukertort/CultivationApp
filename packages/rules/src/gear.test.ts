@@ -8,12 +8,14 @@ import {
   advanceTo,
   applyEvent,
   armorAtRisk,
+  armorCare,
   armorReduction,
   armorRiskAlerts,
   bestStashArmor,
   failureQiLoss,
   gearAlerts,
   gearWarnings,
+  itemValue,
   mainQiMultiplier,
   pushAlertPlan,
   qiMultiplier,
@@ -22,6 +24,7 @@ import {
   sellPrice,
   stash,
   tribulationDeletePrice,
+  unarmoredLoss,
   weaponQiBonus,
   wornItem,
   type CultivatorState,
@@ -118,17 +121,37 @@ describe("shop, stash and selling (rulings 137, 140)", () => {
     expect(code(() => applyEvent(rich(s, 0, 79), buy("armor", T0 + 3 * H, "a2")))).toBe("insufficient_gold");
   });
 
-  it("sells only from the stash, for a share of the shop price less damage; buying to sell always loses gold (exploit)", () => {
+  it("sells only from the stash, for 70% of the value less damage; buying to sell always loses gold (exploit)", () => {
     let s = rich(foundation(), 0, 200);
     s = apply(s, buy("weapon", T0 + H, "w1"));
     expect(code(() => applyEvent(s, sell("w1", T0 + 2 * H)))).toBe("gear_worn");
     s = apply(s, unequip("weapon", T0 + 2 * H), sell("w1", T0 + 3 * H));
-    expect(s.gold).toBe(200 - 100 + 25);
+    expect(s.gold).toBeCloseTo(200 - 100 + 70);
     expect(s.gear.items.w1).toBeUndefined();
-    // The white robe sells for a quarter of half of Foundation's armor price.
-    const robe = { ...wornItem(s, "armor")!, damageBp: 2000 };
-    expect(sellPrice(robe)).toBeCloseTo(0.25 * 0.5 * 80 * 0.8);
+    const legendary: GearItem = { id: "l", slot: "weapon", kind: "legendary", realm: "core_formation", damageBp: 2500, obtainedAt: 0 };
+    expect(itemValue(legendary)).toBe(400);
+    expect(sellPrice(legendary)).toBeCloseTo(0.7 * 400 * 0.75);
     expect(code(() => applyEvent(s, unequip("weapon", T0 + 4 * H)))).toBe("slot_empty");
+  });
+
+  it("free robes can't be sold, so breakthroughs don't mint gold (exploit)", () => {
+    const s = apply(replay([created, ...climb(8)]), unequip("armor", T0 + H));
+    expect(sellPrice(s.gear.items[YELLOW]!)).toBe(0);
+    expect(code(() => applyEvent(s, sell(YELLOW, T0 + 2 * H)))).toBe("robe_not_sellable");
+    expect(code(() => applyEvent(s, sell(WHITE, T0 + 2 * H)))).toBe("robe_not_sellable");
+  });
+
+  it("no item sells for more than it costs, in any realm, kind or slot (exploit)", () => {
+    for (const realm of GEAR_REALMS) {
+      for (const slot of ["armor", "weapon"] as const) {
+        for (const kind of ["robe", "shop", "legendary"] as const) {
+          const item: GearItem = { id: "i", slot, kind, realm, damageBp: 0, obtainedAt: 0 };
+          // Shop gear is what can be bought; legendary gear only drops, and selling it is its value.
+          if (kind === "shop") expect(sellPrice(item)).toBeLessThan(RULES_V1.gear.shopGold[slot][realm]);
+          expect(sellPrice(item)).toBeLessThanOrEqual(0.7 * itemValue(item));
+        }
+      }
+    }
   });
 });
 
@@ -181,8 +204,10 @@ describe("failures with gear (rulings 142, 147, 148)", () => {
 
   it("with no armor worn, the full loss applies and the failure damages nothing (ruling 142)", () => {
     const s = advanceTo(apply(rich(foundation(), 100, 100), unequip("armor", T0 + 10), declare()), T0 + 3 * DAY + 1);
-    expect(s.qi).toBeCloseTo(100 - 62.5);
-    expect(s.gold).toBeCloseTo(100 - 45);
+    // Days 1 and 2 had no armor, so the companion took Qi and gold instead (ruling 154).
+    const day = unarmoredLoss("foundation_establishment", 500);
+    expect(s.qi).toBeCloseTo(100 - 62.5 - 2 * day.qi);
+    expect(s.gold).toBeCloseTo(100 - 45 - 2 * day.gold);
     // Only day 0's Turtle damage, since the robe was worn that day (ruling 147).
     expect(damageOf(s, WHITE)).toBe(500);
   });
@@ -209,7 +234,8 @@ describe("failures with gear (rulings 142, 147, 148)", () => {
     const s = advanceTo(apply(rich(foundation(), 1000, 100), declare()), T0 + 3 * DAY + 1);
     expect(s.qi).toBeCloseTo(187.5 + 8);
     const bare = advanceTo(apply(rich(foundation(), 1000, 100), unequip("armor", T0 + 10), declare()), T0 + 3 * DAY + 1);
-    expect(bare.qi).toBeCloseTo(187.5);
+    // The failure brings it to 187.5; the companion then takes that night's unarmored loss.
+    expect(bare.qi).toBeCloseTo(187.5 - unarmoredLoss("foundation_establishment", 500).qi);
   });
 
   it("doesn't lower deletions or late edits, which stay above a failure (ruling 93)", () => {
@@ -239,6 +265,35 @@ describe("durability (rulings 144, 147)", () => {
     expect(day20.gear.items[WHITE]).toBeUndefined();
     expect(day20.gear.worn.armor).toBeNull();
     expect(day20.gear.lost).toMatchObject([{ item: { id: WHITE }, reason: "broken" }]);
+  });
+
+  it("with no armor worn all day, the companion takes Qi and gold instead, more than the repair would cost (ruling 154)", () => {
+    const s = rich(apply(foundation(), unequip("armor", T0 + 10)), 100, 100);
+    const after = advanceTo(s, T0 + 2 * DAY + 1);
+    const day = unarmoredLoss("foundation_establishment", 500);
+    // Day 0 had the robe on; day 1 had none.
+    expect(after.qi).toBeCloseTo(100 - day.qi);
+    expect(after.gold).toBeCloseTo(100 - day.gold);
+    expect(after.gear.unarmored).toMatchObject({ days: 1 });
+    // It costs more than repairing that damage on any base armor of the realm.
+    for (const realm of GEAR_REALMS) {
+      const loss = unarmoredLoss(realm, 500);
+      for (const kind of ["robe", "shop"] as const) expect(loss.gold).toBeGreaterThan(repairPrice({ id: "i", slot: "armor", kind, realm, damageBp: 500, obtainedAt: 0 }));
+    }
+    // Floored at the balances, never debt.
+    const broke = advanceTo(rich(s, 0, 0), T0 + 2 * DAY + 1);
+    expect([broke.qi, broke.gold, broke.main.debt.qi]).toEqual([0, 0, 0]);
+  });
+
+  it("takes nothing in Qi Condensation, at Lion or on rest days without armor (ruling 154)", () => {
+    const qc = rich(replay([created]), 100, 100);
+    expect(advanceTo(qc, T0 + 5 * DAY + 1).qi).toBe(100);
+    const lion = structuredClone(rich(apply(foundation(), unequip("armor", T0 + 10)), 100, 100));
+    lion.companion.tier = "lion";
+    lion.companion.food = 2500;
+    expect(advanceTo(lion, T0 + 5 * DAY + 1).qi).toBe(100);
+    const rest = rich(apply(foundation(), unequip("armor", T0 + 10), ev("RestStarted", T0 + H, { kind: "closed_door", until: T0 + 5 * DAY + H })), 100, 100);
+    expect(advanceTo(rest, T0 + 6 * DAY + 1).qi).toBe(100);
   });
 
   it("takes no damage on days with rest, and none at Lion", () => {
@@ -301,18 +356,25 @@ describe("durability (rulings 144, 147)", () => {
     expect(damageOf(s, "w1")).toBe(RULES_V1.gear.weaponWearBp.other);
   });
 
-  it("repairs fully for the damage's share of the realm's price; nothing to repair is rejected", () => {
+  it("repairs fully for 10% of the value prorated by damage; nothing to repair is rejected (ruling 155)", () => {
     let s = rich(advanceTo(foundation(), T0 + 4 * DAY + 1), 0, 100);
     const robe = s.gear.items[WHITE]!;
     expect(robe.damageBp).toBe(2000);
-    expect(repairPrice(robe)).toBeCloseTo(25 * 0.2);
+    // The white robe is worth half of Foundation's 80-gold armor.
+    expect(repairPrice(robe)).toBeCloseTo(0.1 * 40 * 0.2);
     s = apply(s, repair(WHITE, T0 + 4 * DAY + 2));
-    expect(s.gold).toBeCloseTo(95);
+    expect(s.gold).toBeCloseTo(100 - 0.8);
     expect(damageOf(s, WHITE)).toBe(0);
     expect(code(() => applyEvent(s, repair(WHITE, T0 + 4 * DAY + 3)))).toBe("nothing_to_repair");
     const broke = structuredClone(s);
     broke.gear.items[WHITE]!.damageBp = 5000;
-    expect(code(() => applyEvent(rich(broke, 0, 12), repair(WHITE, T0 + 4 * DAY + 3)))).toBe("insufficient_gold");
+    expect(code(() => applyEvent(rich(broke, 0, 1), repair(WHITE, T0 + 4 * DAY + 3)))).toBe("insufficient_gold");
+    for (const realm of GEAR_REALMS) {
+      for (const kind of ["robe", "shop", "legendary"] as const) {
+        const item: GearItem = { id: "i", slot: "armor", kind, realm, damageBp: 10_000, obtainedAt: 0 };
+        expect(repairPrice(item)).toBeLessThanOrEqual(0.1 * itemValue(item));
+      }
+    }
   });
 
   it("pricing rule: a full repair of any item costs less than a failure's Qi and gold in its realm", () => {
@@ -338,39 +400,62 @@ describe("durability (rulings 144, 147)", () => {
 describe("armor at risk before a deadline (ruling 149)", () => {
   const declare = (deadline: number) => ev("TribulationDeclared", T0 + H, { tribulationId: "x", title: "Pass", criteria: "Score 80", deadline });
 
-  it("warns when the worn armor is at 80% or more and a tribulation is due within 72 hours", () => {
-    const s = structuredClone(apply(foundation(), declare(T0 + 2 * DAY)));
-    expect(armorAtRisk(s)).toBeNull();
-    s.gear.items[WHITE]!.damageBp = 8000;
-    expect(armorAtRisk(s)).toMatchObject({ item: { id: WHITE }, tribulationId: "x", deadline: T0 + 2 * DAY });
+  it("the avatar's care line from 50% damage, in the app only (ruling 153)", () => {
+    const s = structuredClone(foundation());
+    s.gear.items[WHITE]!.damageBp = 4900;
+    expect(armorCare(s)).toBeNull();
+    s.gear.items[WHITE]!.damageBp = 5000;
+    expect(armorCare(s)?.id).toBe(WHITE);
+    // No push for it: the first gear push is the 95% one, at the 9th Turtle midnight.
+    const gearPushes = pushAlertPlan(s, s.clock).filter((a) => a.itemId !== undefined);
+    expect(gearPushes.every((a) => a.kind === "gear_breaking" && a.at >= T0 + 9 * DAY)).toBe(true);
+  });
+
+  it("warns when the damage plus a failure plus the companion's damage until then would reach 100% (ruling 153)", () => {
+    // On the deadline day (due 23:00): one Turtle midnight (5%) plus the failure (20%), so the line is 75%.
+    const declared = apply(foundation(), declare(T0 + 2 * DAY + 23 * H));
+    const today = structuredClone(advanceTo(declared, T0 + 2 * DAY + H));
+    today.gear.items[WHITE]!.damageBp = 7400;
+    expect(armorAtRisk(today)).toBeNull();
+    today.gear.items[WHITE]!.damageBp = 7500;
+    expect(armorAtRisk(today)).toMatchObject({ item: { id: WHITE }, tribulationId: "x" });
+    // Two days earlier: three Turtle midnights, so 65%; at Lion it stays 80%.
+    const later = structuredClone(declared);
+    later.gear.items[WHITE]!.damageBp = 6500;
+    expect(armorAtRisk(later)?.deadline).toBe(T0 + 2 * DAY + 23 * H);
+    later.companion.tier = "lion";
+    later.companion.food = 2500;
+    expect(armorAtRisk(later)).toBeNull();
+    later.gear.items[WHITE]!.damageBp = 8000;
+    expect(armorAtRisk(later)).not.toBeNull();
+    // More than 72 hours out: no warning yet.
     const far = structuredClone(apply(foundation(), declare(T0 + 10 * DAY)));
     far.gear.items[WHITE]!.damageBp = 9000;
     expect(armorAtRisk(far)).toBeNull();
   });
 
-  it("pushes when the risk starts: 72 hours before the deadline, or the midnight the armor reaches 80%", () => {
-    // At Lion the armor stays at 85% until the window opens.
-    const s = structuredClone(apply(foundation(), declare(T0 + 10 * DAY)));
-    s.companion.tier = "lion";
-    s.companion.food = 2500;
-    s.gear.items[WHITE]!.damageBp = 8500;
-    expect(armorRiskAlerts(s, 14 * DAY)).toEqual([{ itemId: WHITE, tribulationId: "x", at: T0 + 7 * DAY }]);
-    // At 65% the Turtle reaches 80% at the third midnight, inside the window that opened at the second.
-    const crossing = structuredClone(apply(foundation(), declare(T0 + 5 * DAY)));
-    crossing.gear.items[WHITE]!.damageBp = 6500;
-    expect(armorRiskAlerts(crossing, 14 * DAY)).toEqual([{ itemId: WHITE, tribulationId: "x", at: T0 + 3 * DAY }]);
-    expect(pushAlertPlan(crossing, crossing.clock).find((a) => a.kind === "armor_at_risk")).toMatchObject({ itemId: WHITE, tribulationId: "x" });
+  it("pushes 72 hours before a deadline whose failure would break the armor", () => {
+    const s = structuredClone(apply(foundation(), declare(T0 + 5 * DAY + 23 * H)));
+    // Six Turtle midnights (30%) and the failure (20%): 50% now breaks it at the failure.
+    s.gear.items[WHITE]!.damageBp = 5000;
+    expect(armorRiskAlerts(s, 14 * DAY)).toEqual([{ itemId: WHITE, tribulationId: "x", at: T0 + 2 * DAY + 23 * H }]);
+    expect(pushAlertPlan(s, s.clock).find((a) => a.kind === "armor_at_risk")).toMatchObject({ itemId: WHITE, tribulationId: "x" });
+    s.gear.items[WHITE]!.damageBp = 4900;
+    expect(armorRiskAlerts(s, 14 * DAY)).toEqual([]);
   });
 
-  it("the one-tap swap picks the best wearable stash armor below 80%, never a higher realm's", () => {
+  it("the one-tap swap picks the best wearable stash armor a failure wouldn't break, never a higher realm's", () => {
     let s = rich(replay([created, ...climb(8)]), 0, 1000);
     // Worn: white robe. Stash: yellow robe (Core Formation, 16 Qi).
     expect(bestStashArmor(s)?.id).toBe(YELLOW);
     s = apply(s, buy("armor", T0 + H, "a1"));
     expect(bestStashArmor(s)?.id).toBe("a1");
+    // With nothing due soon, the line is a deadline today: 75% at Turtle.
     const worn = structuredClone(s);
-    worn.gear.items.a1!.damageBp = 8000;
+    worn.gear.items.a1!.damageBp = 7500;
     expect(bestStashArmor(worn)?.id).toBe(YELLOW);
+    worn.gear.items.a1!.damageBp = 7400;
+    expect(bestStashArmor(worn)?.id).toBe("a1");
   });
 });
 

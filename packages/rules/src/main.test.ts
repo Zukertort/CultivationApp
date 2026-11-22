@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 import { OATH_TEXT, type Difficulty, type Effort, type GameEvent, type Period } from "@cultivation/schema";
 import {
   DAY,
-  RULES_V1,
+  RULES_V1 as RULES,
   RuleViolation,
-  advanceTo,
-  applyEvent,
+  advanceTo as advanceToWith,
+  applyEvent as applyEventWith,
   cultivationStreak,
   deviationStatus,
   goldForPoints,
@@ -27,6 +27,13 @@ import {
   type CultivatorState,
   type RulesConfig,
 } from "./index.js";
+import { noWear } from "./test-support.js";
+
+// These tests measure Main and tribulation rules, not gear wear (rulings 147, 154).
+const RULES_V1 = noWear(RULES);
+const advanceTo = (state: CultivatorState, to: number, rules: RulesConfig = RULES_V1) => advanceToWith(state, to, rules);
+const applyEvent = (state: CultivatorState, e: GameEvent, rules: RulesConfig = RULES_V1) => applyEventWith(state, e, rules);
+
 
 // Day 0 = Monday 2026-11-02 00:00 in Buenos Aires (UTC-3), so local days line up with ISO weeks.
 

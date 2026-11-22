@@ -1,5 +1,5 @@
 /**
- * Gear report (Roadmap part 2, rulings 137-152): what durability costs each
+ * Gear report (Roadmap part 2, rulings 137-156): what durability costs each
  * persona (armor and weapon apart), what armor saves on failures, what a
  * weapon adds, and a goblin looking for arbitrage.
  *
@@ -9,7 +9,8 @@
  *   events) repairs the armor at the 95% warning, or when the before-deadline
  *   warning shows (80% with a tribulation due within 72 hours), if the gold
  *   allows.
- * - "no gear": takes the robe off, so failures take the full loss.
+ * - "no gear": takes the robe off, so failures take the full loss and the
+ *   companion takes Qi and gold every day instead of damaging armor (ruling 154).
  * - "buys shop gear": also buys the current realm's shop armor and weapon
  *   when the gold allows (keeping 50 gold back), wears them, and repairs
  *   both the same way (the weapon at 95%).
@@ -96,6 +97,8 @@ interface Result {
   failureQi: number;
   failureGold: number;
   failureDebt: string;
+  unarmoredQi: number;
+  unarmoredGold: number;
   qiEarned: number;
   realm: string;
 }
@@ -112,7 +115,7 @@ function simulate(p: Persona, policy: Policy): Result {
   }
   const s = c.s;
   const spentOnSteps = s.progress.steps.reduce((a, x) => a + x.qiSpent, 0);
-  const debt = s.tribulations.spent.failureDebt;
+  const debt = s.tribulations.spent.debt;
   return {
     label: p.label,
     policy,
@@ -127,6 +130,8 @@ function simulate(p: Persona, policy: Policy): Result {
     failureQi: s.tribulations.spent.failures.qi,
     failureGold: s.tribulations.spent.failures.gold,
     failureDebt: `${debt.qi.toFixed(0)} Qi / ${debt.gold.toFixed(0)} gold`,
+    unarmoredQi: s.gear.unarmored.qi,
+    unarmoredGold: s.gear.unarmored.gold,
     // Qi held plus Qi spent on steps and failures: what the year earned.
     qiEarned: s.qi + spentOnSteps + s.tribulations.spent.failures.qi + s.tribulations.spent.edits.qi + s.tribulations.spent.deletions.qi,
     realm: `${s.main.realm} ${s.progress.level ?? ""}`.trim(),
@@ -135,34 +140,37 @@ function simulate(p: Persona, policy: Policy): Result {
 
 // ---- The goblin -----------------------------------------------------------------
 
-type Goblin = "honest" | "sells free robes" | "buy-to-sell loop" | "repair then sell";
+type Goblin = "honest" | "tries to sell free robes" | "goes without armor" | "buy-to-sell loop" | "repair then sell";
 
 /**
  * A studier (gym 2x a week) looking for arbitrage in gear. "honest" wears the
- * robes and repairs at 95%. "sells free robes" takes each new robe off and
- * sells it at once. "buy-to-sell loop" buys the realm's shop armor and weapon
+ * robes and repairs at 95%. "tries to sell free robes" takes each new robe
+ * off and tries to sell it (rejected since ruling 155), then goes without.
+ * "goes without armor" never wears any. "buy-to-sell loop" buys the realm's shop armor and weapon
  * every day it can and sells them straight back. "repair then sell" buys the
  * shop weapon, wears it until half worn, repairs it, sells it and buys a new
  * one (testing whether a repair adds more sell value than it costs).
  */
-function goblin(strategy: Goblin): { gold: number; netGearGold: number; robesSold: number; loops: number } {
+function goblin(strategy: Goblin): { gold: number; qi: number; netGearGold: number; robesSold: number; rejected: number; loops: number } {
   const c = new Cultivator({ idPrefix: `gob-${strategy}`, rollAll: true, trackGold: true });
   setupBasic(c);
   const plan = tribulationPlan({});
   const spend: Spend = { armorRepairs: 0, weaponRepairs: 0 };
   let robesSold = 0;
+  let rejected = 0;
   let loops = 0;
   for (let d = 0; d < DAYS; d++) {
-    if (strategy !== "sells free robes") gearDay(c, d, "robe only", spend);
+    if (strategy === "goes without armor" || strategy === "tries to sell free robes") gearDay(c, d, "no gear", spend);
+    else gearDay(c, d, "robe only", spend);
     routineDay(c, { income: study }, d);
     plan(c, d);
     const at = c.at(d, 23);
     const realm = c.s.main.realm;
-    if (strategy === "sells free robes") {
+    if (strategy === "tries to sell free robes") {
       for (const robe of Object.values(c.s.gear.items).filter((i) => i.kind === "robe")) {
         if (c.s.gear.worn.armor === robe.id) c.now("GearUnequipped", at, { slot: "armor" });
-        c.now("GearSold", at, { itemId: robe.id });
-        robesSold += 1;
+        if (c.now("GearSold", at, { itemId: robe.id })) robesSold += 1;
+        else rejected += 1;
       }
     }
     if (!isGearRealm(realm)) continue;
@@ -173,8 +181,7 @@ function goblin(strategy: Goblin): { gold: number; netGearGold: number; robesSol
         const bought = stash(c.s).find((i) => i.kind === "shop" && i.slot === slot) ?? wornItem(c.s, slot);
         if (!bought) continue;
         if (c.s.gear.worn[slot] === bought.id) c.now("GearUnequipped", at, { slot });
-        c.now("GearSold", at, { itemId: bought.id });
-        loops += 1;
+        if (c.now("GearSold", at, { itemId: bought.id })) loops += 1;
       }
     }
     if (strategy === "repair then sell") {
@@ -182,14 +189,13 @@ function goblin(strategy: Goblin): { gold: number; netGearGold: number; robesSol
       if (w && w.damageBp >= 5000 && c.s.gold >= repairPrice(w)) {
         c.now("GearRepaired", at, { itemId: w.id });
         c.now("GearUnequipped", at, { slot: "weapon" });
-        c.now("GearSold", at, { itemId: w.id });
-        loops += 1;
+        if (c.now("GearSold", at, { itemId: w.id })) loops += 1;
       }
       if (!wornItem(c.s, "weapon") && c.s.gold >= shopPrice("weapon", realm) + RESERVE) c.now("GearBought", at, { slot: "weapon" });
     }
   }
   const g = c.s.gear.gold;
-  return { gold: c.s.gold, netGearGold: g.sold - g.bought - g.repaired, robesSold, loops };
+  return { gold: c.s.gold, qi: c.s.qi, netGearGold: g.sold - g.bought - g.repaired, robesSold, rejected, loops };
 }
 
 export function runGearScenarios(outDir: string): void {
@@ -217,6 +223,8 @@ export function runGearScenarios(outDir: string): void {
     "failure Qi lost",
     "failure gold lost",
     "failure debt left",
+    "unarmored loss Qi",
+    "unarmored loss gold",
     "Qi earned in the year",
   ];
   const results = PERSONAS.flatMap((p) => (["robe only", "no gear", "buys shop gear"] as const).map((policy) => simulate(p, policy)));
@@ -235,6 +243,8 @@ export function runGearScenarios(outDir: string): void {
     r.failureQi.toFixed(0),
     r.failureGold.toFixed(0),
     r.failureDebt,
+    r.unarmoredQi.toFixed(0),
+    r.unarmoredGold.toFixed(0),
     r.qiEarned.toFixed(0),
   ]);
   console.log(`\nGear: durability, armor and weapons over ${DAYS} days (repairs at the 95% warning or the before-deadline warning)\n`);
@@ -242,26 +252,27 @@ export function runGearScenarios(outDir: string): void {
   for (const r of rows) console.log(r.join("\t"));
   writeFileSync(join(outDir, "gear.csv"), [header.join(","), ...rows.map((r) => r.map((x) => `"${x}"`).join(","))].join("\n"));
 
-  // Does a full repair add more sell value than it costs? (Selling a repaired item vs selling it worn.)
-  console.log("\nGoblin check: a full repair's price vs the sell value it restores (positive = repairing before selling profits)\n");
-  console.log(["realm", "kind", "armor", "weapon"].join("\t"));
+  // Loops: can any buyable item be sold for more than it cost, even repaired? And does repairing before selling pay?
+  console.log("\nGoblin check, per item: best sale minus buy price (negative = no loop), and a full repair's price vs the sell value it restores\n");
+  console.log(["realm", "slot", "kind", "buy", "sell new", "sell - buy", "repair before selling: restored - cost"].join("\t"));
   for (const realm of GEAR_REALMS) {
-    for (const kind of ["robe", "shop", "legendary"] as const) {
-      const margin = (slot: "armor" | "weapon") => {
-        if (slot === "weapon" && kind === "robe") return "-";
+    for (const slot of ["armor", "weapon"] as const) {
+      for (const kind of ["robe", "shop", "legendary"] as const) {
+        if (slot === "weapon" && kind === "robe") continue;
         const item: GearItem = { id: "x", slot, kind, realm, damageBp: 10_000, obtainedAt: 0 };
-        const restored = sellPrice({ ...item, damageBp: 0 }) - sellPrice(item);
-        return (restored - repairPrice(item)).toFixed(1);
-      };
-      console.log([realm, kind, margin("armor"), margin("weapon")].join("\t"));
+        const fresh = sellPrice({ ...item, damageBp: 0 });
+        const buy = kind === "shop" ? shopPrice(slot, realm) : null;
+        const restored = fresh - sellPrice(item);
+        console.log([realm, slot, kind, buy ?? "drop", fresh.toFixed(1), buy === null ? "-" : (fresh - buy).toFixed(1), kind === "robe" ? "can't sell" : (restored - repairPrice(item)).toFixed(1)].join("\t"));
+      }
     }
   }
 
   console.log(`\nGoblin: a studier (gym 2x a week) hunting arbitrage over ${DAYS} days\n`);
   const honest = goblin("honest");
-  console.log(["strategy", "gold at end", "vs honest", "net gold on gear (sold - bought - repaired)", "robes sold", "loops"].join("\t"));
-  for (const strategy of ["honest", "sells free robes", "buy-to-sell loop", "repair then sell"] as const) {
+  console.log(["strategy", "gold at end", "gold vs honest", "Qi at end", "Qi vs honest", "net gold on gear (sold - bought - repaired)", "robes sold", "sales rejected", "loops"].join("\t"));
+  for (const strategy of ["honest", "tries to sell free robes", "goes without armor", "buy-to-sell loop", "repair then sell"] as const) {
     const g = strategy === "honest" ? honest : goblin(strategy);
-    console.log([strategy, g.gold.toFixed(0), (g.gold - honest.gold).toFixed(0), g.netGearGold.toFixed(0), g.robesSold, g.loops].join("\t"));
+    console.log([strategy, g.gold.toFixed(0), (g.gold - honest.gold).toFixed(0), g.qi.toFixed(0), (g.qi - honest.qi).toFixed(0), g.netGearGold.toFixed(0), g.robesSold, g.rejected, g.loops].join("\t"));
   }
 }

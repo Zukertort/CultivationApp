@@ -1,7 +1,7 @@
 /**
  * Gear names, stat lines, the gear warnings with their one-tap actions, and
  * the System messages: an item lost, and a new robe put in the stash
- * (rulings 137-152). Numbers come from @cultivation/rules.
+ * (rulings 137-156). Numbers come from @cultivation/rules.
  */
 import { useEffect, useState } from "react";
 import { Alert, View } from "react-native";
@@ -10,6 +10,7 @@ import {
   FULL_DURABILITY_BP,
   RULES_V1,
   armorAtRisk,
+  armorCare,
   bestStashArmor,
   gearWarnings,
   repairPrice,
@@ -58,7 +59,12 @@ export function gearWarning(state: CultivatorState): string | null {
   return `My equipment is almost broken; I should repair it before it's lost. (${w.map(gearName).join(", ")})`;
 }
 
-/** The before-deadline warning (ruling 149). */
+/** The avatar's in-app line from 50% damage, never pushed (ruling 153). */
+export function careLine(state: CultivatorState): string | null {
+  return armorCare(state) ? "My armor is getting damaged; I should take care of it." : null;
+}
+
+/** The before-deadline warning (ruling 153). */
 export function riskWarning(state: CultivatorState): string | null {
   const r = armorAtRisk(state);
   if (!r) return null;
@@ -89,6 +95,8 @@ export function GearWarnings() {
   const [note, setNote] = useState<{ text: string; error: boolean } | null>(null);
   const breaking = gearWarning(state);
   const risk = riskWarning(state);
+  const care = breaking || risk ? null : careLine(state);
+  if (care) return <T style={{ color: C.gold, fontStyle: "italic" }}>{care}</T>;
   if (!breaking && !risk) return note ? <Note text={note.text} error={note.error} /> : null;
   const armor = wornItem(state, "armor");
   const armorWarned = armor !== null && (risk !== null || armor.damageBp >= RULES_V1.gear.warnAtBp);

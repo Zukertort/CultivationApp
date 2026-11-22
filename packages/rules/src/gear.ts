@@ -1,5 +1,5 @@
 /**
- * Base gear (Roadmap part 2; rulings 137-152): one armor and one weapon slot,
+ * Base gear (Roadmap part 2; rulings 137-156): one armor and one weapon slot,
  * a stash for gear not worn, free robes on first entering each realm, shop
  * gear, selling and repairs, and durability.
  *
@@ -10,7 +10,8 @@
  * Damage goes by slot (ruling 147): the companion's daily damage hits every
  * armor worn at any point that local day, a failure's damage hits the armor
  * worn at the deadline, and the weapon wears with use, on each Qi gain it
- * boosts. No event carries damage; replay derives it.
+ * boosts. With no armor worn all day, the companion's damage takes Qi and
+ * gold instead (ruling 154). No event carries damage; replay derives it.
  */
 import type { Effort, EventOf, GearSlot } from "@cultivation/schema";
 import { GEAR_REALMS, REALMS, RULES_V1, type GearKind, type GearRealm, type Realm, type RulesConfig } from "./config.js";
@@ -46,10 +47,12 @@ export interface GearState {
   lost: { at: number; item: GearItem; reason: GearLossReason }[];
   /** Gold spent and earned on gear, for the simulator and the app. */
   gold: { bought: number; repaired: number; sold: number };
+  /** What the companion's damage took with no armor worn (ruling 154). */
+  unarmored: { qi: number; gold: number; days: number };
 }
 
 export function initialGear(): GearState {
-  return { items: {}, worn: { armor: null, weapon: null }, robesGranted: [], armorWornToday: [], lost: [], gold: { bought: 0, repaired: 0, sold: 0 } };
+  return { items: {}, worn: { armor: null, weapon: null }, robesGranted: [], armorWornToday: [], lost: [], gold: { bought: 0, repaired: 0, sold: 0 }, unarmored: { qi: 0, gold: 0, days: 0 } };
 }
 
 const realmIndex = (r: Realm) => REALMS.indexOf(r);
@@ -91,32 +94,32 @@ export function shopPrice(slot: GearSlot, realm: GearRealm, rules: RulesConfig =
   return rules.gear.shopGold[slot][realm];
 }
 
-/** What selling an item pays (provisional): a share of its realm's shop price, by kind, less its damage. */
-export function sellPrice(item: GearItem, rules: RulesConfig = RULES_V1): number {
-  const g = rules.gear;
-  return g.sellShare * g.sellKindFactor[item.kind] * g.shopGold[item.slot][item.realm] * (1 - item.damageBp / FULL_DURABILITY_BP);
+/** An item's value (ruling 155): its kind's factor (robe half, legendary double) times its realm's shop price for the slot. */
+export function itemValue(item: Pick<GearItem, "kind" | "slot" | "realm">, rules: RulesConfig = RULES_V1): number {
+  return rules.gear.valueFactor[item.kind] * rules.gear.shopGold[item.slot][item.realm];
 }
 
-/** A full repair costs its damage's share of the item's realm price (ruling 144); legendary gear costs more. */
+/** What selling an item pays (ruling 155): 70% of its value, less its damage's share. Free robes can't be sold (0). */
+export function sellPrice(item: GearItem, rules: RulesConfig = RULES_V1): number {
+  if (item.kind === "robe") return 0;
+  return rules.gear.sellShare * itemValue(item, rules) * (1 - item.damageBp / FULL_DURABILITY_BP);
+}
+
+/** A full repair costs 10% of the item's value, prorated by its damage (ruling 155). */
 export function repairPrice(item: GearItem, rules: RulesConfig = RULES_V1): number {
-  const table = item.kind === "legendary" ? rules.gear.repairGold.legendary : rules.gear.repairGold.base;
-  return (table[item.realm] * item.damageBp) / FULL_DURABILITY_BP;
+  return (rules.gear.repairShare * itemValue(item, rules) * item.damageBp) / FULL_DURABILITY_BP;
+}
+
+/** Qi and gold the companion's damage takes on a day with no armor worn (ruling 154): more than repairing the realm's shop armor would cost. */
+export function unarmoredLoss(realm: GearRealm, bp: number, rules: RulesConfig = RULES_V1): { qi: number; gold: number } {
+  const repair = (rules.gear.repairShare * itemValue({ kind: "shop", slot: "armor", realm }, rules) * bp) / FULL_DURABILITY_BP;
+  const loss = rules.gear.unarmoredLossFactor * repair;
+  return { qi: loss, gold: loss };
 }
 
 /** Can this item be worn now: its realm is the current one or lower. */
 export function wearable(state: CultivatorState, item: GearItem): boolean {
   return realmIndex(item.realm) <= realmIndex(state.main.realm);
-}
-
-/**
- * The stash armor a one-tap swap would wear (ruling 149): wearable, below
- * the risk line (a failure wouldn't break it), the best failure reduction,
- * then the least damaged. Null when there is none.
- */
-export function bestStashArmor(state: CultivatorState, rules: RulesConfig = RULES_V1): GearItem | null {
-  const options = stash(state).filter((i) => i.slot === "armor" && wearable(state, i) && i.damageBp < rules.gear.riskAtBp);
-  options.sort((a, b) => armorStats(b, rules).qi - armorStats(a, rules).qi || a.damageBp - b.damageBp || a.obtainedAt - b.obtainedAt);
-  return options[0] ?? null;
 }
 
 // ---- Changes ----------------------------------------------------------------
@@ -173,13 +176,28 @@ export function syncGear(s: CultivatorState, at: number): void {
 /**
  * At a local midnight: after a day without rest, the companion damages every
  * armor worn at any point that day and still held (ruling 147); the weapon
- * isn't hit. It keeps going while dead. Then the day's list starts again
- * from the armor worn now.
+ * isn't hit. With no armor worn all day, it takes Qi and gold instead,
+ * floored at the balances (ruling 154), except in Qi Condensation, where
+ * gear doesn't exist yet. It keeps going while dead. Then the day's list
+ * starts again from the armor worn now.
  */
 export function gearMidnight(s: CultivatorState, midnight: number, rested: boolean, rules: RulesConfig): void {
   const g = s.gear;
   const bp = rules.gear.companionDamageBp[s.companion.tier];
-  if (!rested && bp > 0) for (const id of g.armorWornToday) damage(s, id, bp, midnight);
+  if (!rested && bp > 0) {
+    for (const id of g.armorWornToday) damage(s, id, bp, midnight);
+    const realm = s.main.realm;
+    if (g.armorWornToday.length === 0 && isGearRealm(realm) && s.created) {
+      const loss = unarmoredLoss(realm, bp, rules);
+      const qi = Math.min(s.qi, loss.qi);
+      const gold = Math.min(s.gold, loss.gold);
+      s.qi -= qi;
+      s.gold -= gold;
+      g.unarmored.qi += qi;
+      g.unarmored.gold += gold;
+      g.unarmored.days += 1;
+    }
+  }
   g.armorWornToday = [];
   noteWornArmor(s);
 }
@@ -274,18 +292,20 @@ export function onGearUnequipped(s: CultivatorState, e: EventOf<"GearUnequipped"
   s.gear.worn[e.slot] = null;
 }
 
-/** Sell an item from the stash (provisional price). Worn gear is taken off first. */
+/** Sell an item from the stash for 70% of its value less damage (ruling 155). Worn gear is taken off first; free robes can't be sold. */
 export function onGearSold(s: CultivatorState, e: EventOf<"GearSold">, rules: RulesConfig): void {
   alive(s, "sold");
   const item = getItem(s, e.itemId);
   if (Object.values(s.gear.worn).includes(item.id)) violate("gear_worn", "take the item off before selling it");
+  // A free robe can't be sold, so breakthroughs don't mint gold (ruling 155).
+  if (item.kind === "robe") violate("robe_not_sellable", "a free robe can't be sold");
   const price = sellPrice(item, rules);
   delete s.gear.items[item.id];
   s.gold += price;
   s.gear.gold.sold += price;
 }
 
-/** Repair an item fully, worn or in the stash, for its damage's share of the repair price (ruling 144). */
+/** Repair an item fully, worn or in the stash, for 10% of its value prorated by damage (rulings 144, 155). */
 export function onGearRepaired(s: CultivatorState, e: EventOf<"GearRepaired">, rules: RulesConfig): void {
   alive(s, "repaired");
   const item = getItem(s, e.itemId);
@@ -298,7 +318,7 @@ export function onGearRepaired(s: CultivatorState, e: EventOf<"GearRepaired">, r
 
 // ---- Projections ------------------------------------------------------------
 
-/** Held items at or above the warning line (95% damage), for the avatar's warning (ruling 144). */
+/** Held items at or above the warning line (95% damage), for the avatar's warning and push (ruling 144). */
 export function gearWarnings(state: CultivatorState, rules: RulesConfig = RULES_V1): GearItem[] {
   return Object.values(state.gear.items).filter((i) => i.damageBp >= rules.gear.warnAtBp);
 }

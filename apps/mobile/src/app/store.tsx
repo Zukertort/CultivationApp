@@ -59,7 +59,7 @@ export default function StoreScreen() {
             </View>
           );
         })}
-        <T muted>Armor takes the damage: each night the companion damages every armor worn that day (the Lion never does), and a failed tribulation damages the armor worn at its deadline by 20%. The weapon wears a little with each Qi gain it boosts. At 100% an item is lost; damage never weakens it before that.</T>
+        <T muted>{`Armor takes the damage: each night the companion damages every armor worn that day (the Lion never does), and a failed tribulation damages the armor worn at its deadline by 20%. With no armor worn all day, the companion takes Qi and gold instead, more than a repair would cost. The weapon wears a little with each Qi gain it boosts. At 100% an item is lost; damage never weakens it before that. A full repair costs a tenth of the item's value.`}</T>
       </Card>
 
       <Note text={note?.text ?? null} error={note?.error} />
@@ -94,7 +94,7 @@ export default function StoreScreen() {
               );
             })
           )}
-          <T muted>Provisional prices. Legendary gear and class wearables only drop.</T>
+          <T muted>{`Provisional prices. Gear sells for 70% of its value less damage; free robes can't be sold. Legendary gear and class wearables only drop.`}</T>
         </Card>
       ) : (
         <Card title="Stash">
@@ -105,17 +105,19 @@ export default function StoreScreen() {
               <Row>
                 {wearable(state, item) ? <Button label="Wear" kind="ghost" onPress={() => void act({ type: "GearEquipped", itemId: item.id }, `Wearing the ${gearName(item)}.`)} /> : null}
                 {item.damageBp > 0 ? <Button label={`Repair (${gold(repairPrice(item))})`} kind="ghost" disabled={dead} onPress={() => void act({ type: "GearRepaired", itemId: item.id }, `Repaired the ${gearName(item)}.`)} /> : null}
-                <Button
-                  label={`Sell (${Math.floor(sellPrice(item))} gold)`}
-                  kind="danger"
-                  disabled={dead}
-                  onPress={() =>
-                    Alert.alert(`Sell the ${gearName(item)}?`, `It sells for ${sellPrice(item).toFixed(1)} gold.${item.kind === "robe" ? " A free robe is given only once." : ""}`, [
-                      { text: "Keep it", style: "cancel" },
-                      { text: "Sell", style: "destructive", onPress: () => void act({ type: "GearSold", itemId: item.id }, `Sold the ${gearName(item)}.`) },
-                    ])
-                  }
-                />
+                {item.kind === "robe" ? null : (
+                  <Button
+                    label={`Sell (${Math.floor(sellPrice(item))} gold)`}
+                    kind="danger"
+                    disabled={dead}
+                    onPress={() =>
+                      Alert.alert(`Sell the ${gearName(item)}?`, `It sells for ${sellPrice(item).toFixed(1)} gold.`, [
+                        { text: "Keep it", style: "cancel" },
+                        { text: "Sell", style: "destructive", onPress: () => void act({ type: "GearSold", itemId: item.id }, `Sold the ${gearName(item)}.`) },
+                      ])
+                    }
+                  />
+                )}
               </Row>
             </ItemView>
           ))}

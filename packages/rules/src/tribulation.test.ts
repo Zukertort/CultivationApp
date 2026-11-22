@@ -2,20 +2,30 @@ import { describe, expect, it } from "vitest";
 import { OATH_TEXT, TRIBULATION_OATH, type GameEvent } from "@cultivation/schema";
 import {
   DAY,
-  RULES_V1,
+  RULES_V1 as RULES,
   RuleViolation,
-  advanceTo,
-  applyEvent,
+  addDebt,
+  advanceTo as advanceToWith,
+  applyEvent as applyEventWith,
   earnQi,
   pendingTribulationRolls,
   pushAlertPlan,
-  replay,
+  replay as replayWith,
   tribulationDeletePrice,
   tribulationDropOutcome,
   tribulationEditPrice,
   tribulationStatus,
   type CultivatorState,
+  type RulesConfig,
 } from "./index.js";
+import { noWear } from "./test-support.js";
+
+// These tests measure Main and tribulation rules, not gear wear (rulings 147, 154).
+const RULES_V1 = noWear(RULES);
+const advanceTo = (state: CultivatorState, to: number, rules: RulesConfig = RULES_V1) => advanceToWith(state, to, rules);
+const applyEvent = (state: CultivatorState, e: GameEvent, rules: RulesConfig = RULES_V1) => applyEventWith(state, e, rules);
+const replay = (events: readonly GameEvent[], rules: RulesConfig = RULES_V1, until?: number) => replayWith(events, rules, until);
+
 
 // Day 0 = Monday 2026-11-02 00:00 in Buenos Aires (UTC-3).
 const T0 = Date.UTC(2026, 10, 2, 3);
@@ -141,7 +151,7 @@ describe("missed deadlines (rulings 65-66)", () => {
     expect(s.gold).toBe(0);
     // The loss is 137.5 Qi and 45 gold: 10 Qi paid, 127.5 owed but capped at 50; 45 gold owed.
     expect(s.tribulations.spent.failures).toEqual({ qi: 60, gold: 45, count: 1 });
-    expect(s.tribulations.spent.failureDebt).toEqual({ qi: 50, gold: 45 });
+    expect(s.tribulations.spent.debt).toEqual({ qi: 50, gold: 45 });
     expect(s.main.debt).toEqual({ qi: 50, gold: 45 });
     expect(s.main.debtPostponed).toEqual({ qi: 50, gold: 45 });
     expect(s.main.deviation).not.toBeNull();
@@ -253,6 +263,33 @@ describe("editing and deleting (ruling 67)", () => {
       expect(deleted.qi).toBeLessThan(failed.qi);
       expect(deleted.gold).toBeLessThan(failed.gold);
     }
+  });
+
+  it("a deletion or late edit the balances can't cover leaves unforgivable debt, so deleting is never cheaper than failing (ruling 156)", () => {
+    // Broke: 10 Qi, no gold. The failure loss is 137.5 Qi and 45 gold.
+    const broke = () => rich(replay([...start, declare()]), 10, 0);
+    const deleted = apply(broke(), del(T0 + DAY));
+    const failed = advanceTo(broke(), T0 + 11 * DAY);
+    expect(deleted.qi).toBe(0);
+    expect(deleted.main.debt.qi).toBeGreaterThanOrEqual(failed.main.debt.qi);
+    expect(deleted.main.debt.gold).toBeGreaterThan(failed.main.debt.gold);
+    expect(deleted.main.debtPostponed).toEqual(deleted.main.debt);
+    expect(deleted.tribulations.spent.debt.gold).toBeGreaterThan(0);
+    // A late edit (last quarter) with nothing to pay is owed the same way.
+    const late = apply(broke(), edit(DEADLINE - H));
+    expect(late.main.debt.gold).toBeCloseTo(45);
+    expect(late.tribulations.items.x!.status).toBe("open");
+  });
+
+  it("debt left at the cap after a comeback doesn't start deviation again until new debt is added (ruling 156)", () => {
+    const s = structuredClone(replay([...start]));
+    s.main.debt = { qi: 50, gold: 0 };
+    s.main.debtPostponed = { qi: 50, gold: 0 };
+    s.main.deviation = null;
+    addDebt(s, 0, 0, T0 + DAY, RULES_V1, false);
+    expect(s.main.deviation).toBeNull();
+    addDebt(s, 0, 5, T0 + DAY, RULES_V1, false);
+    expect(s.main.deviation).not.toBeNull();
   });
 });
 

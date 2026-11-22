@@ -294,11 +294,17 @@ export interface GearRules {
   weapon: Record<Exclude<GearKind, "robe">, Record<GearRealm, number>>;
   /** Shop price of the realm's gear by slot. */
   shopGold: Record<"armor" | "weapon", Record<GearRealm, number>>;
-  /** An item sells for `sellShare` x its kind's factor x its realm's shop price for the slot x (1 - damage). */
+  /** An item's value: its kind's factor x its realm's shop price for the slot (ruling 155). Buying costs the full shop price. */
+  valueFactor: Record<GearKind, number>;
+  /** SIM: an item sells for this share of its value, less its damage's share; free robes can't be sold (ruling 155). */
   sellShare: number;
-  sellKindFactor: Record<GearKind, number>;
-  /** A full repair by the item's realm (robes and shop gear, legendary gear); a partial one costs its damage's share. */
-  repairGold: Record<"base" | "legendary", Record<GearRealm, number>>;
+  /** SIM: a full repair costs this share of the item's value (at most 10%), prorated by damage (ruling 155). */
+  repairShare: number;
+  /**
+   * SIM: a midnight that would damage armor, with no armor worn that day, takes Qi and gold instead (ruling 154): each
+   * this many times the repair of the current realm's shop armor for that damage. Never in Qi Condensation.
+   */
+  unarmoredLossFactor: number;
   /** Damage, in basis points of durability, at each local midnight without rest, by fitness tier, to every armor worn that local day (the weapon isn't hit). */
   companionDamageBp: Record<Tier, number>;
   /** Damage to the armor worn at a failed tribulation's deadline. */
@@ -307,8 +313,9 @@ export interface GearRules {
   weaponWearBp: Record<Effort | "other", number>;
   /** The push and the avatar's warning fire at this much damage (95%). */
   warnAtBp: number;
-  /** Worn armor above this much damage with a tribulation due within `riskHours` gets the before-deadline warning (80%: a failure's 20% would break it). */
-  riskAtBp: number;
+  /** The avatar's "getting damaged" line (in the app, no push) from this much damage on (50%; ruling 153). */
+  careAtBp: number;
+  /** The before-deadline warning looks at tribulations due within this many hours (ruling 153). */
   riskHours: number;
 }
 
@@ -382,7 +389,7 @@ export interface RulesConfig {
 }
 
 export const RULES_V1: RulesConfig = Object.freeze({
-  version: "1.20.0",
+  version: "1.21.0",
   tiers: {
     turtle: { capacity: 30, weeklyLoss: 10, goldBonus: 0.01, coreQiBonus: 0, breakthroughLegendaryChance: 0 },
     panda: { capacity: 800, weeklyLoss: 200, goldBonus: 0.1, coreQiBonus: 0, breakthroughLegendaryChance: 0 },
@@ -604,18 +611,16 @@ export const RULES_V1: RulesConfig = Object.freeze({
       armor: { foundation_establishment: 80, core_formation: 160, nascent_soul: 320, spirit_realm: 480 },
       weapon: { foundation_establishment: 100, core_formation: 200, nascent_soul: 400, spirit_realm: 600 },
     },
-    sellShare: 0.25,
-    sellKindFactor: { robe: 0.5, shop: 1, legendary: 2 },
+    valueFactor: { robe: 0.5, shop: 1, legendary: 2 },
+    sellShare: 0.7,
     // Below a failure's Qi and gold in every realm (the pricing rule).
-    repairGold: {
-      base: { foundation_establishment: 25, core_formation: 35, nascent_soul: 45, spirit_realm: 45 },
-      legendary: { foundation_establishment: 40, core_formation: 55, nascent_soul: 70, spirit_realm: 70 },
-    },
+    repairShare: 0.1,
+    unarmoredLossFactor: 3,
     companionDamageBp: { turtle: 500, panda: 300, horse: 200, tiger: 100, lion: 0 },
     failureDamageBp: 2000,
     weaponWearBp: { quick: 15, session: 40, day: 100, project: 250, other: 15 },
     warnAtBp: 9500,
-    riskAtBp: 8000,
+    careAtBp: 5000,
     riskHours: 72,
   },
   classes: {
