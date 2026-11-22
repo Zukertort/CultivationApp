@@ -16,6 +16,7 @@ import { earnClassDrop } from "./class.js";
 import { addPotion, potionKind } from "./economy.js";
 import { violate } from "./errors.js";
 import { effectiveDeadline, markActivity, type Due } from "./main.js";
+import { gearOnFailure } from "./gear.js";
 import { checkClaimable, checkDeclarable, failureQiLoss, isUnlockedNascent } from "./realm.js";
 import { DAY, MINUTE } from "./time.js";
 
@@ -111,7 +112,7 @@ function statusAt(s: CultivatorState, t: Tribulation, at: number): TribulationSt
  * the current level's threshold (ruling 80). Called at each midnight and
  * before any event about the tribulation.
  */
-function settleFailure(s: CultivatorState, t: Tribulation, at: number, rules: RulesConfig): void {
+function settleFailure(s: CultivatorState, id: string, t: Tribulation, at: number, rules: RulesConfig): void {
   if (t.status !== "open" || !t.due) return;
   const deadline = effectiveDeadline(t.due, s.rest, at);
   if (at <= deadline) return;
@@ -119,7 +120,9 @@ function settleFailure(s: CultivatorState, t: Tribulation, at: number, rules: Ru
   t.failedAt = deadline;
   t.failures += 1;
   t.due = null;
-  const taken = take(s, failureQiLoss(s, rules), rules.tribulations.failure.gold, s.tribulations.spent.failures);
+  // Worn armor lowers the loss, and one worn item takes the failure's damage (rulings 142, 144).
+  const loss = gearOnFailure(s, id, t.failures, { qi: failureQiLoss(s, rules), gold: rules.tribulations.failure.gold }, deadline, rules);
+  const taken = take(s, loss.qi, loss.gold, s.tribulations.spent.failures);
   s.tribulations.largestFailureQi = Math.max(s.tribulations.largestFailureQi, taken.qi);
 }
 
@@ -226,7 +229,7 @@ export function onTribulationDeclared(s: CultivatorState, e: EventOf<"Tribulatio
 
 export function onTribulationEdited(s: CultivatorState, e: EventOf<"TribulationEdited">, rules: RulesConfig): void {
   const t = get(s, e.tribulationId);
-  settleFailure(s, t, e.at, rules);
+  settleFailure(s, e.tribulationId, t, e.at, rules);
   checkChangeable(t);
   if (e.title === undefined && e.criteria === undefined) violate("nothing_to_edit", "an edit changes the title or the criteria");
   const price = tribulationEditPrice(s, e.tribulationId, e.at, rules);
@@ -240,7 +243,7 @@ export function onTribulationEdited(s: CultivatorState, e: EventOf<"TribulationE
 
 export function onTribulationDeleted(s: CultivatorState, e: EventOf<"TribulationDeleted">, rules: RulesConfig): void {
   const t = get(s, e.tribulationId);
-  settleFailure(s, t, e.at, rules);
+  settleFailure(s, e.tribulationId, t, e.at, rules);
   if (t.status === "passed") {
     // Only a pass of the current realm, still counting, is deleted as faked; an earlier realm's is repented (rulings 101, 126).
     if (t.realm !== s.main.realm || t.closedAt !== null) violate("tribulation_passed", "a passed tribulation of an earlier realm is repented, not deleted");
@@ -257,7 +260,7 @@ export function onTribulationDeleted(s: CultivatorState, e: EventOf<"Tribulation
 
 export function onTribulationRescheduled(s: CultivatorState, e: EventOf<"TribulationRescheduled">, rules: RulesConfig): void {
   const t = get(s, e.tribulationId);
-  settleFailure(s, t, e.at, rules);
+  settleFailure(s, e.tribulationId, t, e.at, rules);
   checkChangeable(t);
   if (t.status !== "failed") violate("not_failed", "only a failed tribulation gets a new deadline; there are no extensions");
   checkDeadline(e.deadline, e.at, rules);
@@ -274,7 +277,7 @@ export function onTribulationRescheduled(s: CultivatorState, e: EventOf<"Tribula
  */
 export function onTribulationClaimed(s: CultivatorState, e: EventOf<"TribulationClaimed">, rules: RulesConfig): void {
   const t = get(s, e.tribulationId);
-  settleFailure(s, t, e.at, rules);
+  settleFailure(s, e.tribulationId, t, e.at, rules);
   checkChangeable(t);
   if (t.status === "failed") violate("tribulation_failed", "the deadline has passed; set a new one to try again");
   checkClaimable(s, t);
@@ -328,7 +331,7 @@ export function tribulationDropOutcome(u: number, rules: RulesConfig = RULES_V1)
 
 /** At each local midnight: apply missed deadlines (ruling 66). */
 export function tribulationMidnight(s: CultivatorState, midnight: number, rules: RulesConfig): void {
-  for (const t of Object.values(s.tribulations.items)) settleFailure(s, t, midnight, rules);
+  for (const [id, t] of Object.entries(s.tribulations.items)) settleFailure(s, id, t, midnight, rules);
 }
 
 /** Closed-door rest pushes open tribulation deadlines back by the time spent inside (ruling 70); vacation keeps them. */

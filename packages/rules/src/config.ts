@@ -275,6 +275,38 @@ export interface TierRules {
   breakthroughLegendaryChance: number;
 }
 
+/** Realms gear exists for (rulings 137-139): from Foundation, where the first free robe is given, to Spirit Realm. */
+export const GEAR_REALMS = ["foundation_establishment", "core_formation", "nascent_soul", "spirit_realm"] as const;
+export type GearRealm = (typeof GEAR_REALMS)[number];
+/** Robe: the free armor given on first entering a realm; shop: bought; legendary: from a legendary roll (Roadmap part 4). */
+export type GearKind = "robe" | "shop" | "legendary";
+
+/**
+ * Base gear (rulings 137-145). Stats are fixed per realm and kind and never
+ * change with the cultivator's realm or the item's damage. The ladder at any
+ * realm R: robe(R) < shop(R) < robe(R+1) < legendary(R) < shop(R+1). Every
+ * number is a simulator value; prices are provisional until the shop.
+ */
+export interface GearRules {
+  /** Armor: Qi and gold taken off a tribulation failure's loss (never below 0). Robes are armor. */
+  armor: Record<GearKind, Record<GearRealm, { qi: number; gold: number }>>;
+  /** Weapons: a share added to the additive Qi pool on every Qi gain. There is no free weapon. */
+  weapon: Record<Exclude<GearKind, "robe">, Record<GearRealm, number>>;
+  /** Shop price of the realm's gear by slot. */
+  shopGold: Record<"armor" | "weapon", Record<GearRealm, number>>;
+  /** An item sells for `sellShare` x its kind's factor x its realm's shop price for the slot x (1 - damage). */
+  sellShare: number;
+  sellKindFactor: Record<GearKind, number>;
+  /** A full repair by the item's realm (robes and shop gear, legendary gear); a partial one costs its damage's share. */
+  repairGold: Record<"base" | "legendary", Record<GearRealm, number>>;
+  /** Damage, in basis points of durability, to one worn item at each local midnight without rest, by fitness tier. */
+  companionDamageBp: Record<Tier, number>;
+  /** Damage to one worn item when a tribulation fails. */
+  failureDamageBp: number;
+  /** The push and the avatar's warning fire at this much damage (95%). */
+  warnAtBp: number;
+}
+
 export interface RulesConfig {
   version: string;
   tiers: Record<Tier, TierRules>;
@@ -323,7 +355,7 @@ export interface RulesConfig {
     legendaryShare: number;
     /** A gain potion adds this to the additive gold and Qi pool for `hours`; one active at a time. */
     gain: { bonus: number; hours: number };
-    /** Stored for now; with gear: + this legendary chance at the next breakthrough, `perBreakthrough` at most. */
+    /** Each held legendary potion adds this to the next realm breakthrough's legendary roll, used up there, `perBreakthrough` at most (ruling 141). */
     legendary: { chanceBonus: number; perBreakthrough: number };
   };
   soul: SoulRules;
@@ -331,6 +363,7 @@ export interface RulesConfig {
   tribulations: TribulationRules;
   realms: RealmRules;
   classes: ClassRules;
+  gear: GearRules;
   notifications: {
     /** Push notifications per local day; the most urgent are kept. */
     maxPerDay: number;
@@ -344,7 +377,7 @@ export interface RulesConfig {
 }
 
 export const RULES_V1: RulesConfig = Object.freeze({
-  version: "1.18.0",
+  version: "1.19.0",
   tiers: {
     turtle: { capacity: 30, weeklyLoss: 10, goldBonus: 0.01, coreQiBonus: 0, breakthroughLegendaryChance: 0 },
     panda: { capacity: 800, weeklyLoss: 200, goldBonus: 0.1, coreQiBonus: 0, breakthroughLegendaryChance: 0 },
@@ -536,6 +569,46 @@ export const RULES_V1: RulesConfig = Object.freeze({
       revivalWorkDays: 7,
     },
     closedDoorFlagHours: 72,
+  },
+  gear: {
+    armor: {
+      robe: {
+        foundation_establishment: { qi: 8, gold: 4 },
+        core_formation: { qi: 16, gold: 8 },
+        nascent_soul: { qi: 35, gold: 15 },
+        spirit_realm: { qi: 70, gold: 25 },
+      },
+      shop: {
+        foundation_establishment: { qi: 12, gold: 6 },
+        core_formation: { qi: 25, gold: 12 },
+        nascent_soul: { qi: 60, gold: 22 },
+        spirit_realm: { qi: 100, gold: 30 },
+      },
+      legendary: {
+        foundation_establishment: { qi: 20, gold: 10 },
+        core_formation: { qi: 45, gold: 18 },
+        nascent_soul: { qi: 85, gold: 28 },
+        spirit_realm: { qi: 120, gold: 33 },
+      },
+    },
+    weapon: {
+      shop: { foundation_establishment: 0.02, core_formation: 0.04, nascent_soul: 0.06, spirit_realm: 0.08 },
+      legendary: { foundation_establishment: 0.03, core_formation: 0.05, nascent_soul: 0.07, spirit_realm: 0.09 },
+    },
+    shopGold: {
+      armor: { foundation_establishment: 80, core_formation: 160, nascent_soul: 320, spirit_realm: 480 },
+      weapon: { foundation_establishment: 100, core_formation: 200, nascent_soul: 400, spirit_realm: 600 },
+    },
+    sellShare: 0.25,
+    sellKindFactor: { robe: 0.5, shop: 1, legendary: 2 },
+    // Below a failure's Qi and gold in every realm (the pricing rule).
+    repairGold: {
+      base: { foundation_establishment: 25, core_formation: 35, nascent_soul: 45, spirit_realm: 45 },
+      legendary: { foundation_establishment: 40, core_formation: 55, nascent_soul: 70, spirit_realm: 70 },
+    },
+    companionDamageBp: { turtle: 500, panda: 300, horse: 200, tiger: 100, lion: 0 },
+    failureDamageBp: 2000,
+    warnAtBp: 9500,
   },
   classes: {
     table: {

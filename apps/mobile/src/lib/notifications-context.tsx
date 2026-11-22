@@ -8,7 +8,7 @@ import { AppState } from "react-native";
 import { useSQLiteContext } from "expo-sqlite";
 import { RULES_V1, pushAlertPlan, type PushAlert } from "@cultivation/rules";
 import { recentDeliveries, type DeliveryRecord } from "./db";
-import { recordPresented, schedulePlan, scheduleTest, setupNotifications, trackDeliveries, type PermissionState } from "./notify";
+import { dbTag, recordPresented, schedulePlan, scheduleTest, setupNotifications, trackDeliveries, type PermissionState } from "./notify";
 import { useStore } from "./store";
 
 interface NotificationsState {
@@ -52,8 +52,8 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
     const key = JSON.stringify(plan) + state.companion.tier;
     if (key === lastScheduled.current) return;
     lastScheduled.current = key;
-    void schedulePlan(plan, state.companion.tier);
-  }, [permission, plan, state.companion.tier]);
+    void schedulePlan(plan, state.companion.tier, dbTag(db));
+  }, [db, permission, plan, state.companion.tier]);
 
   const sendTest = useCallback((minutes: number) => scheduleTest(minutes), []);
 

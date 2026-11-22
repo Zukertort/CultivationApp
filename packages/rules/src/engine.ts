@@ -39,6 +39,7 @@ import {
   shiftDeadlinesAfterRest,
   type MainState,
 } from "./main.js";
+import { gearMidnight, initialGear, onGearBought, onGearEquipped, onGearRepaired, onGearSold, onGearUnequipped, syncGear, type GearState } from "./gear.js";
 import { initialClass, onClassChosen, onClassDropRolled, onWearableUsed, classCovers, type ClassState } from "./class.js";
 import {
   advanceProgress,
@@ -89,6 +90,8 @@ export interface RestPeriod {
 export interface CultivatorState {
   rulesVersion: string;
   created: boolean;
+  /** The cultivator's user id, from CultivatorCreated; it seeds the gear damage pick (ruling 144). */
+  userId: string;
   name: string;
   tzOffsetMinutes: number;
   /** Last instant the state has been advanced to. Events must not go back in time. */
@@ -144,6 +147,8 @@ export interface CultivatorState {
   progress: ProgressState;
   /** The class, its changes and its drops (part 4). */
   class: ClassState;
+  /** Base gear: worn, stash, robes given (rulings 137-145). */
+  gear: GearState;
   /** Things that should be impossible (e.g. a second set of wings); flagged, never silently fixed. */
   anomalies: { at: number; code: string }[];
 }
@@ -152,6 +157,7 @@ export function initialState(rules: RulesConfig = RULES_V1): CultivatorState {
   return {
     rulesVersion: rules.version,
     created: false,
+    userId: "",
     name: "",
     tzOffsetMinutes: 0,
     clock: 0,
@@ -192,6 +198,7 @@ export function initialState(rules: RulesConfig = RULES_V1): CultivatorState {
     tribulations: initialTribulations(),
     progress: initialProgress(),
     class: initialClass(),
+    gear: initialGear(),
     anomalies: [],
   };
 }
@@ -325,8 +332,12 @@ function advanceMut(s: CultivatorState, to: number, rules: RulesConfig): void {
     }
     // Periods close and tax is charged at every midnight (a day with rest is never taxed).
     if (cur === dayEnd) {
+      // Read before mainMidnight starts the next day.
+      const rested = s.main.day.rested;
       mainMidnight(s, cur, rules);
       tribulationMidnight(s, cur, rules);
+      // The companion damages one worn item a day, never on a day with rest (ruling 144).
+      gearMidnight(s, cur, rested, rules);
       progressMidnight(s, cur, rules);
     }
     // Rest freezes the soul color; a midnight that ends the rest is evaluated.
@@ -378,6 +389,7 @@ type Handler<T extends GameEvent["type"]> = (s: CultivatorState, e: EventOf<T>, 
 const onCreated: Handler<"CultivatorCreated"> = (s, e) => {
   if (s.created) violate("already_created", "cultivator already exists");
   s.created = true;
+  s.userId = e.userId;
   s.name = e.name;
   s.tzOffsetMinutes = e.tzOffsetMinutes;
 };
@@ -703,6 +715,11 @@ const handlers: { [T in GameEvent["type"]]: Handler<T> } = {
   BreakthroughRolled: (s, e) => {
     if (!onBreakthroughRolled(s, e)) s.anomalies.push({ at: e.at, code: "orphan_breakthrough_roll" });
   },
+  GearBought: onGearBought,
+  GearEquipped: (s, e) => onGearEquipped(s, e),
+  GearUnequipped: (s, e) => onGearUnequipped(s, e),
+  GearSold: onGearSold,
+  GearRepaired: onGearRepaired,
 };
 
 // ---- Public API ---------------------------------------------------------------------
@@ -723,6 +740,8 @@ function applyMut(s: CultivatorState, e: GameEvent, rules: RulesConfig): void {
   (handlers[e.type] as Handler<typeof e.type>)(s, e as never, rules);
   // Level-ups and breakthroughs are derived: whatever an event makes possible happens at once (ruling 74).
   advanceProgress(s, e.at, rules);
+  // Free robes on entering a realm, and higher-realm gear off after a repent (rulings 138, 139).
+  syncGear(s, e.at);
   clampWhileDead(s, dead);
   checkRevival(s, e.at, rules);
 }

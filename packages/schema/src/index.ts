@@ -555,9 +555,9 @@ export const QuietHoursSet = z.object({
 });
 
 /**
- * Drinks a stored potion (ruling 58). Only gain potions are drunk for now: +10%
- * gold and Qi for 24 hours, one active at a time. Legendary potions are
- * stored until gear exists.
+ * Drinks a stored potion (ruling 58): +10% gold and Qi for 24 hours, one
+ * active at a time. Only gain potions are drunk; a legendary potion is used up
+ * by the next realm breakthrough's legendary roll on its own (ruling 141).
  */
 export const PotionUsed = z.object({
   ...base,
@@ -570,6 +570,49 @@ export const RouletteSpun = z.object({
   ...base,
   type: z.literal("RouletteSpun"),
   prize: RoulettePrize,
+});
+
+// ---- Gear (rulings 137-145) -------------------------------------------------
+
+export const GearSlot = z.enum(["armor", "weapon"]);
+
+/**
+ * Buys the current realm's shop gear for a slot (ruling 140). The new item's
+ * id is this event's id; it is worn if the slot is empty, else it goes to the
+ * stash. Provisional prices until the shop (Roadmap part 3).
+ */
+export const GearBought = z.object({
+  ...base,
+  type: z.literal("GearBought"),
+  slot: GearSlot,
+});
+
+/** Wears an item from the stash; the item worn in its slot goes to the stash. */
+export const GearEquipped = z.object({
+  ...base,
+  type: z.literal("GearEquipped"),
+  itemId: id,
+});
+
+/** Takes off the item worn in a slot, into the stash. */
+export const GearUnequipped = z.object({
+  ...base,
+  type: z.literal("GearUnequipped"),
+  slot: GearSlot,
+});
+
+/** Sells an item from the stash for gold (provisional price; trading comes with social). */
+export const GearSold = z.object({
+  ...base,
+  type: z.literal("GearSold"),
+  itemId: id,
+});
+
+/** Repairs an item, worn or in the stash, fully, for gold scaled by its damage. */
+export const GearRepaired = z.object({
+  ...base,
+  type: z.literal("GearRepaired"),
+  itemId: id,
 });
 
 // ---- Union --------------------------------------------------------------------
@@ -620,6 +663,11 @@ export const GameEvent = z.discriminatedUnion("type", [
   Repented,
   RealmOverride,
   BreakthroughRolled,
+  GearBought,
+  GearEquipped,
+  GearUnequipped,
+  GearSold,
+  GearRepaired,
 ]);
 
 export type GameEvent = z.infer<typeof GameEvent>;
@@ -638,6 +686,7 @@ export type MainQuestDrop = z.infer<typeof MainQuestDrop>;
 export type ClaimEvidence = z.infer<typeof ClaimEvidence>;
 export type ClassId = z.infer<typeof ClassId>;
 export type ClassDrop = z.infer<typeof ClassDrop>;
+export type GearSlot = z.infer<typeof GearSlot>;
 
 /** Validate untrusted input (sync payloads, local DB rows) into a typed event. */
 export function parseEvent(input: unknown): GameEvent {

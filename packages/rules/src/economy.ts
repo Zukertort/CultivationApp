@@ -4,6 +4,7 @@
  */
 import { RULES_V1, type MainPath, type RulesConfig } from "./config.js";
 import type { CultivatorState } from "./engine.js";
+import { weaponQiBonus } from "./gear.js";
 
 /** The current class's gold and Qi bonus (ruling 115); read here to keep economy free of the class module. */
 function classShare(state: CultivatorState, rules: RulesConfig): { gold: number; qi: number } {
@@ -80,14 +81,14 @@ export function trainingGoldMultiplier(state: CultivatorState, rules: RulesConfi
   return (1 + rules.tiers[state.companion.tier].goldBonus + classShare(state, rules).gold + potionBonus(state, rules)) * goldItems(state, rules);
 }
 
-/** Qi multiplier for every Qi gain: the pose bonus joins the pool (ruling 35). */
+/** Qi multiplier for every Qi gain: the pose bonus and the worn weapon join the pool (rulings 35, 143). */
 export function qiMultiplier(state: CultivatorState, rules: RulesConfig = RULES_V1): number {
-  return (1 + (currentPose(state, rules)?.qiBonus ?? 0) + classShare(state, rules).qi + potionBonus(state, rules)) * qiItems(state, rules);
+  return (1 + (currentPose(state, rules)?.qiBonus ?? 0) + classShare(state, rules).qi + potionBonus(state, rules) + weaponQiBonus(state, rules)) * qiItems(state, rules);
 }
 
 /** Qi multiplier for Main tasks and quests: the pose plus the fitness tier's core Qi bonus. */
 export function mainQiMultiplier(state: CultivatorState, rules: RulesConfig = RULES_V1): number {
-  const pool = 1 + (currentPose(state, rules)?.qiBonus ?? 0) + rules.tiers[state.companion.tier].coreQiBonus + classShare(state, rules).qi + potionBonus(state, rules);
+  const pool = 1 + (currentPose(state, rules)?.qiBonus ?? 0) + rules.tiers[state.companion.tier].coreQiBonus + classShare(state, rules).qi + potionBonus(state, rules) + weaponQiBonus(state, rules);
   return pool * qiItems(state, rules);
 }
 

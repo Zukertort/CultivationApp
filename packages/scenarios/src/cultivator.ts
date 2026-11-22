@@ -13,6 +13,7 @@ import {
   DAY,
   RULES_V1,
   RuleViolation,
+  advanceTo,
   applyEvent,
   breakthroughRollOutcome,
   classDropOutcome,
@@ -57,6 +58,8 @@ export interface CultivatorOptions {
    * and breakthrough rolls are made: the realm simulator's economy.
    */
   rollAll?: boolean;
+  /** Sum the gold each event earns into `goldEarned` (an extra state copy per event; the gear report uses it). */
+  trackGold?: boolean;
 }
 
 export class Cultivator {
@@ -73,12 +76,16 @@ export class Cultivator {
   waitingDays = 0;
   /** Sum of every legendary roll's chance: the expected legendary items, free of seed luck. */
   expectedLegendary = 0;
+  /** Gold earned by events (with `trackGold`): each event's gain over the state advanced to its time. */
+  goldEarned = 0;
+  private readonly trackGold: boolean;
 
   constructor(o: CultivatorOptions = {}) {
     this.start = o.start ?? T0;
     this.userId = o.userId ?? "sim";
     this.idPrefix = o.idPrefix ?? "realm";
     this.rollAll = o.rollAll ?? false;
+    this.trackGold = o.trackGold ?? false;
     this.roll = rng(o.seed ?? 23);
   }
 
@@ -112,7 +119,7 @@ export class Cultivator {
     }
   }
   private apply(e: GameEvent): void {
-    this.s = applyEvent(this.s, e, RULES_V1);
+    this.applyTracked(e);
     this.log.push(e);
     // In the order the server (and the app's temporary roller) appends them.
     if (this.rollAll) {
@@ -133,9 +140,14 @@ export class Cultivator {
       this.record(this.event("BreakthroughRolled", this.s.clock, { step: p.step, item: breakthroughRollOutcome(p.chance, this.roll()) }));
     }
   }
+  private applyTracked(e: GameEvent): void {
+    const before = this.trackGold && this.s.created ? advanceTo(this.s, e.at, RULES_V1).gold : null;
+    this.s = applyEvent(this.s, e, RULES_V1);
+    if (before !== null) this.goldEarned += Math.max(0, this.s.gold - before);
+  }
   /** Apply a roll event (rolls earn nothing new). */
   private record(e: GameEvent): void {
-    this.s = applyEvent(this.s, e, RULES_V1);
+    this.applyTracked(e);
     this.log.push(e);
   }
 }

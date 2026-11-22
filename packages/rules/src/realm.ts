@@ -18,6 +18,7 @@ import type { EventOf } from "@cultivation/schema";
 import { RULES_V1, type MainPath, type Realm, type RulesConfig, type StepOneRealm } from "./config.js";
 import type { CultivatorState } from "./engine.js";
 import { chooseClassAtCore } from "./class.js";
+import { loseAllGear, loseStashItems } from "./gear.js";
 import { violate } from "./errors.js";
 import { workDays } from "./main.js";
 import { DAY } from "./time.js";
@@ -382,6 +383,12 @@ function earnLegendaryRoll(s: CultivatorState, step: ProgressStep, rules: RulesC
     chance += rules.halo.legendaryBonus;
     s.haloTickets.splice(s.haloTickets.indexOf(tickets[0]!), 1);
   }
+  // Held legendary potions add to a realm breakthrough's roll and are used up there (ruling 141).
+  if (step.kind === "breakthrough") {
+    const used = Math.min(s.inventory.legendaryPotions, rules.potions.legendary.perBreakthrough);
+    s.inventory.legendaryPotions -= used;
+    chance += used * rules.potions.legendary.chanceBonus;
+  }
   if (chance > 0) s.progress.pendingRolls[String(step.step)] = { step: step.step, at: step.at, chance };
 }
 
@@ -583,7 +590,7 @@ function entryIndex(steps: ProgressStep[], realm: Realm): number {
 }
 
 /** Take up to `n` inventory items, least valuable first (ruling 104); "all" empties the inventory. */
-function loseItems(s: CultivatorState, n: number | "all"): number {
+function loseItems(s: CultivatorState, n: number | "all", at: number, rules: RulesConfig): number {
   const inv = s.inventory;
   let left = n === "all" ? Infinity : n;
   let lost = 0;
@@ -598,6 +605,10 @@ function loseItems(s: CultivatorState, n: number | "all"): number {
   take("petHaloWearables");
   take("petKeepWearables");
   take("legendaryPotions");
+  // Stash gear, least valuable first; worn gear is never taken by a penalty (ruling 145).
+  const gear = loseStashItems(s, left, at, rules);
+  left -= gear;
+  lost += gear;
   take("scales");
   take("legendary");
   if (inv.wings && left > 0) {
@@ -674,12 +685,14 @@ export function onRepented(s: CultivatorState, e: EventOf<"Repented">, rules: Ru
   p.repents[realm] = count;
   const r = rules.realms.repent;
   const penalty = r.penalties[Math.min(count, r.penalties.length) - 1]!;
-  loseItems(s, penalty.items);
+  loseItems(s, penalty.items, e.at, rules);
   s.gold -= s.gold * penalty.gold;
   s.qi -= s.qi * penalty.qi;
   s.main.flags.push({ at: e.at, code: "repented", id: realm, detail: String(count) });
   if (count > r.cyclingFlagAfter) s.main.flags.push({ at: e.at, code: "repent_cycling", id: realm, detail: String(count) });
   if (penalty.death && p.diedAt === null) {
+    // Death takes worn gear too: the avatar is left in ordinary clothes (ruling 145).
+    loseAllGear(s, e.at);
     p.diedAt = e.at;
     p.deaths += 1;
     s.main.flags.push({ at: e.at, code: "died", id: realm, detail: String(count) });

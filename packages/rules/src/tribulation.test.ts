@@ -27,7 +27,8 @@ const created = ev("CultivatorCreated", T0, { name: "Ricardo", tzOffsetMinutes: 
 const interview = ev("InterviewAnswered", T0, { interests: { main: "Mathematics", body: "BJJ", soul: "" } });
 // Tribulations exist from Foundation on (ruling 89); overrides reach early Core Formation, whose next threshold is 550 Qi.
 const toCore = Array.from({ length: 8 }, (_, i) => ev("RealmOverride", T0 + i + 1, { class: "monk" }));
-const start = [created, ...toCore];
+// The free robe is taken off so these tests measure ruling 80's loss alone; armor is tested in gear.test.ts.
+const start = [created, ...toCore, ev("GearUnequipped", T0 + 10, { slot: "armor" })];
 /** Declared at day 0 08:00 with a 10-day span: the last quarter starts at day 7 20:00. */
 const DECLARED = T0 + 8 * H;
 const DEADLINE = DECLARED + 10 * DAY;
