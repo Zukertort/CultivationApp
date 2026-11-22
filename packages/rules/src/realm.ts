@@ -713,7 +713,7 @@ export function onBreakthroughRolled(s: CultivatorState, e: EventOf<"Breakthroug
   if (!p.pendingRolls[String(e.step)]) return false;
   delete p.pendingRolls[String(e.step)];
   p.legendaryRolls[e.item] += 1;
-  // Until gear exists, a legendary item is stored in the inventory (ruling 83).
+  // A legendary item is stored in the inventory until Roadmap part 4 makes it legendary gear (ruling 83).
   if (e.item === "legendary") {
     s.inventory.legendary += 1;
     const step = p.steps[e.step - 1];

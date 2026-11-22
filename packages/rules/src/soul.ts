@@ -421,7 +421,7 @@ export function soulDropOutcome(color: SoulColor, polarity: SoulPolarity, u: num
     const width = odds[band] ?? 0;
     if (bp < acc + width) {
       if (band !== "item") return band;
-      // Until gear exists the item band is a potion; where the roll landed in it picks the kind (ruling 58).
+      // The item band is a potion until Roadmap part 4; where the roll landed in it picks the kind (ruling 58).
       return potionKind((u * 10_000 - acc) / width, rules) === "gain" ? "gain_potion" : "legendary_potion";
     }
     acc += width;

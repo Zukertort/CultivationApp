@@ -58,8 +58,28 @@ export function addPotion(s: CultivatorState, kind: PotionKind): void {
 
 /** The active gain potion's share of the additive pool (0 when none is active). */
 export function potionBonus(state: CultivatorState, rules: RulesConfig = RULES_V1): number {
-  const until = state.inventory.gainPotionUntil;
-  return until !== null && state.clock < until ? rules.potions.gain.bonus : 0;
+  return potionStatus(state, state.clock).gainActiveUntil !== null ? rules.potions.gain.bonus : 0;
+}
+
+export interface PotionStatus {
+  gainHeld: number;
+  /** When the drunk gain potion stops, while it is still active at `at`; null otherwise. */
+  gainActiveUntil: number | null;
+  legendaryHeld: number;
+  /** A drunk legendary potion waiting for the next realm breakthrough's roll (rulings 151, 156). */
+  legendaryArmed: boolean;
+}
+
+/** The potions as they stand at `at` (the app passes its clock): a gain potion is active only before its expiry. */
+export function potionStatus(state: CultivatorState, at: number): PotionStatus {
+  const inv = state.inventory;
+  const until = inv.gainPotionUntil;
+  return {
+    gainHeld: inv.gainPotions,
+    gainActiveUntil: until !== null && at < until ? until : null,
+    legendaryHeld: inv.legendaryPotions,
+    legendaryArmed: inv.legendaryPotionArmed,
+  };
 }
 
 // ---- Multipliers ------------------------------------------------------------

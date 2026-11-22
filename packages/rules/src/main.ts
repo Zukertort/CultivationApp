@@ -636,6 +636,8 @@ function payQuestStage(s: CultivatorState, questId: string, rules: RulesConfig):
   const qi = (due - q.bonusQi) * mainQiMultiplier(s, rules);
   q.bonusQi = due;
   earnQi(s, qi);
+  // The bonus is a Qi gain the weapon boosts: it wears as "other" (ruling 147).
+  if (qi > 0) weaponWear(s, "other", s.clock, rules);
   m.earned.qi += qi;
 }
 
@@ -670,7 +672,7 @@ function settleQuest(s: CultivatorState, questId: string, e: { id: string; at: n
   else m.pendingRolls[e.id] = { eventId: e.id, at: e.at, questId, chance: questDropChance(days, rules) };
 }
 
-/** An item is a potion until gear exists. */
+/** An item is a potion until Roadmap part 4 adds legendary items (ruling 52). */
 function applyQuestDrop(s: CultivatorState, drop: MainQuestDrop): void {
   s.main.drops[drop] += 1;
   if (drop === "gain_potion") addPotion(s, "gain");

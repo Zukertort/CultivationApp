@@ -617,8 +617,9 @@ const onPotionUsed: Handler<"PotionUsed"> = (s, e, rules) => {
 
 /**
  * Apply a server-rolled soul drop. Gains get the gold/Qi multipliers; losses
- * never take a balance below 0. Until gear exists an item is a potion, and a
- * lost item is a potion (a gain potion first; never a legendary item).
+ * never take a balance below 0. A gained item is a potion until Roadmap part 4
+ * adds legendary items; a lost item follows the repent order, then stash gear
+ * (rulings 15, 146).
  */
 function applySoulDrop(s: CultivatorState, drop: SoulDrop, rules: RulesConfig): void {
   const d = rules.soul.drops;

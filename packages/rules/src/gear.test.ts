@@ -17,6 +17,7 @@ import {
   gearWarnings,
   itemValue,
   mainQiMultiplier,
+  potionStatus,
   pushAlertPlan,
   qiMultiplier,
   repairPrice,
@@ -361,6 +362,16 @@ describe("durability (rulings 144, 147)", () => {
     expect(damageOf(bare, "w1")).toBe(damageOf(s, "w1"));
   });
 
+  it("a quest's staged bonus wears the weapon as `other`, on top of the member's effort", () => {
+    let s = apply(rich(foundation(), 0, 500), buy("weapon", T0 + H, "w1"));
+    s = apply(
+      s,
+      ev("MainQuestDefined", T0 + 2 * H, { questId: "q", name: "q", deadline: T0 + 10 * DAY, tasks: [{ taskId: "m1", name: "m1", difficulty: "mid", effort: "session" }] }),
+      ev("MainTaskCompleted", T0 + 3 * H, { taskId: "m1" }),
+    );
+    expect(damageOf(s, "w1")).toBe(RULES_V1.gear.weaponWearBp.session + RULES_V1.gear.weaponWearBp.other);
+  });
+
   it("other Qi gains (the Lion, soul drops, the roulette) wear the weapon as `other`", () => {
     const lion = structuredClone(apply(rich(foundation(), 0, 500), buy("weapon", T0 + H, "w1")));
     lion.companion.tier = "lion";
@@ -499,6 +510,24 @@ describe("repent, death and potions (rulings 145, 150, 151)", () => {
     held.gear.items.a1 = { id: "a1", slot: "armor", kind: "shop", realm: "foundation_establishment", damageBp: 1000, obtainedAt: 0 };
     expect(code(() => applyEvent(held, sell("a1", T0 + 62 * H)))).toBe("dead");
     expect(code(() => applyEvent(held, repair("a1", T0 + 62 * H)))).toBe("dead");
+  });
+
+  it("shows a gain potion active only before its expiry on the given clock, and the legendary potion armed until a breakthrough spends it", () => {
+    const s = structuredClone(foundation());
+    s.inventory.gainPotions = 2;
+    s.inventory.legendaryPotions = 1;
+    const drunk = apply(s, ev("PotionUsed", T0 + H, { potion: "gain" }), ev("PotionUsed", T0 + H, { potion: "legendary" }));
+    const until = T0 + H + 24 * H;
+    expect(potionStatus(drunk, T0 + 2 * H)).toEqual({ gainHeld: 1, gainActiveUntil: until, legendaryHeld: 0, legendaryArmed: true });
+    // The app's clock past the expiry, even before the state is advanced: no longer active, and a new one can be drunk.
+    expect(potionStatus(drunk, until).gainActiveUntil).toBeNull();
+    const later = advanceTo(drunk, until + 1);
+    expect(potionStatus(later, later.clock).gainActiveUntil).toBeNull();
+    expect(qiMultiplier(later)).toBe(qiMultiplier(foundation()));
+    expect(apply(later, ev("PotionUsed", until + 2, { potion: "gain" })).inventory.gainPotions).toBe(0);
+    // Armed stays armed with time, and through an override (which rolls nothing); a rolled breakthrough spends it (next test).
+    expect(potionStatus(advanceTo(drunk, T0 + 30 * DAY), T0 + 30 * DAY).legendaryArmed).toBe(true);
+    expect(potionStatus(apply(drunk, ...climb(4, 2 * H)), T0 + 3 * H).legendaryArmed).toBe(true);
   });
 
   it("a drunk legendary potion is armed for the next realm breakthrough's roll (+5%), one at a time; held ones do nothing", () => {

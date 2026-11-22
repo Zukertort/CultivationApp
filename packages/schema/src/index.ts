@@ -262,7 +262,7 @@ export const MainQuestDefined = z.object({
   tribulationId: id.optional(),
 });
 
-/** Outcome of a completed quest's item roll, rolled on the server with `questDropOutcome(chance, u)`. Until gear exists, an item is a potion. */
+/** Outcome of a completed quest's item roll, rolled on the server with `questDropOutcome(chance, u)`. An item is a potion until Roadmap part 4 adds legendary items. */
 export const MainQuestDrop = z.enum(["none", "gain_potion", "legendary_potion"]);
 
 export const MainTaskCompleted = z.object({

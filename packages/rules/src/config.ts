@@ -56,7 +56,7 @@ export type Realm = (typeof REALMS)[number];
 
 export type MainPath = "main" | "body" | "soul";
 
-/** Bands a soul drop roll lands in; the "item" band (a common item) splits into the two potion kinds until gear exists. */
+/** Bands a soul drop roll lands in; the "item" band (a common item) splits into the two potion kinds until Roadmap part 4 adds legendary items. */
 export type SoulDropBand = "gold" | "qi" | "item" | "legendary" | "lose_gold" | "lose_qi" | "lose_item";
 
 /** Age-based repetition decay (Body and Main, rulings 18-19). */
@@ -99,7 +99,7 @@ export interface MainRules {
    * Item drops from completed quests (ruling 52): the chance by the members'
    * total effort in days, through these [days, chance] anchors (flat past the
    * last); server-rolled; at most maxRollsPerDay per local day. An item is a
-   * potion until gear exists.
+   * potion until Roadmap part 4 adds legendary items.
    */
   questDrops: { chance: readonly (readonly [number, number])[]; maxRollsPerDay: number };
   /**
@@ -389,7 +389,7 @@ export interface RulesConfig {
 }
 
 export const RULES_V1: RulesConfig = Object.freeze({
-  version: "1.22.0",
+  version: "1.23.0",
   tiers: {
     turtle: { capacity: 30, weeklyLoss: 10, goldBonus: 0.01, coreQiBonus: 0, breakthroughLegendaryChance: 0 },
     panda: { capacity: 800, weeklyLoss: 200, goldBonus: 0.1, coreQiBonus: 0, breakthroughLegendaryChance: 0 },

@@ -4,11 +4,12 @@
  * part 3) and the Stash (gear not worn: wear, repair or sell it; and potions,
  * drunk from here). While dead nothing is bought, sold or repaired (ruling 150).
  */
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Alert, View } from "react-native";
 import type { GearSlot } from "@cultivation/schema";
-import { GEAR_REALMS, RULES_V1, repairPrice, sellPrice, shopPrice, stash, wearable, wornItem, type GearItem, type GearRealm } from "@cultivation/rules";
+import { GEAR_REALMS, RULES_V1, potionStatus, repairPrice, sellPrice, shopPrice, stash, wearable, wornItem, type GearItem, type GearRealm } from "@cultivation/rules";
 import { GearWarnings, durability, gearName, gearStats, isDead } from "../lib/gear";
+import { now as clockNow } from "../lib/clock";
 import { useStore } from "../lib/store";
 import { Button, C, Card, Meter, Note, Row, Screen, Segmented, T, words } from "../lib/ui";
 
@@ -21,14 +22,22 @@ const OFFERS: readonly { slot: GearSlot; kind: "robe" | "shop" }[] = [
 const gold = (n: number) => `${Math.ceil(n)} gold`;
 
 export default function StoreScreen() {
-  const { state, log } = useStore();
+  const { state, log, now: storeNow } = useStore();
+  const now = Math.max(storeNow, clockNow());
   const [tab, setTab] = useState<"shop" | "stash">("shop");
   const [note, setNote] = useState<{ text: string; error: boolean } | null>(null);
   const realm = state.main.realm;
   const gearRealm = (GEAR_REALMS as readonly string[]).includes(realm) ? (realm as GearRealm) : null;
   const dead = isDead(state);
-  const inv = state.inventory;
-  const gainActive = inv.gainPotionUntil !== null && state.clock < inv.gainPotionUntil;
+  // Potions as they stand on the app's clock (lib/clock), re-rendered at the gain potion's expiry.
+  const potions = potionStatus(state, now);
+  const gainActive = potions.gainActiveUntil !== null;
+  const [, rerender] = useState(0);
+  useEffect(() => {
+    if (potions.gainActiveUntil === null) return;
+    const t = setTimeout(() => rerender((n) => n + 1), Math.max(0, potions.gainActiveUntil - clockNow()) + 50);
+    return () => clearTimeout(t);
+  }, [potions.gainActiveUntil, now]);
 
   const act = async (input: Parameters<typeof log>[0], ok: string) => {
     const r = await log(input);
@@ -126,13 +135,13 @@ export default function StoreScreen() {
             </ItemView>
           ))}
           <T style={{ fontWeight: "700" }}>Potions</T>
-          <T muted>{`Gain potions: ${inv.gainPotions}${gainActive ? " (one active)" : ""}. +10% gold and Qi for 24 hours.`}</T>
-          <Button label="Drink a gain potion" kind="ghost" disabled={inv.gainPotions < 1 || gainActive} onPress={() => void act({ type: "PotionUsed", potion: "gain" }, "The gain potion is active for 24 hours.")} />
-          <T muted>{`Legendary potions: ${inv.legendaryPotions}${inv.legendaryPotionArmed ? " (one armed)" : ""}. Drunk, it adds 5% to the next realm breakthrough's legendary roll; one armed at a time.`}</T>
+          <T muted>{`Gain potions: ${potions.gainHeld}${gainActive ? ` (one active until ${new Date(potions.gainActiveUntil!).toLocaleTimeString()})` : ""}. +10% gold and Qi for 24 hours.`}</T>
+          <Button label="Drink a gain potion" kind="ghost" disabled={potions.gainHeld < 1 || gainActive} onPress={() => void act({ type: "PotionUsed", potion: "gain" }, "The gain potion is active for 24 hours.")} />
+          <T muted>{`Legendary potions: ${potions.legendaryHeld}${potions.legendaryArmed ? " (one armed)" : ""}. Drunk, it adds 5% to the next realm breakthrough's legendary roll; one armed at a time.`}</T>
           <Button
             label="Drink a legendary potion"
             kind="ghost"
-            disabled={inv.legendaryPotions < 1 || inv.legendaryPotionArmed}
+            disabled={potions.legendaryHeld < 1 || potions.legendaryArmed}
             onPress={() => void act({ type: "PotionUsed", potion: "legendary" }, "Armed for the next realm breakthrough.")}
           />
         </Card>
