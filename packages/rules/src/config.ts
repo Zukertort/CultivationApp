@@ -278,6 +278,9 @@ export interface TierRules {
 /** Realms gear exists for (rulings 137-139): from Foundation, where the first free robe is given, to Spirit Realm. */
 export const GEAR_REALMS = ["foundation_establishment", "core_formation", "nascent_soul", "spirit_realm"] as const;
 export type GearRealm = (typeof GEAR_REALMS)[number];
+/** Realms with their own shop prices; realms above Spirit Realm (Step 2+) use Spirit Realm's. */
+export const PRICE_REALMS = ["qi_condensation", ...GEAR_REALMS] as const;
+export type PriceRealm = (typeof PRICE_REALMS)[number];
 /** Robe: the free armor given on first entering a realm; shop: bought; legendary: from a legendary roll (Roadmap part 4). */
 export type GearKind = "robe" | "shop" | "legendary";
 
@@ -343,8 +346,12 @@ export interface RulesConfig {
   /** Qi for petting the Lion, once a local day, before multipliers (ruling 127). SIM. */
   lionPetQi: number;
   rest: {
-    /** SIM: vacation price per day. */
-    vacationGoldPerDay: number;
+    /** SIM: vacation price per day, by realm: about this many days of physical-practice income (ruling 161). */
+    vacationGoldPerDay: Record<PriceRealm, number>;
+    /** A vacation lasts at most this many days, and at most `vacationMaxDaysPerWindow` days fall in any `vacationWindowDays` (ruling 161). */
+    vacationMaxDays: number;
+    vacationWindowDays: number;
+    vacationMaxDaysPerWindow: number;
     closedDoorMaxDays: number;
     closedDoorWindowDays: number;
     closedDoorMaxDaysPerWindow: number;
@@ -365,8 +372,8 @@ export interface RulesConfig {
    */
   potions: {
     legendaryShare: number;
-    /** A gain potion adds this to the additive gold and Qi pool for `hours`; one active at a time. */
-    gain: { bonus: number; hours: number };
+    /** A gain potion adds this to the additive gold and Qi pool for `hours`; one active at a time. SIM: its shop price by realm, never below Foundation's robe (ruling 160). */
+    gain: { bonus: number; hours: number; gold: Record<PriceRealm, number> };
     /** A drunk legendary potion is armed (one at a time) and adds this to the next realm breakthrough's legendary roll (ruling 151). */
     legendary: { chanceBonus: number };
   };
@@ -389,7 +396,7 @@ export interface RulesConfig {
 }
 
 export const RULES_V1: RulesConfig = Object.freeze({
-  version: "1.23.0",
+  version: "1.24.0",
   tiers: {
     turtle: { capacity: 30, weeklyLoss: 10, goldBonus: 0.01, coreQiBonus: 0, breakthroughLegendaryChance: 0 },
     panda: { capacity: 800, weeklyLoss: 200, goldBonus: 0.1, coreQiBonus: 0, breakthroughLegendaryChance: 0 },
@@ -413,7 +420,10 @@ export const RULES_V1: RulesConfig = Object.freeze({
   // About a third of a daily mid study session.
   lionPetQi: 3,
   rest: {
-    vacationGoldPerDay: 20,
+    vacationGoldPerDay: { qi_condensation: 14, foundation_establishment: 17, core_formation: 18, nascent_soul: 18, spirit_realm: 18 },
+    vacationMaxDays: 14,
+    vacationWindowDays: 91,
+    vacationMaxDaysPerWindow: 30,
     closedDoorMaxDays: 14,
     closedDoorWindowDays: 91,
     closedDoorMaxDaysPerWindow: 30,
@@ -425,7 +435,7 @@ export const RULES_V1: RulesConfig = Object.freeze({
   },
   scales: { goldBonusEach: 0.1, qiBonusEach: 0.05, forWings: 9 },
   wings: { goldBonus: 1.0, qiBonus: 0.5 },
-  potions: { legendaryShare: 0.5, gain: { bonus: 0.1, hours: 24 }, legendary: { chanceBonus: 0.05 } },
+  potions: { legendaryShare: 0.5, gain: { bonus: 0.1, hours: 24, gold: { qi_condensation: 42, foundation_establishment: 42, core_formation: 46, nascent_soul: 46, spirit_realm: 46 } }, legendary: { chanceBonus: 0.05 } },
   notifications: { maxPerDay: 3, horizonDays: 14, companionHungryFraction: 0.05, defaultReminderMinutes: 9 * 60 },
   soul: {
     startHp: 50,
@@ -608,14 +618,15 @@ export const RULES_V1: RulesConfig = Object.freeze({
       legendary: { foundation_establishment: 0.03, core_formation: 0.05, nascent_soul: 0.07, spirit_realm: 0.09 },
     },
     shopGold: {
-      armor: { foundation_establishment: 80, core_formation: 160, nascent_soul: 320, spirit_realm: 480 },
-      weapon: { foundation_establishment: 100, core_formation: 200, nascent_soul: 400, spirit_realm: 600 },
+      // About 5 and 7 days of physical-practice income in each realm (ruling 159; Spirit Realm from its 275-day stay).
+      armor: { foundation_establishment: 84, core_formation: 91, nascent_soul: 91, spirit_realm: 92 },
+      weapon: { foundation_establishment: 117, core_formation: 127, nascent_soul: 127, spirit_realm: 128 },
     },
     valueFactor: { robe: 0.5, shop: 1, legendary: 2 },
     sellShare: 0.7,
     // Below a failure's Qi and gold in every realm (the pricing rule).
     repairShare: 0.1,
-    unarmoredLossFactor: 3,
+    unarmoredLossFactor: 2,
     companionDamageBp: { turtle: 500, panda: 300, horse: 200, tiger: 100, lion: 0 },
     failureDamageBp: 2000,
     weaponWearBp: { quick: 15, session: 40, day: 100, project: 250, other: 15 },

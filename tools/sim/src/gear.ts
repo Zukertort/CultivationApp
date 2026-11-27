@@ -140,7 +140,7 @@ function simulate(p: Persona, policy: Policy): Result {
 
 // ---- The goblin -----------------------------------------------------------------
 
-type Goblin = "honest" | "sells free robes" | "sells free robes, buys one back" | "goes without armor" | "buy-to-sell loop" | "robe buy-to-sell loop" | "repair then sell";
+export type Goblin = "honest" | "sells free robes" | "sells free robes, buys one back" | "goes without armor" | "buy-to-sell loop" | "robe buy-to-sell loop" | "repair then sell";
 
 /**
  * A studier (gym 2x a week) looking for arbitrage in gear. "honest" wears the
@@ -153,7 +153,7 @@ type Goblin = "honest" | "sells free robes" | "sells free robes, buys one back" 
  * shop weapon, wears it until half worn, repairs it, sells it and buys a new
  * one (testing whether a repair adds more sell value than it costs).
  */
-function goblin(strategy: Goblin): { gold: number; qi: number; netGearGold: number; robesSold: number; rejected: number; loops: number } {
+export function goblin(strategy: Goblin): { gold: number; qi: number; netGearGold: number; robesSold: number; rejected: number; loops: number } {
   const c = new Cultivator({ idPrefix: `gob-${strategy}`, rollAll: true, trackGold: true });
   setupBasic(c);
   const plan = tribulationPlan({});

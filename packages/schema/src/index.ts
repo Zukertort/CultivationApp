@@ -559,6 +559,17 @@ export const QuietHoursSet = z.object({
  * active at a time (ruling 58). A legendary potion: armed for the next realm
  * breakthrough's legendary roll (+5%), one armed at a time (ruling 151).
  */
+/**
+ * Buys a gain potion in the shop at the current realm's price (ruling 160),
+ * Qi Condensation included. Legendary potions are never sold: gold doesn't
+ * buy legendary chance.
+ */
+export const PotionBought = z.object({
+  ...base,
+  type: z.literal("PotionBought"),
+  potion: z.literal("gain"),
+});
+
 export const PotionUsed = z.object({
   ...base,
   type: z.literal("PotionUsed"),
@@ -636,6 +647,7 @@ export const GameEvent = z.discriminatedUnion("type", [
   RestStarted,
   RestEnded,
   RouletteSpun,
+  PotionBought,
   PotionUsed,
   CompanionPetted,
   DailyReminderSet,

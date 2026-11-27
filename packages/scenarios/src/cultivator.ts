@@ -12,6 +12,7 @@ import type { GameEvent } from "@cultivation/schema";
 import {
   DAY,
   RULES_V1,
+  type RulesConfig,
   RuleViolation,
   advanceTo,
   applyEvent,
@@ -60,10 +61,13 @@ export interface CultivatorOptions {
   rollAll?: boolean;
   /** Sum the gold each event earns into `goldEarned` (an extra state copy per event; the gear report uses it). */
   trackGold?: boolean;
+  /** The rules to run under (default RULES_V1); the simulator's sweeps pass variants. */
+  rules?: RulesConfig;
 }
 
 export class Cultivator {
-  s: CultivatorState = initialState(RULES_V1);
+  readonly rules: RulesConfig;
+  s: CultivatorState;
   /** Every accepted event, in the order applied (the order to replay them in). */
   readonly log: GameEvent[] = [];
   readonly start: number;
@@ -81,6 +85,8 @@ export class Cultivator {
   private readonly trackGold: boolean;
 
   constructor(o: CultivatorOptions = {}) {
+    this.rules = o.rules ?? RULES_V1;
+    this.s = initialState(this.rules);
     this.start = o.start ?? T0;
     this.userId = o.userId ?? "sim";
     this.idPrefix = o.idPrefix ?? "realm";
@@ -124,10 +130,10 @@ export class Cultivator {
     // In the order the server (and the app's temporary roller) appends them.
     if (this.rollAll) {
       for (const p of pendingSoulRolls(this.s.soul)) {
-        const drops = Array.from({ length: p.count }, () => soulDropOutcome(p.color, p.polarity, this.roll(), RULES_V1));
+        const drops = Array.from({ length: p.count }, () => soulDropOutcome(p.color, p.polarity, this.roll(), this.rules));
         this.record(this.event("SoulDropRolled", this.s.clock, { eventId: p.eventId, drops }));
       }
-      for (const p of pendingQuestRolls(this.s)) this.record(this.event("MainQuestDropRolled", this.s.clock, { eventId: p.eventId, drop: questDropOutcome(p.chance, this.roll(), RULES_V1) }));
+      for (const p of pendingQuestRolls(this.s)) this.record(this.event("MainQuestDropRolled", this.s.clock, { eventId: p.eventId, drop: questDropOutcome(p.chance, this.roll(), this.rules) }));
     }
     for (const p of pendingTribulationRolls(this.s)) {
       this.record(this.event("TribulationDropRolled", this.s.clock, { eventId: p.eventId, drop: tribulationDropOutcome(this.roll()) }));
@@ -141,8 +147,8 @@ export class Cultivator {
     }
   }
   private applyTracked(e: GameEvent): void {
-    const before = this.trackGold && this.s.created ? advanceTo(this.s, e.at, RULES_V1).gold : null;
-    this.s = applyEvent(this.s, e, RULES_V1);
+    const before = this.trackGold && this.s.created ? advanceTo(this.s, e.at, this.rules).gold : null;
+    this.s = applyEvent(this.s, e, this.rules);
     if (before !== null) this.goldEarned += Math.max(0, this.s.gold - before);
   }
   /** Apply a roll event (rolls earn nothing new). */

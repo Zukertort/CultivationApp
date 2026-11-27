@@ -133,7 +133,7 @@ describe("rest", () => {
     const s0 = replay([created]);
     expect(code(() => applyEvent(s0, ev("RestStarted", T0, { kind: "vacation", until: T0 + 3 * DAY })))).toBe("insufficient_gold");
     const rich = { ...s0, gold: 100 };
-    expect(applyEvent(rich, ev("RestStarted", T0, { kind: "vacation", until: T0 + 3 * DAY })).gold).toBe(40);
+    expect(applyEvent(rich, ev("RestStarted", T0, { kind: "vacation", until: T0 + 3 * DAY })).gold).toBe(100 - 3 * RULES_V1.rest.vacationGoldPerDay.qi_condensation);
   });
 });
 

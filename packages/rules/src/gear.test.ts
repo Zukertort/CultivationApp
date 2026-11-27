@@ -116,7 +116,7 @@ describe("shop, stash and selling (rulings 137, 140)", () => {
   it("buys the current realm's gear: worn if the slot is empty, else into the stash", () => {
     let s = rich(foundation(), 0, 500);
     s = apply(s, buy("weapon", T0 + H, "w1"), buy("armor", T0 + 2 * H, "a1"));
-    expect(s.gold).toBe(500 - 100 - 80);
+    expect(s.gold).toBe(500 - shopPrice("weapon", "foundation_establishment") - shopPrice("armor", "foundation_establishment"));
     expect(wornItem(s, "weapon")).toMatchObject({ id: "w1", kind: "shop", realm: "foundation_establishment" });
     expect(wornItem(s, "armor")?.id).toBe(WHITE);
     expect(stash(s).map((i) => i.id)).toEqual(["a1"]);
@@ -128,31 +128,32 @@ describe("shop, stash and selling (rulings 137, 140)", () => {
     s = apply(s, buy("weapon", T0 + H, "w1"));
     expect(code(() => applyEvent(s, sell("w1", T0 + 2 * H)))).toBe("gear_worn");
     s = apply(s, unequip("weapon", T0 + 2 * H), sell("w1", T0 + 3 * H));
-    expect(s.gold).toBeCloseTo(200 - 100 + 70);
+    expect(s.gold).toBeCloseTo(200 - shopPrice("weapon", "foundation_establishment") + 0.7 * shopPrice("weapon", "foundation_establishment"));
     expect(s.gear.items.w1).toBeUndefined();
     const legendary: GearItem = { id: "l", slot: "weapon", kind: "legendary", realm: "core_formation", damageBp: 2500, obtainedAt: 0 };
-    expect(itemValue(legendary)).toBe(400);
-    expect(sellPrice(legendary)).toBeCloseTo(0.7 * 400 * 0.75);
+    expect(itemValue(legendary)).toBe(2 * shopPrice("weapon", "core_formation"));
+    expect(sellPrice(legendary)).toBeCloseTo(0.7 * itemValue(legendary) * 0.75);
     expect(code(() => applyEvent(s, unequip("weapon", T0 + 4 * H)))).toBe("slot_empty");
   });
 
   it("sells robes like other gear, free or bought; the shop sells the realm's robe at its value (ruling 157)", () => {
     let s = rich(apply(replay([created, ...climb(8)]), unequip("armor", T0 + H)), 0, 100);
-    // The yellow robe is worth half of Core Formation's 160-gold armor.
-    expect(sellPrice(s.gear.items[YELLOW]!)).toBeCloseTo(0.7 * 80);
+    // The yellow robe is worth half of Core Formation's shop armor.
+    const yellow = 0.7 * shopPrice("armor", "core_formation", RULES_V1, "robe");
+    expect(sellPrice(s.gear.items[YELLOW]!)).toBeCloseTo(yellow);
     s = apply(s, sell(YELLOW, T0 + 2 * H));
-    expect(s.gold).toBeCloseTo(100 + 56);
-    // Back into armor the cheap way: a Core Formation robe for 80 gold, worn at once.
+    expect(s.gold).toBeCloseTo(100 + yellow);
+    // Back into armor the cheap way: a Core Formation robe at its value, worn at once.
     s = apply(s, sell(WHITE, T0 + 4 * H));
     expect(wornItem(s, "armor")).toBeNull();
     const gold = s.gold;
     s = apply(s, ev("GearBought", T0 + 5 * H, { slot: "armor", kind: "robe" }, "r1"));
-    expect(s.gold).toBeCloseTo(gold - 80);
+    expect(s.gold).toBeCloseTo(gold - shopPrice("armor", "core_formation", RULES_V1, "robe"));
     expect(wornItem(s, "armor")).toMatchObject({ id: "r1", kind: "robe", realm: "core_formation" });
     expect(code(() => applyEvent(s, ev("GearBought", T0 + 6 * H, { slot: "weapon", kind: "robe" }, "r2")))).toBe("robe_is_armor");
     // Buying a robe and reselling it always loses gold (exploit).
     const resold = apply(s, unequip("armor", T0 + 7 * H), sell("r1", T0 + 8 * H));
-    expect(resold.gold).toBeCloseTo(gold - 80 + 56);
+    expect(resold.gold).toBeCloseTo(gold - shopPrice("armor", "core_formation", RULES_V1, "robe") + 0.7 * shopPrice("armor", "core_formation", RULES_V1, "robe"));
   });
 
   it("no item sells for more than it costs, in any realm, kind or slot (exploit)", () => {
@@ -384,10 +385,11 @@ describe("durability (rulings 144, 147)", () => {
     let s = rich(advanceTo(foundation(), T0 + 4 * DAY + 1), 0, 100);
     const robe = s.gear.items[WHITE]!;
     expect(robe.damageBp).toBe(2000);
-    // The white robe is worth half of Foundation's 80-gold armor.
-    expect(repairPrice(robe)).toBeCloseTo(0.1 * 40 * 0.2);
+    // The white robe is worth half of Foundation's shop armor.
+    const fix = 0.1 * (shopPrice("armor", "foundation_establishment") / 2) * 0.2;
+    expect(repairPrice(robe)).toBeCloseTo(fix);
     s = apply(s, repair(WHITE, T0 + 4 * DAY + 2));
-    expect(s.gold).toBeCloseTo(100 - 0.8);
+    expect(s.gold).toBeCloseTo(100 - fix);
     expect(damageOf(s, WHITE)).toBe(0);
     expect(code(() => applyEvent(s, repair(WHITE, T0 + 4 * DAY + 3)))).toBe("nothing_to_repair");
     const broke = structuredClone(s);

@@ -2,16 +2,18 @@
  * The Store (ruling 137): what is worn, with durability and repairs, then two
  * tabs: the Shop (the current realm's gear, provisional prices until Roadmap
  * part 3) and the Stash (gear not worn: wear, repair or sell it; and potions,
- * drunk from here). While dead nothing is bought, sold or repaired (ruling 150).
+ * drunk from here), plus Services: vacations, class change and extensions
+ * (rulings 159-163). While dead no gear or potion is bought, sold or
+ * repaired (ruling 150).
  */
 import { useEffect, useState, type ReactNode } from "react";
 import { Alert, View } from "react-native";
 import type { GearSlot } from "@cultivation/schema";
-import { GEAR_REALMS, RULES_V1, potionStatus, repairPrice, sellPrice, shopPrice, stash, wearable, wornItem, type GearItem, type GearRealm } from "@cultivation/rules";
+import { DAY, GEAR_REALMS, RULES_V1, potionPrice, potionStatus, vacationDaysLeft, vacationPrice, repairPrice, sellPrice, shopPrice, stash, wearable, wornItem, type GearItem, type GearRealm } from "@cultivation/rules";
 import { GearWarnings, durability, gearName, gearStats, isDead } from "../lib/gear";
 import { now as clockNow } from "../lib/clock";
-import { useStore } from "../lib/store";
-import { Button, C, Card, Meter, Note, Row, Screen, Segmented, T, words } from "../lib/ui";
+import { useStore, type EventInput } from "../lib/store";
+import { Button, C, Card, Field, Meter, Note, Row, Screen, Segmented, T, when, wholeNumber, words } from "../lib/ui";
 
 const SLOTS: readonly GearSlot[] = ["armor", "weapon"];
 const OFFERS: readonly { slot: GearSlot; kind: "robe" | "shop" }[] = [
@@ -24,7 +26,8 @@ const gold = (n: number) => `${Math.ceil(n)} gold`;
 export default function StoreScreen() {
   const { state, log, now: storeNow } = useStore();
   const now = Math.max(storeNow, clockNow());
-  const [tab, setTab] = useState<"shop" | "stash">("shop");
+  const [tab, setTab] = useState<"shop" | "stash" | "services">("shop");
+  const [vacationDays, setVacationDays] = useState("3");
   const [note, setNote] = useState<{ text: string; error: boolean } | null>(null);
   const realm = state.main.realm;
   const gearRealm = (GEAR_REALMS as readonly string[]).includes(realm) ? (realm as GearRealm) : null;
@@ -83,6 +86,7 @@ export default function StoreScreen() {
         options={[
           { value: "shop", label: "Shop" },
           { value: "stash", label: `Stash (${stash(state).length})` },
+          { value: "services", label: "Services" },
         ]}
         onChange={setTab}
       />
@@ -109,8 +113,19 @@ export default function StoreScreen() {
               );
             })
           )}
+          <View style={{ gap: 4 }}>
+            <T style={{ fontWeight: "700" }}>Gain potion</T>
+            <T muted>+10% gold and Qi for 24 hours once drunk (from the Stash). Legendary potions are never sold.</T>
+            <Button
+              label={`Buy (${gold(potionPrice(state))})`}
+              disabled={dead || state.gold < potionPrice(state)}
+              onPress={() => void act({ type: "PotionBought", potion: "gain" }, "Bought a gain potion: it's in the Stash.")}
+            />
+          </View>
           <T muted>{`Provisional prices. Gear sells for 70% of its value less damage, robes included. Legendary gear and class wearables only drop.`}</T>
         </Card>
+      ) : tab === "services" ? (
+        <Services days={vacationDays} setDays={setVacationDays} act={act} />
       ) : (
         <Card title="Stash">
           {stash(state).length === 0 ? <T muted>Empty.</T> : null}
@@ -160,5 +175,44 @@ function ItemView({ item, children }: { item: GearItem; children?: ReactNode }) 
       <T muted>Durability {Math.round(left * 100)}%</T>
       {children}
     </View>
+  );
+}
+
+/** Services (rulings 159-163): a vacation bought here; class change and extensions, priced here, are bought where they're used. */
+function Services({ days, setDays, act }: { days: string; setDays: (d: string) => void; act: (input: EventInput, ok: string) => Promise<void> }) {
+  const { state, now } = useStore();
+  const r = RULES_V1.rest;
+  const n = wholeNumber(days) ?? 0;
+  const left = vacationDaysLeft(state, now);
+  const price = vacationPrice(state, Math.max(1, n));
+  const resting = state.rest !== null && now < state.rest.end;
+  return (
+    <>
+      <Card title="Vacation">
+        <T muted>{`The avatar travels to visit the Nine Marvels: no tax, the companion sleeps and the soul is frozen, while tasks still pay. Tribulation deadlines keep their dates. At most ${r.vacationMaxDays} days at a time and ${r.vacationMaxDaysPerWindow} days in any ${r.vacationWindowDays}.`}</T>
+        {resting ? (
+          <>
+            <T>{`${state.rest!.kind === "vacation" ? "On vacation" : "In closed-door cultivation"} until ${when(state.rest!.end)}.`}</T>
+            <Button label="End the rest now" kind="ghost" onPress={() => void act({ type: "RestEnded" }, "Back to cultivation.")} />
+          </>
+        ) : (
+          <>
+            <T muted>{`${vacationPrice(state, 1)} gold a day here. ${left} vacation days available now.`}</T>
+            <Field label="Days" value={days} onChangeText={setDays} keyboardType="number-pad" maxLength={2} />
+            <Button
+              label={n >= 1 ? `Start a ${n}-day vacation (${Math.ceil(price)} gold)` : "Start a vacation"}
+              disabled={n < 1 || n > left || state.gold < price}
+              onPress={() => void act({ type: "RestStarted", kind: "vacation", until: now + n * DAY }, `On vacation for ${n} days.`)}
+            />
+          </>
+        )}
+      </Card>
+      <Card title="Class change">
+        <T muted>{`Changing class costs ${RULES_V1.classes.changeGold} gold and forfeits held class wearables. It is chosen on the Realm screen, from Core Formation until Spirit Realm locks it.`}</T>
+      </Card>
+      <Card title="Extensions">
+        <T muted>{`An expired one-time task or quest can be extended once, within ${RULES_V1.main.extension.windowDays} days, for its base gold (at least ${RULES_V1.main.extension.minPrice}), no longer than its original duration. It is bought on the Tasks tab.`}</T>
+      </Card>
+    </>
   );
 }

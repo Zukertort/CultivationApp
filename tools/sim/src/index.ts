@@ -21,6 +21,7 @@ import { runRealmScenarios } from "./realm.js";
 import { runClassScenarios } from "./classes.js";
 import { runCadenceScenarios } from "./cadence.js";
 import { runGearScenarios } from "./gear.js";
+import { runShopScenarios } from "./shop.js";
 
 const T0 = Date.UTC(2026, 10, 2, 3); // Monday 00:00 in Buenos Aires
 const TRAINING_HOUR = 19 * 60 * 60 * 1000;
@@ -135,5 +136,6 @@ runClassScenarios(outDir);
 runCadenceScenarios(outDir);
 // 7. Gear: durability, repairs, armor and weapons.
 runGearScenarios(outDir);
+runShopScenarios(outDir);
 
 console.log(`\nCSV written to ${outDir}`);

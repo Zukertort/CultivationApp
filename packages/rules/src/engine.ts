@@ -39,6 +39,7 @@ import {
   shiftDeadlinesAfterRest,
   type MainState,
 } from "./main.js";
+import { chargeVacation, onPotionBought } from "./shop.js";
 import { gearMidnight, initialGear, onGearBought, onGearEquipped, onGearRepaired, onGearSold, onGearUnequipped, syncGear, weaponWear, type GearState } from "./gear.js";
 import { initialClass, onClassChosen, onClassDropRolled, onWearableUsed, classCovers, type ClassState } from "./class.js";
 import {
@@ -123,6 +124,10 @@ export interface CultivatorState {
   haloTickets: { grantedAt: number; expiresAt: number }[];
   rest: RestPeriod | null;
   closedDoorLog: RestPeriod[];
+  /** Vacations taken, for the 30-days-per-91 cap (ruling 161); an early end shortens the entry. */
+  vacationLog: RestPeriod[];
+  /** Gold spent in the shop on potions and vacations, for the simulator and the app. */
+  shopSpent: { potions: number; vacations: number };
   goldenTickets: number;
   /** Notification preferences (rulings 128-129): the reminder's local time (null: the default) and quiet hours. */
   prefs: { reminderMinutes: number | null; quiet: { start: number; end: number } | null };
@@ -185,6 +190,8 @@ export function initialState(rules: RulesConfig = RULES_V1): CultivatorState {
     haloTickets: [],
     rest: null,
     closedDoorLog: [],
+    vacationLog: [],
+    shopSpent: { potions: 0, vacations: 0 },
     goldenTickets: 0,
     prefs: { reminderMinutes: null, quiet: null },
     inventory: {
@@ -506,9 +513,9 @@ const onRestStarted: Handler<"RestStarted"> = (s, e, rules) => {
   const days = Math.ceil((e.until - e.at) / DAY);
 
   if (e.kind === "vacation") {
-    const cost = days * rules.rest.vacationGoldPerDay;
-    if (s.gold < cost) violate("insufficient_gold", `vacation costs ${cost} gold`);
-    s.gold -= cost;
+    const before = s.gold;
+    chargeVacation(s, e.at, e.until, rules);
+    s.shopSpent.vacations += before - s.gold;
   } else {
     const r = rules.rest;
     if (days > r.closedDoorMaxDays) violate("closed_door_too_long", `closed-door cultivation is capped at ${r.closedDoorMaxDays} days`);
@@ -522,6 +529,7 @@ const onRestStarted: Handler<"RestStarted"> = (s, e, rules) => {
   if (e.kind === "closed_door") flagRestNearDeadlines(s, e.at, rules);
   s.rest = period;
   if (e.kind === "closed_door") s.closedDoorLog.push({ ...period });
+  else s.vacationLog.push({ ...period });
 };
 
 const onRestEnded: Handler<"RestEnded"> = (s, e) => {
@@ -531,6 +539,9 @@ const onRestEnded: Handler<"RestEnded"> = (s, e) => {
   if (s.rest.kind === "closed_door") {
     const log = s.closedDoorLog.at(-1);
     if (log) log.end = e.at;
+  } else {
+    const log = s.vacationLog.at(-1);
+    if (log) log.end = Math.min(log.end, e.at);
   }
   s.rest = null;
 };
@@ -666,6 +677,7 @@ const handlers: { [T in GameEvent["type"]]: Handler<T> } = {
   RestStarted: onRestStarted,
   RestEnded: onRestEnded,
   RouletteSpun: onRouletteSpun,
+  PotionBought: onPotionBought,
   PotionUsed: onPotionUsed,
   HeartDemonCreated: (s, e, rules) => onDemonCreated(s.soul, e, rules),
   HeartDemonRenamed: (s, e, rules) => {
