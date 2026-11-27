@@ -19,7 +19,7 @@
  */
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { OATH_TEXT, TRIBULATION_OATH, type GameEvent } from "@cultivation/schema";
+import { OATH_TEXT, TRIBULATION_OATH, type GameEvent, CLOSED_DOOR_OATH } from "@cultivation/schema";
 import {
   DAY,
   RULES_V1,
@@ -121,7 +121,7 @@ function makeDelayer(): Persona["plan"] {
     const resting = c.s.rest !== null && c.s.rest.end > at; // a rest ending now is over, though the state only clears it when time moves on
     if (resting || !t.due || t.due.deadline - at > 2 * DAY) return;
     for (let k = 14; k >= 1; k--) {
-      if (c.attempt("RestStarted", at, { kind: "closed_door", until: at + k * DAY })) return;
+      if (c.attempt("RestStarted", at, { kind: "closed_door", oath: CLOSED_DOOR_OATH, until: at + k * DAY })) return;
     }
     c.maxDelayDays = Math.max(c.maxDelayDays, (t.due.deadline - original.get(id)!) / DAY);
     c.claim(id, day);

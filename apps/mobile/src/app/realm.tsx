@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { Alert, View } from "react-native";
 import type { ClassId } from "@cultivation/schema";
-import { DAY, RULES_V1, conqueredTribulations, foundationPasses, realmStatus, type Realm } from "@cultivation/rules";
+import { DAY, RULES_V1, completionCost, conqueredTribulations, foundationPasses, realmStatus, type Realm } from "@cultivation/rules";
 import { ClassPicker } from "../lib/classes";
+import { CompletionCard } from "../lib/completion";
 import { GearWarnings } from "../lib/gear";
 import { AreaDecisions } from "../lib/onboarding";
 import { useStore } from "../lib/store";
@@ -48,26 +49,23 @@ export default function RealmScreen() {
       <Card title="Next step">
         {next ? (
           <>
-            <T>
-              {next.kind === "level" ? "Level-up" : "Breakthrough"}: {next.waived ? "Qi waived (fast track)" : `${next.qi} Qi`}
-            </T>
-            {next.qi > 0 && !next.waived ? <Meter value={state.qi / next.qi} /> : null}
-            {next.ready ? (
-              <T style={{ color: next.waitingForQi ? C.gold : C.good }}>{next.waitingForQi ? "Passed, waiting for Qi." : "Ready."}</T>
-            ) : (
-              <T muted>{MISSING[next.missing ?? ""] ?? ""}</T>
-            )}
+            <T>{next.kind === "level" ? "Level-up" : "Breakthrough"}</T>
+            {next.ready ? <T style={{ color: C.good }}>Ready.</T> : <T muted>{MISSING[next.missing ?? ""] ?? ""}</T>}
             {status.tribulations ? (
               <T muted>
-                Tribulations: {status.tribulations.passed} of {status.tribulations.total} passed
+                {`Tribulations: ${status.tribulations.passed} of ${status.tribulations.total} completed`}
+                {status.tribulations.awaiting > 0 ? `, ${status.tribulations.awaiting} awaiting completion` : ""}
                 {realm === "core_formation" ? " (the percentage counts from 5; levels at 30, 60 and 90%, the breakthrough at 100%)" : ""}
               </T>
             ) : null}
+            {completionCost(realm) > 0 ? <T muted>{`Completing a ${words(realm)} tribulation costs ${completionCost(realm)} Qi.`}</T> : null}
           </>
         ) : (
           <T muted>Spirit Realm: progression continues with Step 2.</T>
         )}
       </Card>
+
+      <CompletionCard />
 
       <Note text={note?.text ?? null} error={note?.error} />
 
@@ -186,8 +184,6 @@ function History() {
           {when(x.at)} · {x.kind}
           {x.repented ? " (repented)" : ""} · {words(x.realm)}
           {x.level ? ` ${words(x.level)}` : ""}
-          {x.qiSpent ? ` · ${x.qiSpent} Qi` : ""}
-          {x.waived ? " · fast track" : ""}
           {x.legendary ? " · legendary item" : ""}
         </T>
       ))}

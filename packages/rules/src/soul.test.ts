@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { OATH_TEXT, type GameEvent } from "@cultivation/schema";
+import { OATH_TEXT, type GameEvent, CLOSED_DOOR_OATH } from "@cultivation/schema";
 import {
   DAY,
   RULES_V1,
@@ -14,11 +14,11 @@ import {
   WEEK as WEEK_MS,
   initialSoul,
   onSoulTaskLogged,
-  replay,
   type CultivatorState,
   type HeartDemon,
   type SoulState,
 } from "./index.js";
+import { strictReplay as replay } from "./test-support.js";
 
 // Day 0 = Monday 2026-11-02 00:00 in Buenos Aires (UTC-3): T0 + k*DAY is always a local midnight.
 const T0 = Date.UTC(2026, 10, 2, 3);
@@ -158,7 +158,7 @@ describe("passive growth", () => {
 
   it("freezes demon growth during rest, and rest doesn't count toward the grace period", () => {
     const s0 = replay([created, demon("a", T0)]);
-    const rested = applyEvent(s0, ev("RestStarted", T0 + DAY, { kind: "closed_door", until: T0 + 11 * DAY }));
+    const rested = applyEvent(s0, ev("RestStarted", T0 + DAY, { kind: "closed_door", oath: CLOSED_DOOR_OATH, until: T0 + 11 * DAY }));
     expect(hp(advanceTo(rested, T0 + 11 * DAY), "a")).toBe(50);
     // 1 day before rest + 3 after = 4 idle days: 1 day of growth.
     expect(hp(advanceTo(rested, T0 + 14 * DAY), "a")).toBeCloseTo(51, 9);
@@ -397,7 +397,7 @@ describe("soul determinism", () => {
 });
 
 describe("rest and the soul", () => {
-  const rest = (from: number, to: number) => ev("RestStarted", from, { kind: "closed_door", until: to });
+  const rest = (from: number, to: number) => ev("RestStarted", from, { kind: "closed_door", oath: CLOSED_DOOR_OATH, until: to });
 
   it("freezes the soul color during rest and evaluates it again at the first midnight after", () => {
     // Pushed to 80% during rest: no Violet until rest ends.
@@ -642,7 +642,7 @@ describe("demon alerts", () => {
   });
 
   it("starts the projection after the current rest", () => {
-    const s = replay([created, demon("a", T0), ev("RestStarted", T0 + H, { kind: "closed_door", until: T0 + 10 * DAY })]);
+    const s = replay([created, demon("a", T0), ev("RestStarted", T0 + H, { kind: "closed_door", oath: CLOSED_DOOR_OATH, until: T0 + 10 * DAY })]);
     expect((demonAlerts(s)[0]?.at ?? 0) - T0).toBe(10 * DAY + (3 * DAY - H) + 15 * DAY);
   });
 

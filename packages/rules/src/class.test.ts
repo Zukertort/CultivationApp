@@ -13,10 +13,10 @@ import {
   pendingClassDrops,
   pendingSoulRolls,
   qiMultiplier,
-  replay,
   trainingGoldMultiplier,
   type CultivatorState,
 } from "./index.js";
+import { strictReplay as replay } from "./test-support.js";
 
 // Day 0 = Monday 2026-11-02 00:00 in Buenos Aires (UTC-3).
 const T0 = Date.UTC(2026, 10, 2, 3);
@@ -60,10 +60,13 @@ const flagged = (s: CultivatorState, inv: Partial<CultivatorState["inventory"]>)
 describe("choosing a class (rulings 113, 114, 123)", () => {
   it("is picked for free with the end-of-Foundation choice", () => {
     let s = replay([created, interview, decide("main", "BJJ"), decide("body", "Gym"), decide("soul", "Calm")]);
-    s = apply({ ...s, qi: 3 * 250 }, ev("AreasLocked", T0 + 2 * H, {}));
+    s = apply({ ...s, qi: 3 * 350 }, ev("AreasLocked", T0 + 2 * H, {}));
     for (const id of ["a", "b", "c"]) s = apply(s, declare(id, T0 + 3 * H));
     expect(code(() => applyEvent(s, choose("monk", T0 + 4 * H)))).toBe("class_not_yet");
-    s = apply(s, claim("a", T0 + DAY), claim("b", T0 + 2 * DAY), claim("c", T0 + 3 * DAY), ev("CoreFormed", T0 + 4 * DAY, { choice: "BJJ", class: "warrior" }));
+    // Each claim is completed for Foundation's 350 Qi (ruling 169).
+    const done = (id: string, at: number) => ev("TribulationCompleted", at, { tribulationId: id });
+    s = apply(s, claim("a", T0 + DAY), done("a", T0 + DAY), claim("b", T0 + 2 * DAY), done("b", T0 + 2 * DAY), claim("c", T0 + 3 * DAY), done("c", T0 + 3 * DAY));
+    s = apply(s, ev("CoreFormed", T0 + 4 * DAY, { choice: "BJJ", class: "warrior" }));
     expect(s.class.id).toBe("warrior");
     expect(s.class.history).toEqual([{ at: T0 + 4 * DAY, from: null, to: "warrior", gold: 0, forfeited: 0 }]);
   });

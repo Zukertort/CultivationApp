@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { OATH_TEXT, REPENT_OATH, TRIBULATION_OATH, type GameEvent } from "@cultivation/schema";
+import { OATH_TEXT, REPENT_OATH, TRIBULATION_OATH, type GameEvent, CLOSED_DOOR_OATH } from "@cultivation/schema";
 import {
   DAY,
   GEAR_REALMS,
@@ -22,7 +22,6 @@ import {
   pushAlertPlan,
   qiMultiplier,
   repairPrice,
-  replay,
   sellPrice,
   shopPrice,
   stash,
@@ -33,6 +32,7 @@ import {
   type CultivatorState,
   type GearItem,
 } from "./index.js";
+import { strictReplay as replay } from "./test-support.js";
 
 // Day 0 = Monday 2026-11-02 00:00 in Buenos Aires (UTC-3).
 const T0 = Date.UTC(2026, 10, 2, 3);
@@ -195,10 +195,10 @@ describe("shop, stash and selling (rulings 137, 140)", () => {
 });
 
 describe("stats (rulings 138, 142, 143)", () => {
-  it("keeps the ladder robe(R) < shop(R) < robe(R+1) < legendary(R) < shop(R+1), for armor Qi and gold, and weapons", () => {
+  it("keeps the ladder robe(R) < shop(R) < robe(R+1) < legendary(R) < shop(R+1) for armor Qi and weapons, stats doubling per realm; armor gold stays flat (ruling 171)", () => {
     const a = RULES_V1.gear.armor;
     const w = RULES_V1.gear.weapon;
-    for (const stat of ["qi", "gold"] as const) {
+    for (const stat of ["qi"] as const) {
       const ladder = GEAR_REALMS.flatMap((r, i) => {
         const next = GEAR_REALMS[i + 1];
         return [a.robe[r][stat], a.shop[r][stat], ...(next ? [a.robe[next][stat], a.legendary[r][stat]] : [a.legendary[r][stat]])];
@@ -208,9 +208,16 @@ describe("stats (rulings 138, 142, 143)", () => {
       for (let i = 1; i < steps.length; i++) expect(steps[i]).toBeGreaterThan(steps[i - 1]!);
     }
     GEAR_REALMS.forEach((r, i) => {
-      expect(w.legendary[r]).toBeGreaterThan(w.shop[r]);
+      expect(w.legendary[r]).toBeCloseTo(1.5 * w.shop[r]);
+      expect(a.legendary[r].qi).toBeLessThan(2 * a.shop[r].qi);
       const next = GEAR_REALMS[i + 1];
-      if (next) expect(w.legendary[r]).toBeLessThan(w.shop[next]);
+      if (next) {
+        expect(w.legendary[r]).toBeLessThan(w.shop[next]);
+        expect(w.shop[next]).toBeCloseTo(2 * w.shop[r]);
+        expect(a.shop[next].qi).toBe(2 * a.shop[r].qi);
+        // Gold reductions are flat, like the failure's 45 gold.
+        for (const kind of ["robe", "shop", "legendary"] as const) expect(a[kind][next].gold).toBe(a[kind][r].gold);
+      }
     });
     // Armor never takes the whole failure gold.
     for (const r of GEAR_REALMS) expect(a.legendary[r].gold).toBeLessThan(RULES_V1.tribulations.failure.gold);
@@ -234,8 +241,8 @@ describe("failures with gear (rulings 142, 147, 148)", () => {
 
   it("worn armor lowers the Qi and gold a failure takes, and takes the failure's 20% damage", () => {
     const s = advanceTo(apply(rich(foundation(), 100, 100), declare()), T0 + 3 * DAY + 1);
-    // Foundation's next threshold is 250: the loss is 62.5 Qi and 45 gold, less the white robe's 8 and 4.
-    expect(s.qi).toBeCloseTo(100 - 54.5);
+    // Foundation's cost is 350: the loss is 87.5 Qi and 45 gold, less the white robe's 8 and 4.
+    expect(s.qi).toBeCloseTo(100 - 79.5);
     expect(s.gold).toBeCloseTo(100 - 41);
     // Two Turtle midnights (5% each), then at the third the failure (20%) and the Turtle again.
     expect(damageOf(s, WHITE)).toBe(500 + 500 + 2000 + 500);
@@ -244,8 +251,8 @@ describe("failures with gear (rulings 142, 147, 148)", () => {
   it("with no armor worn, the full loss applies and the failure damages nothing (ruling 142)", () => {
     const s = advanceTo(apply(rich(foundation(), 100, 100), unequip("armor", T0 + 10), declare()), T0 + 3 * DAY + 1);
     // Days 1 and 2 had no armor, so the companion took Qi and gold instead (ruling 154).
-    const day = unarmoredLoss("foundation_establishment", 500);
-    expect(s.qi).toBeCloseTo(100 - 62.5 - 2 * day.qi);
+    const day = unarmoredLoss(500);
+    expect(s.qi).toBeCloseTo(100 - 87.5 - 2 * day.qi);
     expect(s.gold).toBeCloseTo(100 - 45 - 2 * day.gold);
     // Only day 0's Turtle damage, since the robe was worn that day (ruling 147).
     expect(damageOf(s, WHITE)).toBe(500);
@@ -281,16 +288,16 @@ describe("failures with gear (rulings 142, 147, 148)", () => {
     // The white robe took the 20% and its 8 Qi off; the shop armor took nothing from the failure.
     expect(damageOf(s, WHITE)).toBe(500 + 500 + 2000);
     expect(damageOf(s, "a1")).toBe(0);
-    expect(s.qi).toBeCloseTo(100 - 54.5);
+    expect(s.qi).toBeCloseTo(100 - 79.5);
   });
 
   it("an armored cultivator ends above the 75% line by the armor's Qi on a failure (ruling 147)", () => {
-    // 1,000 Qi at Foundation (threshold 250): the loss brings Qi to 187.5, and the robe keeps 8 more.
+    // 1,000 Qi at Foundation (cost 350): the loss brings Qi to 262.5, and the robe keeps 8 more.
     const s = advanceTo(apply(rich(foundation(), 1000, 100), declare()), T0 + 3 * DAY + 1);
-    expect(s.qi).toBeCloseTo(187.5 + 8);
+    expect(s.qi).toBeCloseTo(262.5 + 8);
     const bare = advanceTo(apply(rich(foundation(), 1000, 100), unequip("armor", T0 + 10), declare()), T0 + 3 * DAY + 1);
-    // The failure brings it to 187.5; the companion then takes that night's unarmored loss.
-    expect(bare.qi).toBeCloseTo(187.5 - unarmoredLoss("foundation_establishment", 500).qi);
+    // The failure brings it to 262.5; the companion then takes that night's unarmored loss.
+    expect(bare.qi).toBeCloseTo(262.5 - unarmoredLoss(500).qi);
   });
 
   it("doesn't lower deletions or late edits, which stay above a failure (ruling 93)", () => {
@@ -298,7 +305,7 @@ describe("failures with gear (rulings 142, 147, 148)", () => {
     const price = tribulationDeletePrice(s, "x", T0 + 2 * H);
     expect(price.qi).toBeCloseTo(failureQiLoss(s) * 1.02);
     const after = apply(s, ev("TribulationDeleted", T0 + 2 * H, { tribulationId: "x" }));
-    expect(after.qi).toBeCloseTo(100 - 62.5 * 1.02);
+    expect(after.qi).toBeCloseTo(100 - 87.5 * 1.02);
     expect(after.gold).toBeCloseTo(100 - 45 * 1.02);
   });
 
@@ -325,14 +332,14 @@ describe("durability (rulings 144, 147)", () => {
   it("with no armor worn all day, the companion takes Qi and gold instead, more than the repair would cost (ruling 154)", () => {
     const s = rich(apply(foundation(), unequip("armor", T0 + 10)), 100, 100);
     const after = advanceTo(s, T0 + 2 * DAY + 1);
-    const day = unarmoredLoss("foundation_establishment", 500);
+    const day = unarmoredLoss(500);
     // Day 0 had the robe on; day 1 had none.
     expect(after.qi).toBeCloseTo(100 - day.qi);
     expect(after.gold).toBeCloseTo(100 - day.gold);
     expect(after.gear.unarmored).toMatchObject({ days: 1 });
     // It costs more than repairing that damage on any base armor of the realm.
     for (const realm of GEAR_REALMS) {
-      const loss = unarmoredLoss(realm, 500);
+      const loss = unarmoredLoss(500);
       for (const kind of ["robe", "shop"] as const) expect(loss.gold).toBeGreaterThan(repairPrice({ id: "i", slot: "armor", kind, realm, damageBp: 500, obtainedAt: 0 }));
     }
     // Floored at the balances, never debt.
@@ -347,12 +354,12 @@ describe("durability (rulings 144, 147)", () => {
     lion.companion.tier = "lion";
     lion.companion.food = 2500;
     expect(advanceTo(lion, T0 + 5 * DAY + 1).qi).toBe(100);
-    const rest = rich(apply(foundation(), unequip("armor", T0 + 10), ev("RestStarted", T0 + H, { kind: "closed_door", until: T0 + 5 * DAY + H })), 100, 100);
+    const rest = rich(apply(foundation(), unequip("armor", T0 + 10), ev("RestStarted", T0 + H, { kind: "closed_door", oath: CLOSED_DOOR_OATH, until: T0 + 5 * DAY + H })), 100, 100);
     expect(advanceTo(rest, T0 + 6 * DAY + 1).qi).toBe(100);
   });
 
   it("takes no damage on days with rest, and none at Lion", () => {
-    const s = apply(foundation(), ev("RestStarted", T0 + H, { kind: "closed_door", until: T0 + 5 * DAY + H }));
+    const s = apply(foundation(), ev("RestStarted", T0 + H, { kind: "closed_door", oath: CLOSED_DOOR_OATH, until: T0 + 5 * DAY + H }));
     expect(damageOf(advanceTo(s, T0 + 6 * DAY + 1), WHITE)).toBe(0);
     expect(damageOf(advanceTo(s, T0 + 7 * DAY + 1), WHITE)).toBe(500);
     const lion = structuredClone(foundation());

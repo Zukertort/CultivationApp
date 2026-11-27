@@ -8,7 +8,7 @@
  */
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { OATH_TEXT, type GameEvent } from "@cultivation/schema";
+import { OATH_TEXT, type GameEvent, CLOSED_DOOR_OATH } from "@cultivation/schema";
 import {
   DAY,
   GROWTH_COLORS,
@@ -133,7 +133,7 @@ function simulateSoul(p: Persona, weeks = WEEKS): SoulRun {
     const dow = d % 7;
 
     if (p.restEveryWeeks && p.restDays && dow === 0 && w > 0 && w % p.restEveryWeeks === 0) {
-      apply(mk("RestStarted", dayStart + HOUR, { kind: "closed_door", until: dayStart + HOUR + p.restDays * DAY }));
+      apply(mk("RestStarted", dayStart + HOUR, { kind: "closed_door", oath: CLOSED_DOOR_OATH, until: dayStart + HOUR + p.restDays * DAY }));
     }
     const resting = () => s.rest !== null && s.clock < s.rest.end;
 

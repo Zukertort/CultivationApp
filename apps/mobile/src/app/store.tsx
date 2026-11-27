@@ -8,7 +8,7 @@
  */
 import { useEffect, useState, type ReactNode } from "react";
 import { Alert, View } from "react-native";
-import type { GearSlot } from "@cultivation/schema";
+import { CLOSED_DOOR_OATH, type GearSlot } from "@cultivation/schema";
 import { DAY, GEAR_REALMS, RULES_V1, potionPrice, potionStatus, vacationDaysLeft, vacationPrice, repairPrice, sellPrice, shopPrice, stash, wearable, wornItem, type GearItem, type GearRealm } from "@cultivation/rules";
 import { GearWarnings, durability, gearName, gearStats, isDead } from "../lib/gear";
 import { now as clockNow } from "../lib/clock";
@@ -221,6 +221,7 @@ function Services({ days, setDays, act }: { days: string; setDays: (d: string) =
           </>
         )}
       </Card>
+      <ClosedDoor act={act} />
       <Card title="Class change">
         <T muted>{`Changing class costs ${RULES_V1.classes.changeGold} gold and forfeits held class wearables. It is chosen on the Realm screen, from Core Formation until Spirit Realm locks it.`}</T>
       </Card>
@@ -228,5 +229,27 @@ function Services({ days, setDays, act }: { days: string; setDays: (d: string) =
         <T muted>{`An expired one-time task or quest can be extended once, within ${RULES_V1.main.extension.windowDays} days, for its base gold (at least ${RULES_V1.main.extension.minPrice}), no longer than its original duration. It is bought on the Tasks tab.`}</T>
       </Card>
     </>
+  );
+}
+
+/** Closed-door cultivation (rulings 70, 173): free, capped like before, and entered with an oath; available while dead. */
+function ClosedDoor({ act }: { act: (input: EventInput, ok: string) => Promise<void> }) {
+  const { state, now } = useStore();
+  const r = RULES_V1.rest;
+  const [days, setDays] = useState("3");
+  const [sworn, setSworn] = useState(false);
+  const n = wholeNumber(days) ?? 0;
+  if (state.rest !== null && now < state.rest.end) return null;
+  return (
+    <Card title="Closed-door cultivation">
+      <T muted>{`For illness or burnout: free, at most ${r.closedDoorMaxDays} days at a time and ${r.closedDoorMaxDaysPerWindow} in any ${r.closedDoorWindowDays}. Open tribulation deadlines move back by the time inside. Starting it within 3 days of a vacation's end is noted in the integrity log.`}</T>
+      <Field label="Days" value={days} onChangeText={setDays} keyboardType="number-pad" maxLength={2} />
+      <Chip label={`${sworn ? "[x]" : "[ ]"} ${CLOSED_DOOR_OATH}`} on={sworn} onPress={() => setSworn(!sworn)} />
+      <Button
+        label={n >= 1 ? `Enter for ${n} days` : "Enter closed-door cultivation"}
+        disabled={!sworn || n < 1 || n > r.closedDoorMaxDays}
+        onPress={() => void act({ type: "RestStarted", kind: "closed_door", until: now + n * DAY, oath: CLOSED_DOOR_OATH }, `In closed-door cultivation for ${n} days.`)}
+      />
+    </Card>
   );
 }

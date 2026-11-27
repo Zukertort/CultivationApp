@@ -14,7 +14,7 @@
  * avatar dies it completes a revival quest of two week-long projects.
  */
 import { OATH_TEXT, REPENT_OATH, TRIBULATION_OATH, type ClassId } from "@cultivation/schema";
-import { DAY, realmStatus, tribulationStatus } from "@cultivation/rules";
+import { DAY, awaitingCompletion, realmStatus, tribulationStatus } from "@cultivation/rules";
 import type { Cultivator } from "./cultivator.js";
 
 // ---- Income habits ----------------------------------------------------------
@@ -159,25 +159,32 @@ export function tribulationPlan(h: Habits) {
 
     if (h.changeDiscipline && realm === "nascent_soul" && c.now("AreaDecided", at, { path: "main", choice: `discipline ${day}` })) return;
 
+    // Complete the claims the balance covers, oldest first: completing is a purchase (ruling 169).
+    for (const a of awaitingCompletion(c.s)) if (a.ready) c.now("TribulationCompleted", at, { tribulationId: a.tribulationId });
+
+    // The realm as it stands now: a claim or completion may have broken through today (the old plan read it at the
+    // start of the day and declared Core Formation's set in Nascent Soul).
+    const now = c.s.main.realm;
     const open = [...plans.keys()].filter((id) => {
       const t = c.s.tribulations.items[id]!;
       return t.realm === c.s.main.realm && t.closedAt === null && (t.status === "open" || t.status === "failed");
     });
     const status = realmStatus(c.s);
-    if (realm === "foundation_establishment") {
+    if (now === "foundation_establishment") {
       if (h.switchMidFoundation && !switched && status.level === "mid") {
         switched = c.now("AreaDecided", at, { path: "main", choice: "a second discipline" });
         return;
       }
       if (status.level === "great_circle" && status.next?.missing === "choice") c.now("CoreFormed", at, { choice: "main discipline", class: h.class ?? "monk" });
-      else if (open.length === 0 && (status.tribulations?.passed ?? 0) < 3) {
+      // Completed and awaiting claims both fill Foundation's three (ruling 169).
+      else if (open.length === 0 && (status.tribulations?.passed ?? 0) + (status.tribulations?.awaiting ?? 0) < 3) {
         if (h.eager) declare(c, `fe${day}`, day, 1, day + 1);
         else declare(c, `fe${day}`, day, 28, h.fastTrack ? day : day + 20);
       }
-    } else if (realm === "core_formation" && (status.tribulations?.total ?? 0) === 0) {
+    } else if (now === "core_formation" && (status.tribulations?.total ?? 0) === 0) {
       if (h.eager) for (let k = 1; k <= 5; k++) declare(c, `cf${day}-${k}`, day, 1, day + 1);
       else for (let k = 1; k <= 6; k++) declare(c, `cf${day}-${k}`, day, 60 * k, day + 60 * k - 10);
-    } else if (realm === "nascent_soul") {
+    } else if (now === "nascent_soul") {
       if (h.eager && open.length === 0 && c.s.progress.lockedAt === null) {
         declare(c, `ns${day}`, day, 1, day + 1);
         c.now("NascentSoulLocked", at, {});

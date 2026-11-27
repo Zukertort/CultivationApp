@@ -117,14 +117,24 @@ export function sellPrice(item: GearItem, rules: RulesConfig = RULES_V1): number
   return rules.gear.sellShare * itemValue(item, rules) * (1 - item.damageBp / FULL_DURABILITY_BP);
 }
 
-/** A full repair costs 10% of the item's value, prorated by its damage (ruling 155). */
+/**
+ * A full repair costs 10% of the Foundation value of the same kind and slot,
+ * prorated by its damage, in every realm (rulings 155, 172): a recurring cost
+ * stays a fixed share of a flat income while one-time prices double.
+ */
 export function repairPrice(item: GearItem, rules: RulesConfig = RULES_V1): number {
-  return (rules.gear.repairShare * itemValue(item, rules) * item.damageBp) / FULL_DURABILITY_BP;
+  const base = itemValue({ kind: item.kind, slot: item.slot, realm: "foundation_establishment" }, rules);
+  return (rules.gear.repairShare * base * item.damageBp) / FULL_DURABILITY_BP;
 }
 
-/** Qi and gold the companion's damage takes on a day with no armor worn (ruling 154): more than repairing the realm's shop armor would cost. */
-export function unarmoredLoss(realm: GearRealm, bp: number, rules: RulesConfig = RULES_V1): { qi: number; gold: number } {
-  const repair = (rules.gear.repairShare * itemValue({ kind: "shop", slot: "armor", realm }, rules) * bp) / FULL_DURABILITY_BP;
+/**
+ * Qi and gold the companion's damage takes on a day with no armor worn
+ * (ruling 154): more than repairing that damage would cost, based on
+ * Foundation's shop armor in every realm (ruling 172), so it stays a fixed
+ * share of income.
+ */
+export function unarmoredLoss(bp: number, rules: RulesConfig = RULES_V1): { qi: number; gold: number } {
+  const repair = (rules.gear.repairShare * itemValue({ kind: "shop", slot: "armor", realm: "foundation_establishment" }, rules) * bp) / FULL_DURABILITY_BP;
   const loss = rules.gear.unarmoredLossFactor * repair;
   return { qi: loss, gold: loss };
 }
@@ -200,7 +210,7 @@ export function gearMidnight(s: CultivatorState, midnight: number, rested: boole
     for (const id of g.armorWornToday) damage(s, id, bp, midnight);
     const realm = s.main.realm;
     if (g.armorWornToday.length === 0 && isGearRealm(realm) && s.created) {
-      const loss = unarmoredLoss(realm, bp, rules);
+      const loss = unarmoredLoss(bp, rules);
       const qi = Math.min(s.qi, loss.qi);
       const gold = Math.min(s.gold, loss.gold);
       s.qi -= qi;

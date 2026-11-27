@@ -5,7 +5,7 @@
  * it moves the app's clock (lib/clock), and the next event is logged then.
  */
 import { useState } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Modal, Pressable, ScrollView, Share, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useSQLiteContext } from "expo-sqlite";
 import { DAY, MINUTE, RULES_V1, effectiveDeadline, nextLocalMidnight, tribulationStatus, type CultivatorState } from "@cultivation/rules";
@@ -37,6 +37,31 @@ function nextDeadline(s: CultivatorState, at: number): { at: number; what: strin
   for (const t of Object.values(s.main.tasks)) if (t.due) found.push({ at: effectiveDeadline(t.due, s.rest, at), what: `task "${t.name}"` });
   if (s.rest) found.push({ at: s.rest.end, what: "the end of the rest" });
   return found.filter((x) => x.at > at).sort((a, b) => a.at - b.at)[0] ?? null;
+}
+
+/**
+ * The open log's replay anomalies (ruling 168): events the current rules
+ * rejected and skipped, with their reason, plus every other anomaly; and an
+ * export of the log as JSON through the share sheet, for the simulator's
+ * replay command.
+ */
+function ReplayLog() {
+  const { state, events } = useStore();
+  const skipped = state.anomalies.filter((a) => a.code === "replay_skipped");
+  const other = state.anomalies.filter((a) => a.code !== "replay_skipped");
+  return (
+    <Card title={`Replay: ${skipped.length} skipped, ${other.length} other anomalies`}>
+      <T muted>{`Events the current rules (${RULES_V1.version}) reject are skipped on replay and listed here; the log itself is never changed.`}</T>
+      {[...skipped, ...other].slice(0, 50).map((a, i) => (
+        <T key={i} muted>{`${when(a.at)} · ${a.code}${a.detail ? ` · ${a.detail}` : ""}`}</T>
+      ))}
+      <Button
+        label={`Export the log (${events.length} events)`}
+        kind="ghost"
+        onPress={() => void Share.share({ title: "cultivation-log.json", message: JSON.stringify(events) })}
+      />
+    </Card>
+  );
 }
 
 export function DevPanel() {
@@ -79,6 +104,7 @@ export function DevPanel() {
               error={dev.lastLoad.problems.length > 0}
             />
           ) : null}
+          <ReplayLog />
           <Card title="Load a scenario">
             <T muted>Built now from simulator personas, ending just before today. Loading replaces the previous scenario.</T>
             {SCENARIOS.map((sc) => (

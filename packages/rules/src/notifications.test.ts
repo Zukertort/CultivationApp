@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { OATH_TEXT, type GameEvent } from "@cultivation/schema";
+import { OATH_TEXT, type GameEvent, CLOSED_DOOR_OATH } from "@cultivation/schema";
 import { DAY, pushAlertPlan as fullPlan, replay, type CultivatorState, type HeartDemon } from "./index.js";
 
 /** The plan without the daily reminder, which fills every day with no other push (ruling 128). */
@@ -74,7 +74,7 @@ describe("daily reminder and quiet hours (rulings 128, 129)", () => {
     expect(plain).toHaveLength(14); // the horizon's 14 days
     const evening = replay([created, ev("DailyReminderSet", T0, { minutes: 20 * 60 + 30 })]);
     expect(reminders(evening)[0]!.at).toBe(T0 + 20.5 * H);
-    const resting = replay([created, ev("RestStarted", T0, { kind: "closed_door", until: T0 + 2.5 * DAY })]);
+    const resting = replay([created, ev("RestStarted", T0, { kind: "closed_door", oath: CLOSED_DOOR_OATH, until: T0 + 2.5 * DAY })]);
     expect(reminders(resting)[0]!.at).toBe(T0 + 3 * DAY + 9 * H); // day 2 holds the return-date push
     // A day with another push gets no reminder.
     const busy = withDemons([64.5]);

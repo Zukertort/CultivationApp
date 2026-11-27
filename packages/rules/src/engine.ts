@@ -1,6 +1,6 @@
 import type { BodyActivityKind, EventOf, Evidence, GameEvent, RoulettePrize, SoulDrop } from "@cultivation/schema";
 import { RULES_V1, TIERS, type RulesConfig, type Tier } from "./config.js";
-import { violate } from "./errors.js";
+import { RuleViolation, violate } from "./errors.js";
 import {
   advanceSoul,
   endOfDay,
@@ -63,6 +63,7 @@ import {
   flagRestNearDeadlines,
   initialTribulations,
   onTribulationClaimed,
+  onTribulationCompleted,
   onTribulationDeclared,
   onTribulationDeleted,
   onTribulationDropRolled,
@@ -160,7 +161,7 @@ export interface CultivatorState {
   /** Base gear: worn, stash, robes given (rulings 137-145). */
   gear: GearState;
   /** Things that should be impossible (e.g. a second set of wings); flagged, never silently fixed. */
-  anomalies: { at: number; code: string }[];
+  anomalies: { at: number; code: string; detail?: string }[];
 }
 
 export function initialState(rules: RulesConfig = RULES_V1): CultivatorState {
@@ -524,6 +525,8 @@ const onRestStarted: Handler<"RestStarted"> = (s, e, rules) => {
     s.shopSpent.vacations += before - s.gold;
   } else {
     const r = rules.rest;
+    // The oath, from the version that requires it (ruling 173); earlier closed-door events replay without it.
+    if (e.at >= r.closedDoorOathFrom && e.oath === undefined) violate("oath_required", "closed-door cultivation needs the oath");
     if (days > r.closedDoorMaxDays) violate("closed_door_too_long", `closed-door cultivation is capped at ${r.closedDoorMaxDays} days`);
     const windowStart = e.at - r.closedDoorWindowDays * DAY;
     const used = s.closedDoorLog.reduce((sum, p) => sum + Math.max(0, p.end - Math.max(p.start, windowStart)), 0);
@@ -532,7 +535,15 @@ const onRestStarted: Handler<"RestStarted"> = (s, e, rules) => {
     }
   }
   const period: RestPeriod = { kind: e.kind, start: e.at, end: e.until };
-  if (e.kind === "closed_door") flagRestNearDeadlines(s, e.at, rules);
+  if (e.kind === "closed_door") {
+    flagRestNearDeadlines(s, e.at, rules);
+    // Right after a vacation: logged, never penalized (ruling 173, like ruling 86).
+    const lastVacation = s.vacationLog.at(-1);
+    const sinceVacation = lastVacation ? e.at - lastVacation.end : Infinity;
+    if (sinceVacation >= 0 && sinceVacation <= rules.rest.closedDoorAfterVacationHours * 60 * 60 * 1000) {
+      s.main.flags.push({ at: e.at, code: "closed_door_after_vacation", id: String(lastVacation!.start) });
+    }
+  }
   s.rest = period;
   if (e.kind === "closed_door") s.closedDoorLog.push({ ...period });
   else s.vacationLog.push({ ...period });
@@ -738,6 +749,7 @@ const handlers: { [T in GameEvent["type"]]: Handler<T> } = {
   TribulationDeleted: onTribulationDeleted,
   TribulationRescheduled: onTribulationRescheduled,
   TribulationClaimed: onTribulationClaimed,
+  TribulationCompleted: onTribulationCompleted,
   TribulationDropRolled: (s, e) => {
     if (!onTribulationDropRolled(s, e)) s.anomalies.push({ at: e.at, code: "orphan_tribulation_drop_roll" });
   },
@@ -812,10 +824,24 @@ export function advanceTo(state: CultivatorState, to: number, rules: RulesConfig
   return s;
 }
 
-/** Rebuild state from a full event log, optionally advancing to `until` afterwards. */
+/**
+ * Rebuild state from a full event log, optionally advancing to `until`
+ * afterwards. A replay never throws (ruling 168): an event the current rules
+ * reject (a log written under older rules, or a bug) is skipped and recorded
+ * as a `replay_skipped` anomaly with its reason, and the replay goes on.
+ */
 export function replay(events: readonly GameEvent[], rules: RulesConfig = RULES_V1, until?: number): CultivatorState {
-  const s = initialState(rules);
-  for (const e of events) applyMut(s, e, rules);
+  let s = initialState(rules);
+  for (const e of events) {
+    const next = clone(s);
+    try {
+      applyMut(next, e, rules);
+      s = next;
+    } catch (err) {
+      const reason = err instanceof RuleViolation ? `${err.code}: ${err.message}` : `error: ${err instanceof Error ? err.message : String(err)}`;
+      s.anomalies.push({ at: e.at, code: "replay_skipped", detail: `${e.type} ${e.id}: ${reason}` });
+    }
+  }
   if (until !== undefined) {
     const dead = deathSnapshot(s);
     advanceMut(s, until, rules);

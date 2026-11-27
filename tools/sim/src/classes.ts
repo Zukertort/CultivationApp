@@ -58,7 +58,7 @@ function rng(seed: number): () => number {
 }
 
 let seq = 0;
-const stepsQi = (s: CultivatorState) => s.progress.steps.reduce((sum, x) => sum + x.qiSpent, 0);
+const stepsQi = (s: CultivatorState) => s.tribulations.completionQi;
 const changeGold = (s: CultivatorState) => s.class.history.reduce((sum, x) => sum + x.gold, 0);
 
 class Cultivator {

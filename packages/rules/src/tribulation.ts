@@ -19,6 +19,8 @@ import { effectiveDeadline, markActivity, type Due } from "./main.js";
 import { gearOnFailure } from "./gear.js";
 import { checkClaimable, checkDeclarable, failureQiLoss, isUnlockedNascent } from "./realm.js";
 import { DAY, MINUTE } from "./time.js";
+import { completionCost, realmFactor } from "./factor.js";
+import { noPurchaseWhileDead } from "./shop.js";
 
 const HOUR = 60 * MINUTE;
 
@@ -44,6 +46,13 @@ export interface Tribulation {
   /** When the last failure happened: the attempt's effective deadline. */
   failedAt: number | null;
   passedAt: number | null;
+  /**
+   * When the claim was completed (ruling 169): its realm's cost in Qi paid with a TribulationCompleted, or, in
+   * Foundation, paid by the evidence at the claim. A claim not yet completed is "passed, awaiting completion":
+   * never a failure, never edited, and it counts toward nothing until completed.
+   */
+  completedAt: number | null;
+  completedBy: "qi" | "evidence" | null;
   edits: number;
   /** Evidence references attached to the claim. */
   evidence: number;
@@ -71,6 +80,8 @@ export interface TribulationState {
   spent: { failures: Cost; edits: Cost; deletions: Cost; debt: { qi: number; gold: number } };
   /** The largest Qi a single failure took, for the simulator and the integrity view (ruling 80). */
   largestFailureQi: number;
+  /** Qi paid completing tribulations (ruling 169), for the simulator. */
+  completionQi: number;
 }
 
 export function initialTribulations(): TribulationState {
@@ -82,6 +93,7 @@ export function initialTribulations(): TribulationState {
     drops: { none: 0, gain_potion: 0, legendary_potion: 0 },
     spent: { failures: cost(), edits: cost(), deletions: cost(), debt: { qi: 0, gold: 0 } },
     largestFailureQi: 0,
+    completionQi: 0,
   };
 }
 
@@ -188,9 +200,10 @@ export function tribulationEditPrice(state: CultivatorState, tribulationId: stri
   const r = rules.tribulations;
   if (at - t.declaredAt <= r.freeEditMinutes * MINUTE) return { qi: 0, gold: 0, kind: "free" };
   if (isUnlockedNascent(state, t)) return { qi: 0, gold: 0, kind: "unlocked" };
-  if (statusAt(state, t, at) === "failed" || !t.due) return { qi: r.editQi, gold: 0, kind: "failed" };
+  const k = realmFactor(state.main.realm, rules);
+  if (statusAt(state, t, at) === "failed" || !t.due) return { qi: r.editQi * k, gold: 0, kind: "failed" };
   const span = effectiveDeadline(t.due, state.rest, at) - t.spanStart;
-  if (at - t.spanStart < r.lateEditFrom * span) return { qi: r.editQi, gold: 0, kind: "early" };
+  if (at - t.spanStart < r.lateEditFrom * span) return { qi: r.editQi * k, gold: 0, kind: "early" };
   // The last quarter costs a failure, floored like one and never rejected, but the tribulation stays open (rulings 93, 100).
   return { qi: failureQiLoss(state, rules), gold: r.failure.gold, kind: "late" };
 }
@@ -215,7 +228,7 @@ export function tribulationDeletePrice(
     return { qi: failureQiLoss(state, rules) * k, gold: r.failure.gold * k, kind: "faked" };
   }
   if (isUnlockedNascent(state, t)) return { qi: 0, gold: 0, kind: "unlocked" };
-  if (statusAt(state, t, at) === "failed") return { qi: r.deleteFailedQi, gold: 0, kind: "failed" };
+  if (statusAt(state, t, at) === "failed") return { qi: r.deleteFailedQi * realmFactor(state.main.realm, rules), gold: 0, kind: "failed" };
   const k = 1 + r.deleteOpenExtra;
   return { qi: failureQiLoss(state, rules) * k, gold: r.failure.gold * k, kind: "open" };
 }
@@ -245,6 +258,8 @@ export function onTribulationDeclared(s: CultivatorState, e: EventOf<"Tribulatio
     failures: 0,
     failedAt: null,
     passedAt: null,
+    completedAt: null,
+    completedBy: null,
     edits: 0,
     evidence: 0,
   };
@@ -310,7 +325,12 @@ export function onTribulationClaimed(s: CultivatorState, e: EventOf<"Tribulation
   t.evidence = e.evidence?.length ?? 0;
   markActivity(s.main, "main", e.at);
   s.main.flags.push({ at: e.at, code: "tribulation_claimed", id: e.tribulationId, detail: e.llmReview === "done" ? "reviewed" : "self_reported" });
-  if (t.realm === "foundation_establishment" && t.evidence > 0) s.main.flags.push({ at: e.at, code: "fast_track_claim", id: e.tribulationId });
+  if (t.realm === "foundation_establishment" && t.evidence > 0) {
+    // In Foundation the evidence pays the completion cost at once, exactly: no multipliers, no debt repayment, no surplus (ruling 169).
+    t.completedAt = e.at;
+    t.completedBy = "evidence";
+    s.main.flags.push({ at: e.at, code: "fast_track_claim", id: e.tribulationId });
+  }
 
   const tr = s.tribulations;
   const cooldown = rules.tribulations.item.cooldownDays * DAY;
@@ -321,6 +341,26 @@ export function onTribulationClaimed(s: CultivatorState, e: EventOf<"Tribulation
   // An outcome stored without an earned roll (e.g. inside the cooldown) is ignored, as for other drops.
   if (e.drop !== undefined) applyDrop(s, e.drop);
   else tr.pendingRolls[e.id] = { eventId: e.id, at: e.at, tribulationId: e.tribulationId };
+}
+
+/**
+ * Complete a claimed tribulation (ruling 169): a purchase the cultivator
+ * confirms, paying its realm's cost from the Qi balance (debt can't pay).
+ * The order of completion is the order that counts. Blocked while dead
+ * (ruling 164).
+ */
+export function onTribulationCompleted(s: CultivatorState, e: EventOf<"TribulationCompleted">, rules: RulesConfig): void {
+  const t = get(s, e.tribulationId);
+  if (t.status !== "passed") violate("not_passed", "only a claimed tribulation can be completed");
+  if (t.completedAt !== null) violate("already_completed", "this tribulation is already completed");
+  if (t.closedAt !== null || t.realm !== s.main.realm) violate("tribulation_closed", "only the current realm's claims can be completed");
+  noPurchaseWhileDead(s);
+  const cost = completionCost(t.realm, rules);
+  if (s.qi < cost) violate("insufficient_qi", `completing it costs ${cost} Qi`);
+  s.qi -= cost;
+  t.completedAt = e.at;
+  t.completedBy = "qi";
+  s.tribulations.completionQi += cost;
 }
 
 function applyDrop(s: CultivatorState, drop: MainQuestDrop): void {
@@ -382,6 +422,20 @@ export function flagRestNearDeadlines(s: CultivatorState, at: number, rules: Rul
 export function tribulationStatus(state: CultivatorState, tribulationId: string): TribulationStatus | null {
   const t = state.tribulations.items[tribulationId];
   return t ? statusAt(state, t, state.clock) : null;
+}
+
+/**
+ * The current realm's claims awaiting completion, oldest claim first, with
+ * their cost and whether the balance covers it ("Ready to complete").
+ */
+export function awaitingCompletion(state: CultivatorState, rules: RulesConfig = RULES_V1): { tribulationId: string; title: string; cost: number; passedAt: number; ready: boolean }[] {
+  return Object.entries(state.tribulations.items)
+    .filter(([, t]) => t.status === "passed" && t.completedAt === null && t.closedAt === null && t.realm === state.main.realm)
+    .map(([tribulationId, t]) => {
+      const cost = completionCost(t.realm, rules);
+      return { tribulationId, title: t.title, cost, passedAt: t.passedAt!, ready: state.qi >= cost && state.progress.diedAt === null };
+    })
+    .sort((a, b) => a.passedAt - b.passedAt);
 }
 
 /** Claims whose item roll is still to record, oldest first: what the server rolls on sync. */

@@ -469,6 +469,19 @@ export const NascentSoulLocked = z.object({
   type: z.literal("NascentSoulLocked"),
 });
 
+/**
+ * Completes a claimed tribulation (ruling 169): the cultivator confirms
+ * spending its realm's completion cost in Qi from the balance.
+ */
+export const TribulationCompleted = z.object({
+  ...base,
+  type: z.literal("TribulationCompleted"),
+  tribulationId: id,
+});
+
+/** Entering closed-door rest carries this oath (ruling 173); the app requires a checkbox. */
+export const CLOSED_DOOR_OATH = "I solemnly swear I am not faking illness or burnout.";
+
 export const REPENT_OATH = "I acknowledge that at least one of my tribulations was faked and I solemnly swear I will not do it again.";
 
 /**
@@ -517,6 +530,8 @@ export const RestStarted = z.object({
   kind: z.enum(["vacation", "closed_door"]),
   /** Planned end (epoch ms). Rest ends at the earlier of this and RestEnded. */
   until: epochMs,
+  /** Closed-door rest only, required under the current rules (ruling 173). */
+  oath: z.literal(CLOSED_DOOR_OATH).optional(),
 });
 
 export const RestEnded = z.object({
@@ -673,6 +688,7 @@ export const GameEvent = z.discriminatedUnion("type", [
   TribulationDeleted,
   TribulationRescheduled,
   TribulationClaimed,
+  TribulationCompleted,
   TribulationDropRolled,
   AreaDecided,
   CoreFormed,

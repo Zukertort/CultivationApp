@@ -15,6 +15,7 @@ import {
   type StepOneRealm,
   type Tribulation,
 } from "@cultivation/rules";
+import { CompletionCard } from "../lib/completion";
 import { DateField, dayIn, daysLeft, endOfLocalDay } from "../lib/fields";
 import { now as clockNow } from "../lib/clock";
 import { useStore } from "../lib/store";
@@ -59,6 +60,7 @@ export default function Trials() {
 
   return (
     <Screen>
+      <CompletionCard />
       {entered === realm && intro ? (
         <Card title={`Breakthrough: ${words(realm)}`}>
           <T>{intro.next}</T>

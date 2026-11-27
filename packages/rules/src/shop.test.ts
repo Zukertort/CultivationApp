@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { OATH_TEXT, REPENT_OATH, parseEvent, type GameEvent } from "@cultivation/schema";
+import { OATH_TEXT, REPENT_OATH, parseEvent, type GameEvent, CLOSED_DOOR_OATH } from "@cultivation/schema";
 import {
   DAY,
   GEAR_REALMS,
@@ -8,12 +8,12 @@ import {
   RuleViolation,
   applyEvent,
   potionPrice,
-  replay,
   shopPrice,
   vacationDaysLeft,
   vacationPrice,
   type CultivatorState,
 } from "./index.js";
+import { strictReplay as replay } from "./test-support.js";
 
 // Day 0 = Monday 2026-11-02 00:00 in Buenos Aires (UTC-3).
 const T0 = Date.UTC(2026, 10, 2, 3);
@@ -73,7 +73,7 @@ describe("gain potions in the shop (ruling 160)", () => {
     // An expired one-time task's extension.
     const withTask = apply(dead, ev("MainTaskDefined", at, { taskId: "t", name: "t", difficulty: "mid", effort: "session", schedule: { kind: "once", deadline: at + 2 * DAY } }));
     expect(code(() => applyEvent(withTask, ev("MainItemExtended", at + 3 * DAY, { item: "task", itemId: "t", until: at + 4 * DAY })))).toBe("dead");
-    expect(apply(dead, ev("RestStarted", at, { kind: "closed_door", until: at + 3 * DAY })).rest?.kind).toBe("closed_door");
+    expect(apply(dead, ev("RestStarted", at, { kind: "closed_door", oath: CLOSED_DOOR_OATH, until: at + 3 * DAY })).rest?.kind).toBe("closed_door");
   });
 });
 
@@ -128,7 +128,7 @@ describe("vacations (ruling 161)", () => {
   it("keeps closed-door rest on its own quota", () => {
     let s = rich(replay([created]), 5000);
     s = apply(s, vacation(T0 + H, 14), vacation(T0 + 15 * DAY, 14));
-    s = apply(s, ev("RestStarted", T0 + 30 * DAY, { kind: "closed_door", until: T0 + 44 * DAY }));
+    s = apply(s, ev("RestStarted", T0 + 30 * DAY, { kind: "closed_door", oath: CLOSED_DOOR_OATH, until: T0 + 44 * DAY }));
     expect(s.rest?.kind).toBe("closed_door");
   });
 

@@ -5,6 +5,7 @@
 import { RULES_V1, type MainPath, type RulesConfig } from "./config.js";
 import type { CultivatorState } from "./engine.js";
 import { weaponQiBonus } from "./gear.js";
+import { realmFactor } from "./factor.js";
 
 /** The current class's gold and Qi bonus (ruling 115); read here to keep economy free of the class module. */
 function classShare(state: CultivatorState, rules: RulesConfig): { gold: number; qi: number } {
@@ -134,7 +135,9 @@ export function earnQi(s: CultivatorState, amount: number): void {
  */
 export function addDebt(s: CultivatorState, qi: number, gold: number, at: number, rules: RulesConfig, unforgivable: boolean): { qi: number; gold: number } {
   const m = s.main;
-  const cap = rules.main.debtCap;
+  // The cap scales with the realm factor (ruling 170).
+  const k = realmFactor(s.main.realm, rules);
+  const cap = { qi: rules.main.debtCap.qi * k, gold: rules.main.debtCap.gold * k };
   const add = (key: "qi" | "gold", amount: number): number => {
     const debt = m.debt[key];
     const next = Math.max(debt, Math.min(cap[key], debt + Math.max(0, amount)));

@@ -152,10 +152,10 @@ export interface TribulationRules {
   failure: { gold: number };
   /** Edits are free this long after declaring (ruling 67). */
   freeEditMinutes: number;
-  /** An edit's price before `lateEditFrom` of the time span has passed; after it, a failure's loss (ruling 93). */
+  /** An edit's price before `lateEditFrom` of the time span has passed, times the realm factor; after it, a failure's loss (rulings 93, 170). */
   editQi: number;
   lateEditFrom: number;
-  /** Deleting an open tribulation costs a failure's loss plus this share, floored like a failure; a failed one costs `deleteFailedQi` (ruling 93). */
+  /** Deleting an open tribulation costs a failure's loss plus this share, floored like a failure; a failed one costs `deleteFailedQi` times the realm factor (rulings 93, 170). */
   deleteOpenExtra: number;
   deleteFailedQi: number;
   /** A passed tribulation's item roll (ruling 68): its chance, and at most one roll per `cooldownDays`. */
@@ -170,10 +170,16 @@ export type StepOneRealm = (typeof STEP_ONE_REALMS)[number];
 
 /** Realms and levels, Step 1 (rulings 73-86). Every number is a simulator value. */
 export interface RealmRules {
-  /** Qi spent for each level-up within a realm (mid, late, great circle); Nascent Soul has no levels. */
-  levelQi: Record<Exclude<StepOneRealm, "nascent_soul">, number>;
-  /** Qi spent for the breakthrough out of each realm (Nascent Soul's is the transcendence to Spirit Realm). */
-  breakthroughQi: Record<StepOneRealm, number>;
+  /**
+   * SIM: K, Foundation's completion cost: the Qi a claimed tribulation costs to complete (ruling 169), doubling per
+   * realm with `factor`. Qi Condensation has none; Spirit Realm none until Step 2 designs its tribulations.
+   */
+  completionK: number;
+  /**
+   * The realm factor: 1, 1, 2, 4, 8 from Qi Condensation to Spirit Realm (ruling 170). Every Qi price, the debt cap,
+   * gear stats and one-time gear prices scale with it; recurring costs don't.
+   */
+  factor: Record<PriceRealm, number>;
   /** Core Formation: the passed shares for mid, late and great circle; the breakthrough comes at 100% (ruling 78). */
   coreShares: readonly [number, number, number];
   /** Core Formation's percentage counts once its set holds this many tribulations. */
@@ -301,11 +307,11 @@ export interface GearRules {
   valueFactor: Record<GearKind, number>;
   /** SIM: an item sells for this share of its value, less its damage's share; free robes can't be sold (ruling 155). */
   sellShare: number;
-  /** SIM: a full repair costs this share of the item's value (at most 10%), prorated by damage (ruling 155). */
+  /** SIM: a full repair costs this share of the Foundation value of the same kind and slot, prorated by damage, in every realm (rulings 155, 172). */
   repairShare: number;
   /**
    * SIM: a midnight that would damage armor, with no armor worn that day, takes Qi and gold instead (ruling 154): each
-   * this many times the repair of the current realm's shop armor for that damage. Never in Qi Condensation.
+   * this many times the repair of Foundation's shop armor for that damage, in every realm (ruling 172). Never in Qi Condensation.
    */
   unarmoredLossFactor: number;
   /** Damage, in basis points of durability, at each local midnight without rest, by fitness tier, to every armor worn that local day (the weapon isn't hit). */
@@ -353,6 +359,10 @@ export interface RulesConfig {
     closedDoorMaxDays: number;
     closedDoorWindowDays: number;
     closedDoorMaxDaysPerWindow: number;
+    /** Closed-door rest needs the oath from this instant on (ruling 173); earlier closed-door events replay without it. */
+    closedDoorOathFrom: number;
+    /** Closed-door rest starting within this many hours of a vacation's end is logged (ruling 173, like ruling 86). */
+    closedDoorAfterVacationHours: number;
   };
   /** Roulette odds in basis points (sum = 10000). */
   roulette: {
@@ -394,7 +404,7 @@ export interface RulesConfig {
 }
 
 export const RULES_V1: RulesConfig = Object.freeze({
-  version: "1.25.0",
+  version: "1.26.0",
   tiers: {
     turtle: { capacity: 30, weeklyLoss: 10, goldBonus: 0.01, coreQiBonus: 0, breakthroughLegendaryChance: 0 },
     panda: { capacity: 800, weeklyLoss: 200, goldBonus: 0.1, coreQiBonus: 0, breakthroughLegendaryChance: 0 },
@@ -425,6 +435,9 @@ export const RULES_V1: RulesConfig = Object.freeze({
     closedDoorMaxDays: 14,
     closedDoorWindowDays: 91,
     closedDoorMaxDaysPerWindow: 30,
+    // Rules 1.26.0, Nov 28, 2026 (UTC).
+    closedDoorOathFrom: Date.UTC(2026, 10, 28),
+    closedDoorAfterVacationHours: 72,
   },
   roulette: {
     oddsBp: { gold: 5000, qi: 3000, potion: 1800, legendary: 190, scale: 10 },
@@ -545,6 +558,7 @@ export const RULES_V1: RulesConfig = Object.freeze({
       graceDays: { main: 3, body: 7, soul: 7 },
       partialPeriods: "fractional",
     },
+    // Times the realm factor (ruling 170).
     debtCap: { qi: 50, gold: 50 },
     comeback: { tasks: 3, minDifficulty: "easy", windowDays: 3 },
     questDeadlineAlertHours: [72, 48, 24, 1],
@@ -563,11 +577,9 @@ export const RULES_V1: RulesConfig = Object.freeze({
     alertHours: [72, 48, 24, 1],
   },
   realms: {
-    // Set against an honest studier earning about 276 Main Qi a month (ruling 62): Qi Condensation until the areas are locked,
-    // Foundation in about 4 months, Core Formation in 8-12 months, Nascent Soul in years.
-    levelQi: { qi_condensation: 0, foundation_establishment: 250, core_formation: 550 },
-    // Qi Condensation breaks through when the areas are locked, for no Qi (ruling 133).
-    breakthroughQi: { qi_condensation: 0, foundation_establishment: 300, core_formation: 700, nascent_soul: 1500 },
+    // Foundation's total stays about 1,050 (3 x 350). Real achievement, not Qi, sets Nascent Soul's pace (ruling 169).
+    completionK: 350,
+    factor: { qi_condensation: 1, foundation_establishment: 1, core_formation: 2, nascent_soul: 4, spirit_realm: 8 },
     coreShares: [0.3, 0.6, 0.9],
     coreMinSet: 5,
     lockWithinDays: 90,
@@ -592,33 +604,35 @@ export const RULES_V1: RulesConfig = Object.freeze({
   },
   gear: {
     armor: {
+      // Qi doubles per realm like the failure's Qi loss (ruling 171); gold stays flat like the failure's 45 gold.
       robe: {
         foundation_establishment: { qi: 8, gold: 4 },
-        core_formation: { qi: 16, gold: 8 },
-        nascent_soul: { qi: 35, gold: 15 },
-        spirit_realm: { qi: 70, gold: 25 },
+        core_formation: { qi: 16, gold: 4 },
+        nascent_soul: { qi: 32, gold: 4 },
+        spirit_realm: { qi: 64, gold: 4 },
       },
       shop: {
         foundation_establishment: { qi: 12, gold: 6 },
-        core_formation: { qi: 25, gold: 12 },
-        nascent_soul: { qi: 60, gold: 22 },
-        spirit_realm: { qi: 100, gold: 30 },
+        core_formation: { qi: 24, gold: 6 },
+        nascent_soul: { qi: 48, gold: 6 },
+        spirit_realm: { qi: 96, gold: 6 },
       },
       legendary: {
         foundation_establishment: { qi: 20, gold: 10 },
-        core_formation: { qi: 45, gold: 18 },
-        nascent_soul: { qi: 85, gold: 28 },
-        spirit_realm: { qi: 120, gold: 33 },
+        core_formation: { qi: 40, gold: 10 },
+        nascent_soul: { qi: 80, gold: 10 },
+        spirit_realm: { qi: 160, gold: 10 },
       },
     },
     weapon: {
-      shop: { foundation_establishment: 0.02, core_formation: 0.04, nascent_soul: 0.06, spirit_realm: 0.08 },
-      legendary: { foundation_establishment: 0.03, core_formation: 0.05, nascent_soul: 0.07, spirit_realm: 0.09 },
+      // Shop 2, 4, 8, 16%; legendary 1.5x the shop item (ruling 171).
+      shop: { foundation_establishment: 0.02, core_formation: 0.04, nascent_soul: 0.08, spirit_realm: 0.16 },
+      legendary: { foundation_establishment: 0.03, core_formation: 0.06, nascent_soul: 0.12, spirit_realm: 0.24 },
     },
     shopGold: {
-      // About 5 and 7 days of physical-practice income in each realm (ruling 159; Spirit Realm from its 275-day stay).
-      armor: { foundation_establishment: 84, core_formation: 91, nascent_soul: 91, spirit_realm: 92 },
-      weapon: { foundation_establishment: 117, core_formation: 127, nascent_soul: 127, spirit_realm: 128 },
+      // Foundation: about 5 and 7 days of physical-practice income (ruling 159); one-time prices double per realm (ruling 172).
+      armor: { foundation_establishment: 84, core_formation: 168, nascent_soul: 336, spirit_realm: 672 },
+      weapon: { foundation_establishment: 117, core_formation: 234, nascent_soul: 468, spirit_realm: 936 },
     },
     valueFactor: { robe: 0.5, shop: 1, legendary: 2 },
     sellShare: 0.7,
