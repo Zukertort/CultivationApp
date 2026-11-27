@@ -12,6 +12,7 @@ import {
   armorReduction,
   armorRiskAlerts,
   bestStashArmor,
+  failurePick,
   failureQiLoss,
   gearAlerts,
   gearWarnings,
@@ -70,10 +71,33 @@ const foundation = () => replay([created, ...climb(4)]);
 const damageOf = (s: CultivatorState, id: string) => s.gear.items[id]?.damageBp;
 
 describe("robes and slots (rulings 137-139)", () => {
-  it("wears ordinary clothes in Qi Condensation: no gear and nothing to buy (ruling 140)", () => {
+  it("wears ordinary clothes in Qi Condensation, but can buy any realm's gear into the stash (ruling 165)", () => {
     const s = rich(replay([created]));
     expect(s.gear.items).toEqual({});
-    expect(code(() => applyEvent(s, buy("armor", T0 + H, "a")))).toBe("gear_before_foundation");
+    // The realm must be named there.
+    expect(code(() => applyEvent(s, buy("armor", T0 + H, "a")))).toBe("gear_realm_required");
+    const bought = apply(s, ev("GearBought", T0 + H, { slot: "armor", realm: "foundation_establishment" }, "a"));
+    expect(bought.gold).toBe(1000 - shopPrice("armor", "foundation_establishment"));
+    expect(wornItem(bought, "armor")).toBeNull();
+    expect(stash(bought).map((i) => i.id)).toEqual(["a"]);
+    expect(code(() => applyEvent(bought, equip("a", T0 + 2 * H)))).toBe("gear_realm_too_high");
+    // No companion damage or unarmored loss in Qi Condensation, and stash gear isn't hit.
+    expect(advanceTo(bought, T0 + 5 * DAY).gear.items.a!.damageBp).toBe(0);
+  });
+
+  it("pre-buys a higher realm's gear and robe into the stash, worn only from that realm on; reselling it loses gold (exploit)", () => {
+    let s = rich(foundation(), 0, 1000);
+    s = apply(s, ev("GearBought", T0 + H, { slot: "weapon", realm: "nascent_soul" }, "w3"), ev("GearBought", T0 + H, { slot: "armor", kind: "robe", realm: "core_formation" }, "r2"));
+    expect(s.gold).toBe(1000 - shopPrice("weapon", "nascent_soul") - shopPrice("armor", "core_formation", RULES_V1, "robe"));
+    expect(wornItem(s, "weapon")).toBeNull();
+    expect(stash(s).map((i) => i.id).sort()).toEqual(["r2", "w3"]);
+    expect(code(() => applyEvent(s, equip("w3", T0 + 2 * H)))).toBe("gear_realm_too_high");
+    const resold = apply(s, sell("w3", T0 + 3 * H));
+    expect(resold.gold - s.gold).toBeLessThan(shopPrice("weapon", "nascent_soul"));
+    // Reaching the realm makes it wearable.
+    const there = apply(s, ...climb(8, 4 * H));
+    expect(there.main.realm).toBe("nascent_soul");
+    expect(apply(there, equip("w3", T0 + 20 * H)).gear.worn.weapon).toBe("w3");
   });
 
   it("gives the white robe on entering Foundation, worn", () => {
@@ -116,7 +140,7 @@ describe("shop, stash and selling (rulings 137, 140)", () => {
   it("buys the current realm's gear: worn if the slot is empty, else into the stash", () => {
     let s = rich(foundation(), 0, 500);
     s = apply(s, buy("weapon", T0 + H, "w1"), buy("armor", T0 + 2 * H, "a1"));
-    expect(s.gold).toBe(500 - 100 - 80);
+    expect(s.gold).toBe(500 - shopPrice("weapon", "foundation_establishment") - shopPrice("armor", "foundation_establishment"));
     expect(wornItem(s, "weapon")).toMatchObject({ id: "w1", kind: "shop", realm: "foundation_establishment" });
     expect(wornItem(s, "armor")?.id).toBe(WHITE);
     expect(stash(s).map((i) => i.id)).toEqual(["a1"]);
@@ -128,31 +152,32 @@ describe("shop, stash and selling (rulings 137, 140)", () => {
     s = apply(s, buy("weapon", T0 + H, "w1"));
     expect(code(() => applyEvent(s, sell("w1", T0 + 2 * H)))).toBe("gear_worn");
     s = apply(s, unequip("weapon", T0 + 2 * H), sell("w1", T0 + 3 * H));
-    expect(s.gold).toBeCloseTo(200 - 100 + 70);
+    expect(s.gold).toBeCloseTo(200 - shopPrice("weapon", "foundation_establishment") + 0.7 * shopPrice("weapon", "foundation_establishment"));
     expect(s.gear.items.w1).toBeUndefined();
     const legendary: GearItem = { id: "l", slot: "weapon", kind: "legendary", realm: "core_formation", damageBp: 2500, obtainedAt: 0 };
-    expect(itemValue(legendary)).toBe(400);
-    expect(sellPrice(legendary)).toBeCloseTo(0.7 * 400 * 0.75);
+    expect(itemValue(legendary)).toBe(2 * shopPrice("weapon", "core_formation"));
+    expect(sellPrice(legendary)).toBeCloseTo(0.7 * itemValue(legendary) * 0.75);
     expect(code(() => applyEvent(s, unequip("weapon", T0 + 4 * H)))).toBe("slot_empty");
   });
 
   it("sells robes like other gear, free or bought; the shop sells the realm's robe at its value (ruling 157)", () => {
     let s = rich(apply(replay([created, ...climb(8)]), unequip("armor", T0 + H)), 0, 100);
-    // The yellow robe is worth half of Core Formation's 160-gold armor.
-    expect(sellPrice(s.gear.items[YELLOW]!)).toBeCloseTo(0.7 * 80);
+    // The yellow robe is worth half of Core Formation's shop armor.
+    const yellow = 0.7 * shopPrice("armor", "core_formation", RULES_V1, "robe");
+    expect(sellPrice(s.gear.items[YELLOW]!)).toBeCloseTo(yellow);
     s = apply(s, sell(YELLOW, T0 + 2 * H));
-    expect(s.gold).toBeCloseTo(100 + 56);
-    // Back into armor the cheap way: a Core Formation robe for 80 gold, worn at once.
+    expect(s.gold).toBeCloseTo(100 + yellow);
+    // Back into armor the cheap way: a Core Formation robe at its value, worn at once.
     s = apply(s, sell(WHITE, T0 + 4 * H));
     expect(wornItem(s, "armor")).toBeNull();
     const gold = s.gold;
     s = apply(s, ev("GearBought", T0 + 5 * H, { slot: "armor", kind: "robe" }, "r1"));
-    expect(s.gold).toBeCloseTo(gold - 80);
+    expect(s.gold).toBeCloseTo(gold - shopPrice("armor", "core_formation", RULES_V1, "robe"));
     expect(wornItem(s, "armor")).toMatchObject({ id: "r1", kind: "robe", realm: "core_formation" });
     expect(code(() => applyEvent(s, ev("GearBought", T0 + 6 * H, { slot: "weapon", kind: "robe" }, "r2")))).toBe("robe_is_armor");
     // Buying a robe and reselling it always loses gold (exploit).
     const resold = apply(s, unequip("armor", T0 + 7 * H), sell("r1", T0 + 8 * H));
-    expect(resold.gold).toBeCloseTo(gold - 80 + 56);
+    expect(resold.gold).toBeCloseTo(gold - shopPrice("armor", "core_formation", RULES_V1, "robe") + 0.7 * shopPrice("armor", "core_formation", RULES_V1, "robe"));
   });
 
   it("no item sells for more than it costs, in any realm, kind or slot (exploit)", () => {
@@ -226,9 +251,25 @@ describe("failures with gear (rulings 142, 147, 148)", () => {
     expect(damageOf(s, WHITE)).toBe(500);
   });
 
-  it("the weapon never takes failure damage", () => {
+  it("with only a weapon worn, the failure's 20% hits the weapon (ruling 166)", () => {
     const s = advanceTo(apply(rich(foundation(), 100, 500), buy("weapon", T0 + 5, "w1"), unequip("armor", T0 + 10), declare()), T0 + 3 * DAY + 1);
-    expect(damageOf(s, "w1")).toBe(0);
+    expect(damageOf(s, "w1")).toBe(2000);
+  });
+
+  it("with armor and a weapon worn, a failure's 20% hits one of them, a stable pick by tribulation and failure count (ruling 166)", () => {
+    const hits = Array.from({ length: 12 }, (_, k) => {
+      const t = `x${k}`;
+      const s = advanceTo(
+        apply(rich(foundation(), 100, 500), buy("weapon", T0 + 5, "w1"), ev("TribulationDeclared", T0 + H, { tribulationId: t, title: "Pass", criteria: "Score 80", deadline: T0 + H + 2 * DAY })),
+        T0 + 3 * DAY + 1,
+      );
+      // The robe also takes three Turtle midnights; the weapon takes none.
+      return damageOf(s, "w1") === 2000 ? "weapon" : damageOf(s, WHITE) === 1500 + 2000 ? "armor" : "?";
+    });
+    expect(hits).not.toContain("?");
+    expect(hits).toContain("weapon");
+    expect(hits).toContain("armor");
+    expect(failurePick(apply(rich(foundation(), 0, 500), buy("weapon", T0 + 5, "w1")), "x1", 1)).toBe(failurePick(apply(rich(foundation(), 0, 500), buy("weapon", T0 + 5, "w1")), "x1", 1));
   });
 
   it("the armor worn at the deadline takes the failure: swapping after the deadline doesn't move it (exploit)", () => {
@@ -347,47 +388,31 @@ describe("durability (rulings 144, 147)", () => {
     expect(damageOf(s, "a1")).toBe(500);
   });
 
-  it("the weapon wears on each Qi gain it boosts, by the task's effort; its bonus stays whole", () => {
+  it("the weapon never wears with use: Qi gains, quests and passes don't damage it (ruling 166)", () => {
     const task = (taskId: string, effort: "quick" | "session" | "day" | "project", at: number) =>
       ev("MainTaskDefined", at, { taskId, name: taskId, difficulty: "mid", effort, schedule: { kind: "once", deadline: at + 10 * DAY } });
     const done = (taskId: string, at: number) => ev("MainTaskCompleted", at, { taskId });
     let s = apply(rich(foundation(), 0, 500), buy("weapon", T0 + H, "w1"));
-    s = apply(s, task("q", "quick", T0 + 2 * H), done("q", T0 + 3 * H));
-    expect(damageOf(s, "w1")).toBe(RULES_V1.gear.weaponWearBp.quick);
-    s = apply(s, task("p", "project", T0 + 4 * H), done("p", T0 + 5 * H));
-    expect(damageOf(s, "w1")).toBe(RULES_V1.gear.weaponWearBp.quick + RULES_V1.gear.weaponWearBp.project);
-    expect(weaponQiBonus(s)).toBe(0.02);
-    // Without a weapon worn nothing wears.
-    const bare = apply(s, unequip("weapon", T0 + 6 * H), task("d", "day", T0 + 7 * H), done("d", T0 + 8 * H));
-    expect(damageOf(bare, "w1")).toBe(damageOf(s, "w1"));
-  });
-
-  it("a quest's staged bonus wears the weapon as `other`, on top of the member's effort", () => {
-    let s = apply(rich(foundation(), 0, 500), buy("weapon", T0 + H, "w1"));
+    s = apply(s, task("q", "quick", T0 + 2 * H), done("q", T0 + 3 * H), task("p", "project", T0 + 4 * H), done("p", T0 + 5 * H));
     s = apply(
       s,
-      ev("MainQuestDefined", T0 + 2 * H, { questId: "q", name: "q", deadline: T0 + 10 * DAY, tasks: [{ taskId: "m1", name: "m1", difficulty: "mid", effort: "session" }] }),
-      ev("MainTaskCompleted", T0 + 3 * H, { taskId: "m1" }),
+      ev("MainQuestDefined", T0 + 6 * H, { questId: "q2", name: "q2", deadline: T0 + 10 * DAY, tasks: [{ taskId: "m1", name: "m1", difficulty: "mid", effort: "session" }] }),
+      ev("MainTaskCompleted", T0 + 7 * H, { taskId: "m1" }),
     );
-    expect(damageOf(s, "w1")).toBe(RULES_V1.gear.weaponWearBp.session + RULES_V1.gear.weaponWearBp.other);
-  });
-
-  it("other Qi gains (the Lion, soul drops, the roulette) wear the weapon as `other`", () => {
-    const lion = structuredClone(apply(rich(foundation(), 0, 500), buy("weapon", T0 + H, "w1")));
-    lion.companion.tier = "lion";
-    lion.companion.food = 2500;
-    const s = apply(lion, ev("CompanionPetted", T0 + 2 * H, {}));
-    expect(damageOf(s, "w1")).toBe(RULES_V1.gear.weaponWearBp.other);
+    expect(s.main.earned.qi).toBeGreaterThan(0);
+    expect(damageOf(advanceTo(s, T0 + 5 * DAY), "w1")).toBe(0);
+    expect(weaponQiBonus(s)).toBe(0.02);
   });
 
   it("repairs fully for 10% of the value prorated by damage; nothing to repair is rejected (ruling 155)", () => {
     let s = rich(advanceTo(foundation(), T0 + 4 * DAY + 1), 0, 100);
     const robe = s.gear.items[WHITE]!;
     expect(robe.damageBp).toBe(2000);
-    // The white robe is worth half of Foundation's 80-gold armor.
-    expect(repairPrice(robe)).toBeCloseTo(0.1 * 40 * 0.2);
+    // The white robe is worth half of Foundation's shop armor.
+    const fix = 0.1 * (shopPrice("armor", "foundation_establishment") / 2) * 0.2;
+    expect(repairPrice(robe)).toBeCloseTo(fix);
     s = apply(s, repair(WHITE, T0 + 4 * DAY + 2));
-    expect(s.gold).toBeCloseTo(100 - 0.8);
+    expect(s.gold).toBeCloseTo(100 - fix);
     expect(damageOf(s, WHITE)).toBe(0);
     expect(code(() => applyEvent(s, repair(WHITE, T0 + 4 * DAY + 3)))).toBe("nothing_to_repair");
     const broke = structuredClone(s);
@@ -456,6 +481,14 @@ describe("armor at risk before a deadline (ruling 149)", () => {
     const far = structuredClone(apply(foundation(), declare(T0 + 10 * DAY)));
     far.gear.items[WHITE]!.damageBp = 9000;
     expect(armorAtRisk(far)).toBeNull();
+  });
+
+  it("warns for the weapon too when a failure's 20% would break it (ruling 166)", () => {
+    const s = structuredClone(apply(rich(foundation(), 0, 500), buy("weapon", T0 + 5, "w1"), declare(T0 + 2 * DAY)));
+    s.gear.items.w1!.damageBp = 7900;
+    expect(armorAtRisk(s)).toBeNull();
+    s.gear.items.w1!.damageBp = 8000;
+    expect(armorAtRisk(s)).toMatchObject({ item: { id: "w1" }, tribulationId: "x" });
   });
 
   it("pushes 72 hours before a deadline whose failure would break the armor", () => {

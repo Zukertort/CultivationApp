@@ -69,7 +69,8 @@ export function riskWarning(state: CultivatorState): string | null {
   const r = armorAtRisk(state);
   if (!r) return null;
   const t = state.tribulations.items[r.tribulationId];
-  return `My ${gearName(r.item).toLowerCase()} would break if I fail "${t?.title ?? "a tribulation"}". I should repair it or wear other armor before the deadline.`;
+  const fix = r.item.slot === "armor" ? "repair it or wear other armor" : "repair it or take it off";
+  return `My ${gearName(r.item).toLowerCase()} would break if I fail "${t?.title ?? "a tribulation"}". I should ${fix} before the deadline.`;
 }
 
 /** The two one-tap armor actions (ruling 149): never applied on their own, always tapped. */
@@ -83,10 +84,12 @@ export function armorActionInput(state: CultivatorState, action: ArmorAction): {
     if (!best) return { error: "No armor in the stash is wearable and safe from a failure." };
     return { input: { type: "GearEquipped", itemId: best.id }, done: `Wearing the ${gearName(best)}.` };
   }
-  if (!armor || armor.damageBp <= 0) return { error: "No worn armor to repair." };
-  const price = repairPrice(armor);
+  // Repair what is at risk (armor or weapon, ruling 166), else the worn armor.
+  const target = armorAtRisk(state)?.item ?? armor;
+  if (!target || target.damageBp <= 0) return { error: "No worn gear to repair." };
+  const price = repairPrice(target);
   if (state.gold < price) return { error: `A repair costs ${Math.ceil(price)} gold.` };
-  return { input: { type: "GearRepaired", itemId: armor.id }, done: `Repaired the ${gearName(armor)}.` };
+  return { input: { type: "GearRepaired", itemId: target.id }, done: `Repaired the ${gearName(target)}.` };
 }
 
 /** The warnings, each with the two one-tap actions; used on the Realm and Store screens. */
@@ -99,7 +102,9 @@ export function GearWarnings() {
   if (care) return <T style={{ color: C.gold, fontStyle: "italic" }}>{care}</T>;
   if (!breaking && !risk) return note ? <Note text={note.text} error={note.error} /> : null;
   const armor = wornItem(state, "armor");
-  const armorWarned = armor !== null && (risk !== null || armor.damageBp >= RULES_V1.gear.warnAtBp);
+  const atRisk = armorAtRisk(state)?.item ?? null;
+  // Repair targets the item at risk (armor or weapon), else the worn armor at the warning line.
+  const target = atRisk ?? (armor && armor.damageBp >= RULES_V1.gear.warnAtBp ? armor : null);
   const best = bestStashArmor(state);
   const run = async (action: ArmorAction) => {
     const a = armorActionInput(state, action);
@@ -111,10 +116,12 @@ export function GearWarnings() {
     <View style={{ gap: 6 }}>
       {risk ? <T style={{ color: C.danger, fontStyle: "italic" }}>{risk}</T> : null}
       {breaking ? <T style={{ color: C.danger, fontStyle: "italic" }}>{breaking}</T> : null}
-      {armorWarned && armor && !isDead(state) ? (
+      {target && !isDead(state) ? (
         <Row>
-          <Button label={best ? `Swap with the ${gearName(best).toLowerCase()}` : "No armor to swap"} kind="ghost" disabled={!best} onPress={() => void run("swap")} />
-          <Button label={`Repair (${Math.ceil(repairPrice(armor))} gold)`} kind="ghost" disabled={state.gold < repairPrice(armor)} onPress={() => void run("repair")} />
+          {target.slot === "armor" ? (
+            <Button label={best ? `Swap with the ${gearName(best).toLowerCase()}` : "No armor to swap"} kind="ghost" disabled={!best} onPress={() => void run("swap")} />
+          ) : null}
+          <Button label={`Repair the ${gearName(target).toLowerCase()} (${Math.ceil(repairPrice(target))} gold)`} kind="ghost" disabled={state.gold < repairPrice(target)} onPress={() => void run("repair")} />
         </Row>
       ) : null}
       <Note text={note?.text ?? null} error={note?.error} />

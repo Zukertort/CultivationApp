@@ -121,8 +121,8 @@ function settleFailure(s: CultivatorState, id: string, t: Tribulation, at: numbe
   t.failedAt = deadline;
   t.failures += 1;
   t.due = null;
-  // Worn armor lowers the ruling 80 loss and takes the failure's damage (rulings 142, 147).
-  const loss = gearOnFailure(s, { qi: failureQiLoss(s, rules), gold: rules.tribulations.failure.gold }, deadline, rules);
+  // Worn armor lowers the ruling 80 loss; one worn item takes the failure's damage (rulings 142, 147, 166).
+  const loss = gearOnFailure(s, id, t.failures, { qi: failureQiLoss(s, rules), gold: rules.tribulations.failure.gold }, deadline, rules);
   const took = takeOrOwe(s, loss.qi, loss.gold, s.tribulations.spent.failures, deadline, rules);
   s.tribulations.largestFailureQi = Math.max(s.tribulations.largestFailureQi, took.qi);
 }

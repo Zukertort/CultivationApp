@@ -140,7 +140,7 @@ function simulate(p: Persona, policy: Policy): Result {
 
 // ---- The goblin -----------------------------------------------------------------
 
-type Goblin = "honest" | "sells free robes" | "sells free robes, buys one back" | "goes without armor" | "buy-to-sell loop" | "robe buy-to-sell loop" | "repair then sell";
+export type Goblin = "honest" | "sells free robes" | "sells free robes, buys one back" | "goes without armor" | "buy-to-sell loop" | "robe buy-to-sell loop" | "higher-realm buy-to-sell loop" | "repair then sell";
 
 /**
  * A studier (gym 2x a week) looking for arbitrage in gear. "honest" wears the
@@ -153,7 +153,7 @@ type Goblin = "honest" | "sells free robes" | "sells free robes, buys one back" 
  * shop weapon, wears it until half worn, repairs it, sells it and buys a new
  * one (testing whether a repair adds more sell value than it costs).
  */
-function goblin(strategy: Goblin): { gold: number; qi: number; netGearGold: number; robesSold: number; rejected: number; loops: number } {
+export function goblin(strategy: Goblin): { gold: number; qi: number; netGearGold: number; robesSold: number; rejected: number; loops: number } {
   const c = new Cultivator({ idPrefix: `gob-${strategy}`, rollAll: true, trackGold: true });
   setupBasic(c);
   const plan = tribulationPlan({});
@@ -188,6 +188,13 @@ function goblin(strategy: Goblin): { gold: number; qi: number; netGearGold: numb
         if (c.now("GearSold", at, { itemId: bought.id })) loops += 1;
       }
     }
+    // Ruling 165: any realm's gear can be bought; buy Spirit Realm's shop weapon and sell it back.
+    if (strategy === "higher-realm buy-to-sell loop" && c.s.gold >= shopPrice("weapon", "spirit_realm")) {
+      const before = new Set(Object.keys(c.s.gear.items));
+      c.now("GearBought", at, { slot: "weapon", realm: "spirit_realm" });
+      const bought = Object.values(c.s.gear.items).find((i) => !before.has(i.id));
+      if (bought && c.now("GearSold", at, { itemId: bought.id })) loops += 1;
+    }
     if (strategy === "buy-to-sell loop") {
       for (const slot of ["armor", "weapon"] as const) {
         if (c.s.gold < shopPrice(slot, realm)) continue;
@@ -219,8 +226,7 @@ export function runGearScenarios(outDir: string): void {
     const bp = RULES_V1.gear.companionDamageBp[t];
     console.log([t, `${bp / 100}%`, bp > 0 ? Math.ceil(RULES_V1.gear.warnAtBp / bp) : "never", bp > 0 ? Math.ceil(10_000 / bp) : "never"].join("\t"));
   }
-  const wear = RULES_V1.gear.weaponWearBp;
-  console.log(`\nWeapon wear per boosted gain: quick ${wear.quick / 100}%, session ${wear.session / 100}%, day ${wear.day / 100}%, project ${wear.project / 100}%, other Qi gains ${wear.other / 100}%`);
+  console.log("\nWeapon: damaged only when a failure's 20% picks it (ruling 166); it never wears with use");
 
   const header = [
     "persona",
@@ -285,7 +291,7 @@ export function runGearScenarios(outDir: string): void {
   console.log(`\nGoblin: a studier (gym 2x a week) hunting arbitrage over ${DAYS} days\n`);
   const honest = goblin("honest");
   console.log(["strategy", "gold at end", "gold vs honest", "Qi at end", "Qi vs honest", "net gold on gear (sold - bought - repaired)", "robes sold", "sales rejected", "loops"].join("\t"));
-  for (const strategy of ["honest", "sells free robes", "sells free robes, buys one back", "goes without armor", "buy-to-sell loop", "robe buy-to-sell loop", "repair then sell"] as const) {
+  for (const strategy of ["honest", "sells free robes", "sells free robes, buys one back", "goes without armor", "buy-to-sell loop", "robe buy-to-sell loop", "higher-realm buy-to-sell loop", "repair then sell"] as const) {
     const g = strategy === "honest" ? honest : goblin(strategy);
     console.log([strategy, g.gold.toFixed(0), (g.gold - honest.gold).toFixed(0), g.qi.toFixed(0), (g.qi - honest.qi).toFixed(0), g.netGearGold.toFixed(0), g.robesSold, g.rejected, g.loops].join("\t"));
   }
