@@ -60,11 +60,34 @@ describe("gain potions in the shop (ruling 160)", () => {
     expect(() => parseEvent({ id: "e", userId: "u1", at: T0, type: "PotionBought", potion: "legendary" })).toThrow();
   });
 
-  it("sells nothing while dead (ruling 150)", () => {
+  it("sells nothing while dead: potions, gear, vacations, extensions, class changes; closed-door rest stays free (rulings 150, 164)", () => {
     let s = replay([created, ...climb(12)]);
     for (let i = 0; i < 5; i++) s = apply(s, ev("Repented", T0 + (10 * i + 1) * H, { oath: REPENT_OATH, faked: [] }), ...(i < 4 ? climb(4, (10 * i + 2) * H) : []));
     expect(s.progress.diedAt).not.toBeNull();
-    expect(code(() => applyEvent(rich(s), buyPotion(T0 + 60 * H)))).toBe("dead");
+    const dead = rich(s);
+    const at = T0 + 60 * H;
+    expect(code(() => applyEvent(dead, buyPotion(at)))).toBe("dead");
+    expect(code(() => applyEvent(dead, ev("GearBought", at, { slot: "armor" })))).toBe("dead");
+    expect(code(() => applyEvent(dead, vacation(at, 2)))).toBe("dead");
+    expect(code(() => applyEvent(dead, ev("ClassChosen", at, { class: "warrior" })))).toBe("dead");
+    // An expired one-time task's extension.
+    const withTask = apply(dead, ev("MainTaskDefined", at, { taskId: "t", name: "t", difficulty: "mid", effort: "session", schedule: { kind: "once", deadline: at + 2 * DAY } }));
+    expect(code(() => applyEvent(withTask, ev("MainItemExtended", at + 3 * DAY, { item: "task", itemId: "t", until: at + 4 * DAY })))).toBe("dead");
+    expect(apply(dead, ev("RestStarted", at, { kind: "closed_door", until: at + 3 * DAY })).rest?.kind).toBe("closed_door");
+  });
+});
+
+describe("rest freezes the food meter both ways (ruling 167)", () => {
+  it("no treats during a rest, so a vacation can't buy tiers; the gold still pays", () => {
+    const s = rich(apply(replay([created]), ev("BodyActivityDefined", T0, { activityId: "gym", name: "Gym", kind: "routine" })));
+    const resting = apply(s, vacation(T0 + H, 3));
+    const food = resting.companion.food;
+    const trained = apply(resting, ev("BodyActivityLogged", T0 + 2 * H, { activityId: "gym" }));
+    expect(trained.companion.food).toBe(food);
+    expect(trained.gold).toBeGreaterThan(resting.gold);
+    // After the rest, training feeds again.
+    const after = apply(trained, ev("BodyActivityLogged", T0 + 4 * DAY, { activityId: "gym" }));
+    expect(after.companion.food).toBeGreaterThan(0);
   });
 });
 

@@ -7,13 +7,15 @@
  * level gear up, and damage doesn't weaken it until it breaks at 100%. Gear
  * of the current or a lower realm can be worn, never a higher realm's.
  *
- * Damage goes by slot (ruling 147): the companion's daily damage hits every
- * armor worn at any point that local day, a failure's damage hits the armor
- * worn at the deadline, and the weapon wears with use, on each Qi gain it
- * boosts. With no armor worn all day, the companion's damage takes Qi and
- * gold instead (ruling 154). No event carries damage; replay derives it.
+ * Damage (rulings 147, 166): the companion's daily damage hits every armor
+ * worn at any point that local day; a failure's 20% hits one item worn at
+ * the deadline, armor or weapon, a deterministic pick (an FNV-1a hash of the
+ * tribulation and its failure count). Nothing else damages gear: passing
+ * never does, and the weapon doesn't wear with use. With no armor worn all
+ * day, the companion's damage takes Qi and gold instead (ruling 154). No
+ * event carries damage; replay derives it.
  */
-import type { Effort, EventOf, GearSlot } from "@cultivation/schema";
+import type { EventOf, GearSlot } from "@cultivation/schema";
 import { GEAR_REALMS, REALMS, RULES_V1, type GearKind, type GearRealm, type Realm, type RulesConfig } from "./config.js";
 import type { CultivatorState } from "./engine.js";
 import { violate } from "./errors.js";
@@ -56,6 +58,16 @@ export function initialGear(): GearState {
 }
 
 const realmIndex = (r: Realm) => REALMS.indexOf(r);
+
+/** 32-bit FNV-1a: a stable, pure hash for the failure's pick (ruling 166). */
+export function fnv1a(text: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h >>> 0;
+}
 
 export function isGearRealm(r: Realm): r is GearRealm {
   return (GEAR_REALMS as readonly Realm[]).includes(r);
@@ -202,29 +214,25 @@ export function gearMidnight(s: CultivatorState, midnight: number, rested: boole
   noteWornArmor(s);
 }
 
-/**
- * A tribulation failure (rulings 142, 147): the worn armor takes its Qi and
- * gold off the ruling 80 loss, then takes the failure's damage. With no
- * armor worn, neither applies. Gear events settle overdue failures first, so
- * the armor worn when a failure is applied is the armor worn at its deadline.
- */
-export function gearOnFailure(s: CultivatorState, loss: { qi: number; gold: number }, at: number, rules: RulesConfig): { qi: number; gold: number } {
-  const a = armorReduction(s, rules);
-  const reduced = { qi: Math.max(0, loss.qi - a.qi), gold: Math.max(0, loss.gold - a.gold) };
-  const id = s.gear.worn.armor;
-  if (id !== null) damage(s, id, rules.gear.failureDamageBp, at);
-  return reduced;
+/** The worn item a failure's 20% hits (ruling 166): one of the worn armor and weapon, picked by the tribulation and its failure count; null with nothing worn. */
+export function failurePick(state: CultivatorState, tribulationId: string, failures: number): string | null {
+  const ids = SLOTS.map((slot) => state.gear.worn[slot]).filter((id): id is string => id !== null);
+  return ids.length === 0 ? null : ids[fnv1a(`${tribulationId}|${failures}`) % ids.length]!;
 }
 
 /**
- * The worn weapon wears on each Qi gain it boosts (ruling 147): a Main task
- * by its effort, any other gain as `other`. Its bonus stays whole until it
- * breaks. Nothing pays while dead (ruling 106), so nothing wears.
+ * A tribulation failure (rulings 142, 147, 166): the worn armor takes its Qi
+ * and gold off the ruling 80 loss, then one worn item (armor or weapon,
+ * `failurePick`) takes the failure's damage. With nothing worn, neither
+ * applies. Gear events settle overdue failures first, so the gear worn when
+ * a failure is applied is the gear worn at its deadline.
  */
-export function weaponWear(s: CultivatorState, effort: Effort | "other", at: number, rules: RulesConfig): void {
-  const id = s.gear.worn.weapon;
-  if (id === null || s.progress.diedAt !== null || weaponQiBonus(s, rules) <= 0) return;
-  damage(s, id, rules.gear.weaponWearBp[effort], at);
+export function gearOnFailure(s: CultivatorState, tribulationId: string, failures: number, loss: { qi: number; gold: number }, at: number, rules: RulesConfig): { qi: number; gold: number } {
+  const a = armorReduction(s, rules);
+  const reduced = { qi: Math.max(0, loss.qi - a.qi), gold: Math.max(0, loss.gold - a.gold) };
+  const id = failurePick(s, tribulationId, failures);
+  if (id !== null) damage(s, id, rules.gear.failureDamageBp, at);
+  return reduced;
 }
 
 /**
@@ -246,9 +254,11 @@ export function loseAllGear(s: CultivatorState, at: number): void {
 
 // ---- Handlers ---------------------------------------------------------------
 
-function currentGearRealm(s: CultivatorState): GearRealm {
+/** The realm whose gear a purchase is for: the one named, else the current realm (ruling 165). */
+function purchaseRealm(s: CultivatorState, named: GearRealm | undefined): GearRealm {
+  if (named) return named;
   const realm = s.main.realm;
-  if (!isGearRealm(realm)) violate("gear_before_foundation", "gear is worn from Foundation Establishment on; in Qi Condensation you wear ordinary clothes");
+  if (!isGearRealm(realm)) violate("gear_realm_required", "in Qi Condensation, name the realm whose gear to buy; it is worn from that realm on");
   return realm;
 }
 
@@ -268,10 +278,10 @@ function spend(s: CultivatorState, gold: number): void {
   s.gold -= gold;
 }
 
-/** Buy the current realm's shop gear, or its robe (rulings 140, 157): worn if the slot is empty, else into the stash. */
+/** Buy any realm's shop gear or robe, in any realm (rulings 140, 157, 165): worn if the slot is empty and it is wearable, else into the stash. */
 export function onGearBought(s: CultivatorState, e: EventOf<"GearBought">, rules: RulesConfig): void {
   alive(s, "bought");
-  const realm = currentGearRealm(s);
+  const realm = purchaseRealm(s, e.realm);
   if (s.gear.items[e.id]) violate("duplicate_gear", `gear ${e.id} already exists`);
   const kind = e.kind ?? "shop";
   if (kind === "robe" && e.slot !== "armor") violate("robe_is_armor", "a robe is armor; there is no robe weapon");

@@ -13,7 +13,7 @@ import { DAY, GEAR_REALMS, RULES_V1, potionPrice, potionStatus, vacationDaysLeft
 import { GearWarnings, durability, gearName, gearStats, isDead } from "../lib/gear";
 import { now as clockNow } from "../lib/clock";
 import { useStore, type EventInput } from "../lib/store";
-import { Button, C, Card, Field, Meter, Note, Row, Screen, Segmented, T, when, wholeNumber, words } from "../lib/ui";
+import { Button, C, Card, Chip, Field, Meter, Note, Row, Screen, Segmented, T, when, wholeNumber, words } from "../lib/ui";
 
 const SLOTS: readonly GearSlot[] = ["armor", "weapon"];
 const OFFERS: readonly { slot: GearSlot; kind: "robe" | "shop" }[] = [
@@ -28,6 +28,8 @@ export default function StoreScreen() {
   const now = Math.max(storeNow, clockNow());
   const [tab, setTab] = useState<"shop" | "stash" | "services">("shop");
   const [vacationDays, setVacationDays] = useState("3");
+  // Any realm's gear can be bought, kept in the stash until it can be worn (ruling 165).
+  const [shopRealm, setShopRealm] = useState<GearRealm | null>(null);
   const [note, setNote] = useState<{ text: string; error: boolean } | null>(null);
   const realm = state.main.realm;
   const gearRealm = (GEAR_REALMS as readonly string[]).includes(realm) ? (realm as GearRealm) : null;
@@ -57,7 +59,7 @@ export default function StoreScreen() {
       {dead ? <T muted>While dead nothing can be bought, sold or repaired, and nothing pays.</T> : null}
 
       <Card title="Wearing">
-        {gearRealm === null ? <T muted>Ordinary clothes. Gear is worn from Foundation Establishment on, starting with a free white robe.</T> : null}
+        {gearRealm === null ? <T muted>{`Ordinary clothes. Gear is worn from Foundation Establishment on, starting with a free white robe; any realm's gear can be bought now and kept in the stash.`}</T> : null}
         {SLOTS.map((slot) => {
           const item = wornItem(state, slot);
           return (
@@ -92,27 +94,38 @@ export default function StoreScreen() {
       />
 
       {tab === "shop" ? (
-        <Card title={gearRealm ? `${words(gearRealm)} gear` : "Shop"}>
-          {gearRealm === null ? (
-            <T muted>The shop opens in Foundation Establishment.</T>
-          ) : (
-            // The realm's robe is the cheap way back into armor (ruling 157).
-            OFFERS.map(({ slot, kind }) => {
-              const item = { kind, slot, realm: gearRealm };
-              const price = shopPrice(slot, gearRealm, RULES_V1, kind);
-              return (
-                <View key={`${kind}-${slot}`} style={{ gap: 4 }}>
-                  <T style={{ fontWeight: "700" }}>{gearName(item)}</T>
-                  <T muted>{gearStats(item)}</T>
-                  <Button
-                    label={`Buy (${gold(price)})`}
-                    disabled={dead || state.gold < price}
-                    onPress={() => void act({ type: "GearBought", slot, kind }, wornItem(state, slot) ? `Bought the ${gearName(item)}: it's in the stash.` : `Bought and wearing the ${gearName(item)}.`)}
-                  />
-                </View>
-              );
-            })
-          )}
+        <Card title="Shop">
+          <Row>
+            {GEAR_REALMS.map((r) => (
+              <Chip key={r} label={words(r)} on={(shopRealm ?? gearRealm ?? "foundation_establishment") === r} onPress={() => setShopRealm(r)} />
+            ))}
+          </Row>
+          {(() => {
+            const r = shopRealm ?? gearRealm ?? "foundation_establishment";
+            const later = gearRealm === null || GEAR_REALMS.indexOf(r) > GEAR_REALMS.indexOf(gearRealm);
+            return (
+              <>
+                {later ? <T muted>{`Bought now, kept in the stash, and worn from ${words(r)} on.`}</T> : null}
+                {/* The realm's robe is the cheap way back into armor (ruling 157). */}
+                {OFFERS.map(({ slot, kind }) => {
+                  const item = { kind, slot, realm: r };
+                  const price = shopPrice(slot, r, RULES_V1, kind);
+                  const worn = !later && !wornItem(state, slot);
+                  return (
+                    <View key={`${kind}-${slot}`} style={{ gap: 4 }}>
+                      <T style={{ fontWeight: "700" }}>{gearName(item)}</T>
+                      <T muted>{gearStats(item)}</T>
+                      <Button
+                        label={`Buy (${gold(price)})`}
+                        disabled={dead || state.gold < price}
+                        onPress={() => void act({ type: "GearBought", slot, kind, realm: r }, worn ? `Bought and wearing the ${gearName(item)}.` : `Bought the ${gearName(item)}: it's in the stash.`)}
+                      />
+                    </View>
+                  );
+                })}
+              </>
+            );
+          })()}
           <View style={{ gap: 4 }}>
             <T style={{ fontWeight: "700" }}>Gain potion</T>
             <T muted>+10% gold and Qi for 24 hours once drunk (from the Stash). Legendary potions are never sold.</T>
@@ -190,6 +203,7 @@ function Services({ days, setDays, act }: { days: string; setDays: (d: string) =
     <>
       <Card title="Vacation">
         <T muted>{`The avatar travels to visit the Nine Marvels: no tax, the companion sleeps and the soul is frozen, while tasks still pay. Tribulation deadlines keep their dates. At most ${r.vacationMaxDays} days at a time and ${r.vacationMaxDaysPerWindow} days in any ${r.vacationWindowDays}.`}</T>
+        {state.progress.diedAt !== null ? <T muted>While dead nothing can be bought, a vacation included; closed-door rest stays free.</T> : null}
         {resting ? (
           <>
             <T>{`${state.rest!.kind === "vacation" ? "On vacation" : "In closed-door cultivation"} until ${when(state.rest!.end)}.`}</T>
@@ -201,7 +215,7 @@ function Services({ days, setDays, act }: { days: string; setDays: (d: string) =
             <Field label="Days" value={days} onChangeText={setDays} keyboardType="number-pad" maxLength={2} />
             <Button
               label={n >= 1 ? `Start a ${n}-day vacation (${Math.ceil(price)} gold)` : "Start a vacation"}
-              disabled={n < 1 || n > left || state.gold < price}
+              disabled={state.progress.diedAt !== null || n < 1 || n > left || state.gold < price}
               onPress={() => void act({ type: "RestStarted", kind: "vacation", until: now + n * DAY }, `On vacation for ${n} days.`)}
             />
           </>

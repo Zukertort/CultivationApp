@@ -8,6 +8,7 @@
  * outcome is the class drop, rolled by the server and stored in the claim or
  * a ClassDropRolled event.
  */
+import { noPurchaseWhileDead } from "./shop.js";
 import type { ClassDrop, ClassId, Effort, EventOf } from "@cultivation/schema";
 import { GROWTH_COLORS, RULES_V1, type ClassGroup, type RulesConfig } from "./config.js";
 import type { CultivatorState } from "./engine.js";
@@ -121,6 +122,8 @@ export function onClassChosen(s: CultivatorState, e: EventOf<"ClassChosen">, rul
   if (s.class.id === null) violate("class_not_yet", "the class is chosen on leaving Foundation");
   if (s.class.id === e.class) violate("class_unchanged", "this is already the class");
   if (realm === "spirit_realm") violate("class_locked", "the class locks on entering Spirit Realm");
+  // A class change is a purchase: none while dead (ruling 164).
+  noPurchaseWhileDead(s);
   const price = rules.classes.changeGold;
   if (s.gold < price) violate("insufficient_gold", `changing class costs ${price} gold`);
   s.gold -= price;

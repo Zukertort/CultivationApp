@@ -70,16 +70,22 @@ const dueSoon = (state: CultivatorState, rules: RulesConfig) =>
   openTribulationDeadlines(state).filter((d) => d.deadline >= state.clock && d.deadline - state.clock <= rules.gear.riskHours * HOUR);
 
 /**
- * The before-deadline warning (ruling 153): a tribulation is due within 72
- * hours and, were it failed, the worn armor's damage plus the failure's 20%
- * plus the companion's damage until then would reach 100%. Null when not at
- * risk.
+ * The before-deadline warning (rulings 153, 166): a tribulation is due
+ * within 72 hours and, were it failed, the worn armor's damage plus the
+ * failure's 20% plus the companion's damage until then would reach 100%, or
+ * the worn weapon's damage plus 20% would (the failure may pick either).
+ * Armor first. Null when not at risk.
  */
 export function armorAtRisk(state: CultivatorState, rules: RulesConfig = RULES_V1): ArmorRisk | null {
-  const item = wornItem(state, "armor");
-  if (!item) return null;
-  const due = dueSoon(state, rules).find((d) => damageAtFailure(state, item, d.deadline, rules) >= FULL_DURABILITY_BP);
-  return due ? { item, tribulationId: due.tribulationId, deadline: due.deadline } : null;
+  const soon = dueSoon(state, rules);
+  const armor = wornItem(state, "armor");
+  const due = armor ? soon.find((d) => damageAtFailure(state, armor, d.deadline, rules) >= FULL_DURABILITY_BP) : undefined;
+  if (armor && due) return { item: armor, tribulationId: due.tribulationId, deadline: due.deadline };
+  // A failure's 20% can pick the weapon too (ruling 166); it takes no companion damage, so the line is 80%.
+  const weapon = wornItem(state, "weapon");
+  const first = soon[0];
+  if (weapon && first && weapon.damageBp + rules.gear.failureDamageBp >= FULL_DURABILITY_BP) return { item: weapon, tribulationId: first.tribulationId, deadline: first.deadline };
+  return null;
 }
 
 /**

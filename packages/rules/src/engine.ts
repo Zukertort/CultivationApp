@@ -40,7 +40,7 @@ import {
   type MainState,
 } from "./main.js";
 import { chargeVacation, onPotionBought } from "./shop.js";
-import { gearMidnight, initialGear, onGearBought, onGearEquipped, onGearRepaired, onGearSold, onGearUnequipped, syncGear, weaponWear, type GearState } from "./gear.js";
+import { gearMidnight, initialGear, onGearBought, onGearEquipped, onGearRepaired, onGearSold, onGearUnequipped, syncGear, type GearState } from "./gear.js";
 import { initialClass, onClassChosen, onClassDropRolled, onWearableUsed, classCovers, type ClassState } from "./class.js";
 import {
   advanceProgress,
@@ -442,12 +442,18 @@ function takeRoutineSlot(s: CultivatorState, at: number, rules: RulesConfig): bo
   return true;
 }
 
-/** Pay a Body activity's gold and feed its treats (scaled by repetition), promoting the companion. */
+/**
+ * Pay a Body activity's gold and feed its treats (scaled by repetition),
+ * promoting the companion. During any rest the food meter is frozen both
+ * ways: no decay and no treats, so rest can't buy tiers; the gold still pays
+ * (ruling 167).
+ */
 function payTraining(s: CultivatorState, kind: BodyActivityKind, rep: number, at: number, rules: RulesConfig): void {
   const c = s.companion;
   // Gold uses the multiplier of the tier the activity was done in.
   earnGold(s, rules.gold[kind] * rep * trainingGoldMultiplier(s, rules));
 
+  if (s.rest !== null && at < s.rest.end) return;
   c.food += rules.treats[kind] * rep;
   while (c.tier !== "lion" && c.food >= rules.tiers[c.tier].capacity) {
     const higher = TIERS[tierIndex(c.tier) + 1] as Tier;
@@ -556,7 +562,6 @@ const onRouletteSpun: Handler<"RouletteSpun"> = (s, e, rules) => {
       break;
     case "qi":
       earnQi(s, rules.roulette.qiPrize * qiMultiplier(s, rules));
-      weaponWear(s, "other", e.at, rules);
       break;
     case "gain_potion":
       addPotion(s, "gain");
@@ -607,7 +612,6 @@ const onCompanionPetted: Handler<"CompanionPetted"> = (s, e, rules) => {
   if (c.pettedDay === day) violate("already_petted", "the Lion was already petted today");
   c.pettedDay = day;
   earnQi(s, rules.lionPetQi * qiMultiplier(s, rules));
-  weaponWear(s, "other", e.at, rules);
 };
 
 const onPotionUsed: Handler<"PotionUsed"> = (s, e, rules) => {
@@ -644,7 +648,6 @@ function applySoulDrop(s: CultivatorState, drop: SoulDrop, rules: RulesConfig): 
       break;
     case "qi":
       earnQi(s, d.qi * qiMultiplier(s, rules));
-      weaponWear(s, "other", s.clock, rules);
       break;
     case "gain_potion":
       addPotion(s, "gain");

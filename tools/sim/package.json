@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "tsx src/index.ts",
+    "scaling": "tsx src/scaling.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

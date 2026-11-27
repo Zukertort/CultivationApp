@@ -11,7 +11,7 @@ import type { Difficulty, Effort, EventOf, MainQuestDrop, Period, TaskSchedule }
 import { RULES_V1, type MainPath, type Realm, type RepetitionRules, type RulesConfig } from "./config.js";
 import type { CultivatorState } from "./engine.js";
 import { addPotion, chargeTax, earnGold, earnQi, mainQiMultiplier, potionKind, trainingGoldMultiplier } from "./economy.js";
-import { weaponWear } from "./gear.js";
+import { noPurchaseWhileDead } from "./shop.js";
 import { checkCrossTags } from "./class.js";
 import { violate } from "./errors.js";
 import { DAY, MINUTE, localDay, nextLocalMidnight } from "./time.js";
@@ -602,8 +602,6 @@ export function onTaskCompleted(s: CultivatorState, e: EventOf<"MainTaskComplete
     const gold = goldForPoints(w, rules) * decay * trainingGoldMultiplier(s, rules);
     earnQi(s, qi);
     earnGold(s, gold);
-    // The worn weapon wears with each gain it boosts, by the task's effort (ruling 147).
-    if (baseQi > 0) weaponWear(s, t.effort, e.at, rules);
     m.earned.qi += qi;
     m.earned.gold += gold;
     if (m.deviation && DIFFICULTIES.indexOf(t.difficulty) >= DIFFICULTIES.indexOf(rules.main.comeback.minDifficulty)) {
@@ -636,8 +634,6 @@ function payQuestStage(s: CultivatorState, questId: string, rules: RulesConfig):
   const qi = (due - q.bonusQi) * mainQiMultiplier(s, rules);
   q.bonusQi = due;
   earnQi(s, qi);
-  // The bonus is a Qi gain the weapon boosts: it wears as "other" (ruling 147).
-  if (qi > 0) weaponWear(s, "other", s.clock, rules);
   m.earned.qi += qi;
 }
 
@@ -775,6 +771,8 @@ export function onTaskRestored(s: CultivatorState, e: EventOf<"MainTaskRestored"
 }
 
 export function onItemExtended(s: CultivatorState, e: EventOf<"MainItemExtended">, rules: RulesConfig): void {
+  // An extension is bought: none while dead (ruling 164).
+  noPurchaseWhileDead(s);
   const m = s.main;
   let due: Due;
   let points: number;

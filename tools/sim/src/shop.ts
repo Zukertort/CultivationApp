@@ -44,13 +44,13 @@ const REPORT_REALMS = ["foundation_establishment", "core_formation", "nascent_so
 type ReportRealm = (typeof REPORT_REALMS)[number];
 const short = (r: string) => ({ qi_condensation: "QC", foundation_establishment: "F", core_formation: "CF", nascent_soul: "NS", spirit_realm: "SR" })[r] ?? r;
 
-interface Persona {
+export interface Persona {
   key: "turtle" | "studier" | "physical";
   label: string;
   routine: Routine;
 }
 
-const PERSONAS: Persona[] = [
+export const PERSONAS: Persona[] = [
   { key: "turtle", label: "Turtle beginner", routine: { income: study, gym: [] } },
   { key: "studier", label: "studier, gym 2x a week", routine: { income: study } },
   { key: "physical", label: "physical practice", routine: { income: study, gym: [0, 1, 2, 3, 4] } },
@@ -58,7 +58,7 @@ const PERSONAS: Persona[] = [
 
 // ---- Running a persona ---------------------------------------------------------
 
-interface Stats {
+export interface Stats {
   days: number;
   gold: number;
   qi: number;
@@ -95,7 +95,7 @@ function snapshot(c: Cultivator): Omit<Stats, "days"> {
   };
 }
 
-interface RunOptions {
+export interface RunOptions {
   persona: Persona;
   days: number;
   habits?: Habits;
@@ -109,7 +109,7 @@ interface RunOptions {
   id: string;
 }
 
-interface Run {
+export interface Run {
   c: Cultivator;
   per: Partial<Record<Realm, Stats>>;
   /** The day each realm was first entered. */
@@ -117,7 +117,7 @@ interface Run {
   goldAtEntry: Partial<Record<Realm, number>>;
 }
 
-function run(o: RunOptions): Run {
+export function run(o: RunOptions): Run {
   const c = new Cultivator({ idPrefix: o.id, rollAll: true, trackGold: true, ...(o.rules ? { rules: o.rules } : {}) });
   setupBasic(c);
   const plan = tribulationPlan(o.habits ?? {});
@@ -179,7 +179,7 @@ function buyAndWear(c: Cultivator, slot: "armor" | "weapon", at: number): void {
   if (bought && c.s.gear.worn[slot] !== bought.id) c.now("GearEquipped", at, { itemId: bought.id });
 }
 
-const armorMorning =
+export const armorMorning =
   (policy: ArmorPolicy) =>
   (c: Cultivator, d: number, now: CultivatorState): void => {
     const at = c.at(d, 5);
@@ -210,6 +210,8 @@ interface Check {
   name: string;
   pass: boolean;
   detail: string;
+  /** A failure the review accepted, with the ruling. */
+  accepted?: string;
 }
 
 // ---- The report ----------------------------------------------------------------------
@@ -321,7 +323,7 @@ export function runShopScenarios(outDir: string): void {
     armorRows,
     csv,
   );
-  checks.push({ name: "Shop armor pays for itself within its life (physical practice, realistic failure rate)", pass: physicalPass, detail: physicalPays.join("; ") });
+  checks.push({ name: "Shop armor pays for itself within its life (physical practice, realistic failure rate)", pass: physicalPass, detail: physicalPays.join("; "), accepted: "Foundation accepted (ruling 166)" });
 
   // 4. Weapon buyer vs none.
   const weaponRuns = Object.fromEntries(
@@ -412,7 +414,7 @@ export function runShopScenarios(outDir: string): void {
     bankerRows,
     csv,
   );
-  checks.push({ name: "The 12-month banker's head start is at most one realm gear set (armor plus weapon)", pass: bankerPass, detail: bankerDetail.join("; ") });
+  checks.push({ name: "The 12-month banker's head start is at most one realm gear set (armor plus weapon)", pass: bankerPass, detail: bankerDetail.join("; "), accepted: "no cap (ruling 165)" });
 
   // 6. Vacationer: rests as much as allowed, still doing every task. One year.
   const uncapped: RulesConfig = { ...R, rest: { ...R.rest, vacationMaxDays: YEAR, vacationMaxDaysPerWindow: R.rest.vacationWindowDays + 1 } };
@@ -561,11 +563,11 @@ export function runShopScenarios(outDir: string): void {
   const honest = goblin("honest");
   const goblinRows: (string | number)[][] = [];
   const goblinLoops: string[] = [];
-  for (const strategy of ["sells free robes", "sells free robes, buys one back", "goes without armor", "buy-to-sell loop", "robe buy-to-sell loop", "repair then sell"] as const satisfies readonly Goblin[]) {
+  for (const strategy of ["sells free robes", "sells free robes, buys one back", "goes without armor", "buy-to-sell loop", "robe buy-to-sell loop", "higher-realm buy-to-sell loop", "repair then sell"] as const satisfies readonly Goblin[]) {
     const g = goblin(strategy);
     goblinRows.push([strategy, f0(g.gold - honest.gold), f0(g.qi - honest.qi), f0(g.netGearGold), g.loops]);
     // A loop strategy that ends ahead of the honest play would be a gold loop; selling the free robes once is bounded (ruling 158).
-    if ((strategy === "buy-to-sell loop" || strategy === "robe buy-to-sell loop" || strategy === "repair then sell") && g.gold > honest.gold) goblinLoops.push(strategy);
+    if ((strategy === "buy-to-sell loop" || strategy === "robe buy-to-sell loop" || strategy === "higher-realm buy-to-sell loop" || strategy === "repair then sell") && g.gold > honest.gold) goblinLoops.push(strategy);
   }
   table("Shop: goblin at the final prices (a studier, gym 2x a week, one year) vs the honest play", ["strategy", "gold vs honest", "Qi vs honest", "net gold on gear", "loops"], goblinRows, csv);
   checks.push({
@@ -577,7 +579,7 @@ export function runShopScenarios(outDir: string): void {
   table(
     "Shop: pass criteria",
     ["criterion", "result", "detail"],
-    checks.map((c) => [c.name, c.pass ? "PASS" : "FAIL", c.detail]),
+    checks.map((c) => [c.name, c.pass ? "PASS" : c.accepted ? `FAIL, accepted: ${c.accepted}` : "FAIL", c.detail]),
     csv,
   );
   writeFileSync(join(outDir, "shop.csv"), csv.join("\n"));

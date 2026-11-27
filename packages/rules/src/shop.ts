@@ -45,6 +45,7 @@ export function vacationDaysLeft(state: CultivatorState, at: number, rules: Rule
  * RestStarted handler.
  */
 export function chargeVacation(s: CultivatorState, at: number, until: number, rules: RulesConfig): void {
+  noPurchaseWhileDead(s);
   const r = rules.rest;
   const length = until - at;
   const days = Math.ceil(length / DAY);
@@ -57,9 +58,14 @@ export function chargeVacation(s: CultivatorState, at: number, until: number, ru
   s.gold -= cost;
 }
 
-/** Buy a gain potion (ruling 160): Qi Condensation included; nothing is bought while dead (ruling 150). */
-export function onPotionBought(s: CultivatorState, _e: EventOf<"PotionBought">, rules: RulesConfig): void {
+/** While dead nothing can be bought: gear, potions, vacations, extensions, class changes (rulings 150, 164). Closed-door rest is free and stays available. */
+export function noPurchaseWhileDead(s: CultivatorState): void {
   if (s.progress.diedAt !== null) violate("dead", "nothing can be bought while the avatar is dead");
+}
+
+/** Buy a gain potion (ruling 160): Qi Condensation included; nothing is bought while dead (ruling 164). */
+export function onPotionBought(s: CultivatorState, _e: EventOf<"PotionBought">, rules: RulesConfig): void {
+  noPurchaseWhileDead(s);
   const price = potionPrice(s, rules);
   if (s.gold < price) violate("insufficient_gold", `a gain potion costs ${Math.ceil(price)} gold`);
   s.gold -= price;

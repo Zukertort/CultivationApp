@@ -599,6 +599,12 @@ export const GearBought = z.object({
   type: z.literal("GearBought"),
   slot: GearSlot,
   kind: z.enum(["shop", "robe"]).optional(),
+  /**
+   * The realm whose gear it is (ruling 165): any realm's, bought in any realm,
+   * Qi Condensation included, and kept in the stash until it can be worn.
+   * Defaults to the current realm (required in Qi Condensation).
+   */
+  realm: z.enum(["foundation_establishment", "core_formation", "nascent_soul", "spirit_realm"]).optional(),
 });
 
 /** Wears an item from the stash; the item worn in its slot goes to the stash. */

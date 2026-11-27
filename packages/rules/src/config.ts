@@ -310,10 +310,8 @@ export interface GearRules {
   unarmoredLossFactor: number;
   /** Damage, in basis points of durability, at each local midnight without rest, by fitness tier, to every armor worn that local day (the weapon isn't hit). */
   companionDamageBp: Record<Tier, number>;
-  /** Damage to the armor worn at a failed tribulation's deadline. */
+  /** Damage to one item worn at a failed tribulation's deadline, armor or weapon (ruling 166). */
   failureDamageBp: number;
-  /** SIM: weapon wear on each Qi gain it boosts: a Main task by its effort, any other Qi gain (drops, roulette, the Lion) as `other`. */
-  weaponWearBp: Record<Effort | "other", number>;
   /** The push and the avatar's warning fire at this much damage (95%). */
   warnAtBp: number;
   /** The avatar's "getting damaged" line (in the app, no push) from this much damage on (50%; ruling 153). */
@@ -396,7 +394,7 @@ export interface RulesConfig {
 }
 
 export const RULES_V1: RulesConfig = Object.freeze({
-  version: "1.24.0",
+  version: "1.25.0",
   tiers: {
     turtle: { capacity: 30, weeklyLoss: 10, goldBonus: 0.01, coreQiBonus: 0, breakthroughLegendaryChance: 0 },
     panda: { capacity: 800, weeklyLoss: 200, goldBonus: 0.1, coreQiBonus: 0, breakthroughLegendaryChance: 0 },
@@ -629,7 +627,6 @@ export const RULES_V1: RulesConfig = Object.freeze({
     unarmoredLossFactor: 2,
     companionDamageBp: { turtle: 500, panda: 300, horse: 200, tiger: 100, lion: 0 },
     failureDamageBp: 2000,
-    weaponWearBp: { quick: 15, session: 40, day: 100, project: 250, other: 15 },
     warnAtBp: 9500,
     careAtBp: 5000,
     riskHours: 72,
