@@ -103,3 +103,37 @@ describe("realm scaling (rulings 169-172)", () => {
     expect(s.main.debt.qi).toBe(RULES_V1.main.debtCap.qi * 4);
   });
 });
+
+describe("claim evidence (rulings 69, 76, 169)", () => {
+  const evidence = [
+    { kind: "photo", ref: "file:///data/user/0/app/files/evidence/1-a.jpg" },
+    { kind: "link", ref: "https://example.com/grade" },
+  ] as const;
+  const declareAndClaim = (log: GameEvent[], at: number, withEvidence: boolean) =>
+    replay([
+      ...log,
+      ev("TribulationDeclared", at, { tribulationId: "t", title: "Exam", criteria: "Pass", deadline: at + 20 * DAY }),
+      ev("TribulationClaimed", at + H, { tribulationId: "t", oath: TRIBULATION_OATH, llmReview: "skipped", ...(withEvidence ? { evidence: [...evidence] } : {}) }),
+    ]);
+
+  it("in Foundation, photos and links complete the tribulation at once, logged as fast track", () => {
+    const s = declareAndClaim([created, ...overrides(4)], T0 + DAY, true);
+    expect(s.main.realm).toBe("foundation_establishment");
+    expect(s.anomalies).toEqual([]);
+    expect(s.tribulations.items.t).toMatchObject({ evidence: 2, completedBy: "evidence", completedAt: T0 + DAY + H });
+    expect(s.main.flags.filter((f) => f.code === "fast_track_claim").map((f) => f.id)).toEqual(["t"]);
+  });
+
+  it("without evidence, a Foundation claim waits for its 350 Qi", () => {
+    const s = declareAndClaim([created, ...overrides(4)], T0 + DAY, false);
+    expect(s.tribulations.items.t).toMatchObject({ evidence: 0, completedAt: null });
+    expect(s.main.flags.map((f) => f.code)).not.toContain("fast_track_claim");
+  });
+
+  it("in other realms, the evidence is only stored with the claim", () => {
+    const s = declareAndClaim([created, ...overrides(8)], T0 + DAY, true);
+    expect(s.main.realm).toBe("core_formation");
+    expect(s.tribulations.items.t).toMatchObject({ evidence: 2, status: "passed", completedAt: null, completedBy: null });
+    expect(s.main.flags.map((f) => f.code)).not.toContain("fast_track_claim");
+  });
+});

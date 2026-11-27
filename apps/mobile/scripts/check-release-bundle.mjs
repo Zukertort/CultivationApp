@@ -1,4 +1,4 @@
-// Release-bundle check: the dev scenario loader (src/dev) and
+// Release-bundle check: the dev scenario loader and admin controls (src/dev) and
 // @cultivation/scenarios must not ship. Exports production bundles (web and
 // Android) into a temporary folder and fails if any dev-only marker is in
 // them. A marker from the app itself must be there, so an empty or unreadable
@@ -15,8 +15,8 @@ const app = join(dirname(fileURLToPath(import.meta.url)), "..");
 const arg = process.argv.indexOf("--platform");
 const platforms = arg > 0 ? [process.argv[arg + 1]] : ["web", "android"];
 
-/** Strings only dev code contains: the scenario database's name, a scenario title, the dev panel's heading. */
-const DEV_MARKERS = ["cultivation-scenario.db", "Dead avatar (repent cycler)", "Open the dev panel"];
+/** Strings only dev code contains: the scenario database's name, a scenario title, the dev panel's heading, the admin override (ruling 84). */
+const DEV_MARKERS = ["cultivation-scenario.db", "Dead avatar (repent cycler)", "Open the dev panel", "Admin: manual override"];
 /** A string the release app must contain (the oath). */
 const APP_MARKER = "I will not fake my achievements";
 
@@ -31,7 +31,7 @@ let failed = false;
 for (const platform of platforms) {
   const out = mkdtempSync(join(tmpdir(), `cultivation-release-${platform}-`));
   try {
-    execFileSync("npx", ["expo", "export", "--platform", platform, "--output-dir", out], { cwd: app, stdio: "inherit", shell: process.platform === "win32" });
+    execFileSync("pnpm", ["exec", "expo", "export", "--platform", platform, "--output-dir", out], { cwd: app, stdio: "inherit", shell: process.platform === "win32" });
     const bundles = files(out).filter((f) => /\.(js|hbc)$/.test(f));
     // Hermes bytecode keeps its strings readable; latin1 keeps every byte.
     const text = bundles.map((f) => readFileSync(f, "latin1")).join("\n");

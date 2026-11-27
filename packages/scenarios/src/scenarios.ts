@@ -190,6 +190,10 @@ const geared = (s: CultivatorState) => {
 
 const WHITE_ROBE = "robe:foundation_establishment";
 
+/** Foundation tribulations completed by their evidence (rulings 76, 169). */
+const fastTracked = (s: CultivatorState) =>
+  Object.entries(s.tribulations.items).filter(([, t]) => t.realm === "foundation_establishment" && t.completedBy === "evidence" && t.evidence > 0);
+
 // ---- The catalog ------------------------------------------------------------
 
 export const SCENARIOS: readonly Scenario[] = [
@@ -239,6 +243,28 @@ export const SCENARIOS: readonly Scenario[] = [
       openTribulations(s).length + (realmStatus(s).tribulations?.awaiting ?? 0) === 1 || "no third tribulation open or awaiting",
       alive(s),
     ],
+  ),
+  scenario(
+    {
+      id: "foundation-fast-track",
+      title: "Foundation, fast track",
+      description: "Foundation tribulations claimed with a photo and a link: each completes at once, paid by the evidence, with no Qi spent, and is logged as a fast-track claim (rulings 76, 169).",
+      days: 40,
+      day: persona({ income: study }, { fastTrack: true }),
+      stop: (c) => c.s.main.realm === "foundation_establishment" && fastTracked(c.s).length >= 2,
+    },
+    (s) => {
+      const done = fastTracked(s);
+      const flagged = new Set(s.main.flags.filter((f) => f.code === "fast_track_claim").map((f) => f.id));
+      return [
+        inRealm(s, "foundation_establishment"),
+        done.length >= 2 || `${done.length} completed by evidence`,
+        done.every(([id]) => flagged.has(id)) || "a fast-track claim is missing from the integrity log",
+        done.every(([, t]) => t.completedAt === t.passedAt) || "an evidence claim didn't complete at its claim",
+        (realmStatus(s).tribulations?.awaiting ?? 0) === 0 || "an evidence claim is awaiting its Qi",
+        alive(s),
+      ];
+    },
   ),
   scenario(
     {

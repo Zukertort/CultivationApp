@@ -72,7 +72,7 @@ export function DevPanel() {
   useStore();
   const offset = clockOffset();
   const scenario = dev.scenarioId ? findScenario(dev.scenarioId) : undefined;
-  const badge = dev.mode === "scenario" ? `SCENARIO · ${scenario?.title ?? dev.scenarioId ?? "none"} · ${offsetLabel(offset)}` : "DEV";
+  const badge = `${dev.mode === "scenario" ? `SCENARIO · ${scenario?.title ?? dev.scenarioId ?? "none"} · ${offsetLabel(offset)}` : "DEV"}${dev.admin ? " · ADMIN" : ""}`;
   return (
     <>
       <Pressable
@@ -104,6 +104,10 @@ export function DevPanel() {
               error={dev.lastLoad.problems.length > 0}
             />
           ) : null}
+          <Card title={`Admin mode: ${dev.admin ? "on" : "off"}`}>
+            <T muted>Off is normal play. On shows admin controls that write events no player should (the realm override, ruling 84). Never in release builds.</T>
+            <Button label={dev.admin ? "Turn admin mode off" : "Turn admin mode on"} kind={dev.admin ? "primary" : "ghost"} onPress={() => dev.setAdmin(!dev.admin)} />
+          </Card>
           <ReplayLog />
           <Card title="Load a scenario">
             <T muted>Built now from simulator personas, ending just before today. Loading replaces the previous scenario.</T>

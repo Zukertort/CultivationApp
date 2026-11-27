@@ -6,10 +6,12 @@
  */
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { ActivityIndicator, View } from "react-native";
+import { AdminContext } from "../lib/admin";
 import { setClockOffset } from "../lib/clock";
 import { DB_NAME } from "../lib/db";
 import { C, T } from "../lib/ui";
-import { loadScenario, readMode, readScenarioInfo, writeMode, SCENARIO_DB, type LoadResult, type Mode } from "./loader";
+import { ADMIN_CONTROLS } from "./admin";
+import { loadScenario, readAdmin, readMode, readScenarioInfo, writeAdmin, writeMode, SCENARIO_DB, type LoadResult, type Mode } from "./loader";
 import { DevPanel } from "./panel";
 
 interface Dev {
@@ -19,6 +21,9 @@ interface Dev {
   lastLoad: (LoadResult & { id: string }) | null;
   load: (id: string) => void;
   setMode: (m: Mode) => void;
+  /** Admin mode: shows controls not meant for normal play (lib/admin). Off by default. */
+  admin: boolean;
+  setAdmin: (on: boolean) => void;
 }
 
 const DevContext = createContext<Dev | null>(null);
@@ -36,6 +41,14 @@ export function DevRoot({ render }: { render: (dbName: string, overlay: ReactNod
   const [phase, setPhase] = useState<Phase>({ kind: "starting" });
   const [lastLoad, setLastLoad] = useState<Dev["lastLoad"]>(null);
   const generation = useRef(0);
+  const [admin, setAdminState] = useState(false);
+  useEffect(() => {
+    void readAdmin().then(setAdminState);
+  }, []);
+  const setAdmin = useCallback((on: boolean) => {
+    setAdminState(on);
+    void writeAdmin(on);
+  }, []);
 
   const open = useCallback(async (mode: Mode) => {
     if (mode === "real") {
@@ -96,14 +109,16 @@ export function DevRoot({ render }: { render: (dbName: string, overlay: ReactNod
       </View>
     );
   }
-  const dev: Dev = { mode: phase.mode, scenarioId: phase.scenarioId, lastLoad, load, setMode };
+  const dev: Dev = { mode: phase.mode, scenarioId: phase.scenarioId, lastLoad, load, setMode, admin, setAdmin };
   const dbName = phase.mode === "scenario" ? SCENARIO_DB : DB_NAME;
   return (
     <DevContext.Provider value={dev}>
       {/* A new key per open: the store reloads from the database it now points at. */}
-      <View key={`${dbName}#${phase.generation}`} style={{ flex: 1 }}>
-        {render(dbName, <DevPanel />)}
-      </View>
+      <AdminContext.Provider value={admin ? ADMIN_CONTROLS : null}>
+        <View key={`${dbName}#${phase.generation}`} style={{ flex: 1 }}>
+          {render(dbName, <DevPanel />)}
+        </View>
+      </AdminContext.Provider>
     </DevContext.Provider>
   );
 }

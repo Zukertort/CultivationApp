@@ -48,6 +48,15 @@ export async function writeMode(mode: Mode): Promise<void> {
   await withDevDb((db) => db.runAsync("INSERT INTO kv (key, value) VALUES ('mode', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", [mode]).then(() => {}));
 }
 
+/** The dev panel's admin mode (ruling 84): off is normal play. */
+export async function readAdmin(): Promise<boolean> {
+  return withDevDb(async (db) => (await db.getFirstAsync<{ value: string }>("SELECT value FROM kv WHERE key = 'admin'"))?.value === "1");
+}
+
+export async function writeAdmin(on: boolean): Promise<void> {
+  await withDevDb((db) => db.runAsync("INSERT INTO kv (key, value) VALUES ('admin', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", [on ? "1" : "0"]).then(() => {}));
+}
+
 async function withScenarioDb<T>(f: (db: SQLiteDatabase) => Promise<T>): Promise<T> {
   assertScenarioDb(SCENARIO_DB);
   const db = await openDatabaseAsync(SCENARIO_DB);

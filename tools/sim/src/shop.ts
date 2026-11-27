@@ -36,7 +36,7 @@ import {
   type Realm,
   type RulesConfig,
 } from "@cultivation/rules";
-import { Cultivator, routineDay, setupBasic, study, tribulationPlan, type Habits, type Routine } from "@cultivation/scenarios";
+import { Cultivator, routineDay, setupBasic, study, tribulationPlan, weeklyMilestones, type Habits, type Income, type Routine } from "@cultivation/scenarios";
 import { goblin, type Goblin } from "./gear.js";
 
 const YEARS3 = 1095;
@@ -511,6 +511,42 @@ export function runShopScenarios(outDir: string): void {
     potionRows.push([p.label, f0(spent), f0(extraGold), f1(spent > 0 ? extraGold / spent : NaN), f0(extraQi), f1(spent > 0 ? extraQi / spent : NaN)]);
   }
   table("Shop: potion buyer (a gain potion bought and drunk every day for a year) vs none", ["persona", "potions gold", "extra gold", "gold back per gold", "extra Main Qi", "Qi per gold"], potionRows, csv);
+
+  // 8b. Big-day potion drinker: a gain potion drunk only on the morning a quest's project-effort milestone is completed
+  // (gain potions are for big completion days, not a daily buy).
+  const milestoner: Income = (c, day) => {
+    study(c, day);
+    weeklyMilestones(c, day);
+  };
+  /** weeklyMilestones completes a milestone on day 5 of each week, at 15:00. */
+  const completesMilestone = (day: number) => (day % 364) % 7 === 5;
+  const bigDayRows: (string | number)[][] = [];
+  for (const p of PERSONAS) {
+    const persona: Persona = { ...p, routine: { ...p.routine, income: milestoner } };
+    const n = run({ persona, days: YEAR, morning: armorMorning("robe"), id: `big-none-${p.key}` });
+    const b = run({
+      persona,
+      days: YEAR,
+      morning: (c, d, now) => {
+        armorMorning("robe")(c, d, now);
+        if (!completesMilestone(d)) return;
+        const at = c.at(d, 5);
+        if (c.now("PotionBought", at, { potion: "gain" })) c.now("PotionUsed", at, { potion: "gain" });
+      },
+      id: `big-potion-${p.key}`,
+    });
+    const extraGold = b.c.goldEarned - n.c.goldEarned;
+    const extraQi = b.c.s.main.earned.qi - n.c.s.main.earned.qi;
+    const spent = b.c.s.shopSpent.potions;
+    if (extraGold >= spent) potionLoop = true;
+    bigDayRows.push([`${p.label} + weekly milestones`, f0(spent / Math.max(1, potionPrice(b.c.s))), f0(spent), f0(extraGold), f1(spent > 0 ? extraGold / spent : NaN), f0(extraQi), f1(spent > 0 ? extraQi / spent : NaN)]);
+  }
+  table(
+    "Shop: big-day potion drinker (a gain potion only on the morning a quest's project-effort milestone is completed, one year) vs none",
+    ["persona", "potions (approx.)", "potions gold", "extra gold", "gold back per gold", "extra Main Qi", "Qi per gold"],
+    bigDayRows,
+    csv,
+  );
 
   // 9. Class hopper: changes class every 30 days in Core Formation and Nascent Soul.
   const hopper = run({

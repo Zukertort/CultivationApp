@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { Alert, View } from "react-native";
 import type { ClassId } from "@cultivation/schema";
-import { DAY, RULES_V1, completionCost, conqueredTribulations, foundationPasses, realmStatus, type Realm } from "@cultivation/rules";
+import { DAY, RULES_V1, completionCost, conqueredTribulations, foundationPasses, realmStatus } from "@cultivation/rules";
+import { useAdmin } from "../lib/admin";
 import { ClassPicker } from "../lib/classes";
 import { CompletionCard } from "../lib/completion";
 import { GearWarnings } from "../lib/gear";
@@ -20,6 +21,7 @@ const MISSING: Record<string, string> = {
 export default function RealmScreen() {
   const { state, now } = useStore();
   const [note, setNote] = useState<{ text: string; error: boolean } | null>(null);
+  const admin = useAdmin();
   const status = realmStatus(state);
   const p = state.progress;
   const next = status.next;
@@ -94,7 +96,7 @@ export default function RealmScreen() {
 
       <History />
       <HallOfFame />
-      <Override realm={realm} onResult={result} />
+      {admin ? <admin.RealmOverride realm={realm} onResult={result} /> : null}
       <T muted>{when(now)}</T>
     </Screen>
   );
@@ -202,45 +204,6 @@ function HallOfFame() {
           {t.title} <T muted>· {words(t.realm)} · {when(t.passedAt)}</T>
         </T>
       ))}
-    </Card>
-  );
-}
-
-/** Ruling 84: advance one step for free, logged; out of Foundation it must pick the class (ruling 113). */
-function Override({ realm, onResult }: { realm: Realm; onResult: (ok: boolean, text: string) => void }) {
-  const { state, log } = useStore();
-  const [open, setOpen] = useState(false);
-  const [cls, setCls] = useState<ClassId | null>(null);
-  const status = realmStatus(state);
-  if (!status.next) return null;
-  const leavingFoundation = realm === "foundation_establishment" && status.next.kind === "breakthrough" && state.class.id === null;
-  if (!open) return <Button label="Manual override…" kind="ghost" onPress={() => setOpen(true)} />;
-  return (
-    <Card title="Manual override">
-      <T muted>Advances one level or realm, ignoring Qi and tribulations. It costs nothing and earns no legendary roll, but it stays in your integrity log.</T>
-      {leavingFoundation ? <ClassPicker value={cls} onChange={setCls} /> : null}
-      <Row>
-        <Button
-          label="Override"
-          kind="danger"
-          disabled={leavingFoundation && cls === null}
-          onPress={() =>
-            Alert.alert("Advance by override?", "It is logged in the integrity log.", [
-              { text: "Cancel", style: "cancel" },
-              {
-                text: "Override",
-                style: "destructive",
-                onPress: () =>
-                  void log({ type: "RealmOverride", ...(cls ? { class: cls } : {}) }).then((r) => {
-                    onResult(r.ok, r.ok ? "Advanced by override (logged)." : r.message);
-                    if (r.ok) setOpen(false);
-                  }),
-              },
-            ])
-          }
-        />
-        <Button label="Close" kind="ghost" onPress={() => setOpen(false)} />
-      </Row>
     </Card>
   );
 }

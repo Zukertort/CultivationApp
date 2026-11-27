@@ -131,7 +131,7 @@ export function tribulationPlan(h: Habits) {
         p.passDay = day + 10;
         c.now("TribulationRescheduled", at, { tribulationId: id, deadline: at + 21 * DAY });
       } else if (status === "open" && day >= p.passDay && !(h.failFirst && !p.failedOnce)) {
-        const evidence = h.fastTrack && realm === "foundation_establishment" ? { evidence: [{ kind: "link", ref: "https://example.com" }] } : {};
+        const evidence = h.fastTrack && realm === "foundation_establishment" ? { evidence: [{ kind: "photo", ref: `file:///evidence/${id}.jpg` }, { kind: "link", ref: "https://example.com" }] } : {};
         c.now("TribulationClaimed", at, { tribulationId: id, oath: TRIBULATION_OATH, llmReview: "skipped", ...evidence });
       }
     }
