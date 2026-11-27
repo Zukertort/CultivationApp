@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "tsx src/index.ts",
-    "scaling": "tsx src/scaling.ts",
+    "replay": "tsx src/replay.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

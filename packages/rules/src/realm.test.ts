@@ -1,22 +1,24 @@
 import { describe, expect, it } from "vitest";
-import { OATH_TEXT, REPENT_OATH, TRIBULATION_OATH, type GameEvent } from "@cultivation/schema";
+import { OATH_TEXT, REPENT_OATH, TRIBULATION_OATH, type GameEvent, CLOSED_DOOR_OATH } from "@cultivation/schema";
 import {
   DAY,
   REALM_TRIBULATION_PURPOSE,
   RuleViolation,
   advanceTo,
   applyEvent,
+  awaitingCompletion,
   breakthroughRollOutcome,
   conqueredTribulations,
   failureQiLoss,
+  foundationPasses,
   pendingBreakthroughRolls,
   pendingTribulationRolls,
   realmStatus,
-  replay,
   tribulationDeletePrice,
   tribulationEditPrice,
   type CultivatorState,
 } from "./index.js";
+import { strictReplay as replay } from "./test-support.js";
 
 // Day 0 = Monday 2026-11-02 00:00 in Buenos Aires (UTC-3).
 const T0 = Date.UTC(2026, 10, 2, 3);
@@ -41,6 +43,9 @@ const claim = (id: string, at: number, evidence = false, drop?: "gain_potion") =
     ...(evidence ? { evidence: [{ kind: "link", ref: "https://example.com/proof" }] } : {}),
     ...(drop ? { drop } : {}),
   });
+const complete = (id: string, at: number) => ev("TribulationCompleted", at, { tribulationId: id });
+/** Claimed and completed (ruling 169): what counts toward levels, the Core Formation share and the transcendence. */
+const pass = (id: string, at: number): GameEvent[] => [claim(id, at), complete(id, at)];
 const del = (id: string, at: number) => ev("TribulationDeleted", at, { tribulationId: id });
 const formCore = (at: number, choice = "Mathematics") => ev("CoreFormed", at, { choice, class: "monk" });
 const lock = (at: number) => ev("NascentSoulLocked", at, {});
@@ -71,7 +76,7 @@ describe("Qi Condensation (rulings 75, 87, 88)", () => {
     expect(code(() => applyEvent(s, ev("AreasLocked", T0 + 2 * H, {})))).toBe("areas_undecided");
     s = apply(s, decide("body", "BJJ"), decide("soul", "Meditation"));
     expect(where(s)).toEqual(["qi_condensation", "great_circle"]); // "decide later" stays here until the lock
-    expect(realmStatus(s).next).toMatchObject({ kind: "breakthrough", qi: 0, ready: false, missing: "lock_areas" });
+    expect(realmStatus(s).next).toMatchObject({ kind: "breakthrough", ready: false, missing: "lock_areas" });
     s = apply(s, ev("AreasLocked", T0 + 2 * H, {}));
     expect(where(s)).toEqual(["foundation_establishment", "early"]);
     expect(s.qi).toBe(0);
@@ -125,27 +130,45 @@ describe("after Qi Condensation, area changes cost Qi (ruling 88)", () => {
 });
 
 describe("Foundation Establishment (rulings 74, 76, 90, 98)", () => {
-  it("counts Foundation tribulations in passing order; each level waits for its 250 Qi", () => {
+  it("counts Foundation tribulations in completion order; a claim waits until completed for 350 Qi from the balance (ruling 169)", () => {
     let s = apply(foundation(), declare("a", T0 + 3 * H), declare("b", T0 + 3 * H), declare("c", T0 + 3 * H), claim("b", T0 + DAY));
     expect(where(s)).toEqual(["foundation_establishment", "early"]);
-    expect(realmStatus(s)).toMatchObject({ next: { kind: "level", qi: 250, ready: true, waitingForQi: true }, tribulations: { passed: 1, total: 3 } });
-    s = apply(withQi(s, 600), claim("a", T0 + 2 * DAY));
+    expect(realmStatus(s)).toMatchObject({ next: { kind: "level", ready: false }, tribulations: { passed: 0, total: 3, awaiting: 1 } });
+    expect(awaitingCompletion(s)).toMatchObject([{ tribulationId: "b", cost: 350, ready: false }]);
+    expect(code(() => applyEvent(s, complete("b", T0 + DAY + H)))).toBe("insufficient_qi");
+    // Debt can't pay: only the balance does.
+    const owing = { ...s, main: { ...s.main, debt: { qi: 40, gold: 0 } } };
+    expect(code(() => applyEvent(owing, complete("b", T0 + DAY + H)))).toBe("insufficient_qi");
+    // Awaiting, it is never a failure and can't be edited.
+    expect(advanceTo(s, T0 + 40 * DAY).tribulations.items.b!.status).toBe("passed");
+    expect(code(() => applyEvent(s, ev("TribulationEdited", T0 + DAY + H, { tribulationId: "b", criteria: "Easier" })))).toBe("tribulation_passed");
+    // The order of completion is the order that counts.
+    s = apply(withQi(s, 800), claim("a", T0 + 2 * DAY), complete("a", T0 + 2 * DAY + H), complete("b", T0 + 2 * DAY + 2 * H));
     expect(where(s)).toEqual(["foundation_establishment", "late"]);
     expect(s.qi).toBe(100);
-    s = apply(withQi(s, 250), claim("c", T0 + 3 * DAY));
+    expect(foundationPasses(s).map((t) => t.title)).toEqual(["a", "b"]);
+    expect(code(() => applyEvent(s, complete("a", T0 + 3 * DAY)))).toBe("already_completed");
+    s = apply(withQi(s, 350), ...pass("c", T0 + 3 * DAY));
     expect(where(s)).toEqual(["foundation_establishment", "great_circle"]);
-    expect(realmStatus(s).next).toMatchObject({ kind: "breakthrough", qi: 300, ready: false, missing: "choice" });
+    expect(realmStatus(s).next).toMatchObject({ kind: "breakthrough", ready: false, missing: "choice" });
+  });
+
+  it("blocks completing while dead: it is a purchase (ruling 164)", () => {
+    let s = apply(withQi(foundation(), 1000), declare("a", T0 + 3 * H), claim("a", T0 + DAY));
+    s = { ...s, progress: { ...s.progress, diedAt: T0 + DAY } };
+    expect(awaitingCompletion(s)[0]!.ready).toBe(false);
+    expect(code(() => applyEvent(s, complete("a", T0 + DAY + H)))).toBe("dead");
   });
 
   it("has no cap: a fourth tribulation can be declared and passed, and earns its item roll", () => {
     let s = foundation();
     for (const id of ["a", "b", "c", "d", "e"]) s = apply(s, declare(id, T0 + 3 * H));
     s = withQi(apply(s, del("e", T0 + 4 * H)), 2000);
-    expect(realmStatus(s).tribulations).toEqual({ passed: 0, total: 3 }); // a deleted one never counts
-    s = apply(s, claim("a", T0 + DAY), claim("b", T0 + 8 * DAY), claim("c", T0 + 15 * DAY));
+    expect(realmStatus(s).tribulations).toEqual({ passed: 0, total: 3, awaiting: 0 }); // a deleted one never counts
+    s = apply(s, ...pass("a", T0 + DAY), ...pass("b", T0 + 8 * DAY), ...pass("c", T0 + 15 * DAY));
     expect(where(s)).toEqual(["foundation_establishment", "great_circle"]);
     expect(s.tribulations.items.d!.status).toBe("open"); // not closed at the third pass
-    s = apply(s, declare("f", T0 + 16 * DAY), claim("d", T0 + 22 * DAY));
+    s = apply(s, declare("f", T0 + 16 * DAY), ...pass("d", T0 + 22 * DAY));
     expect(pendingTribulationRolls(s).map((r) => r.tribulationId)).toEqual(["a", "b", "c", "d"]);
     // Leaving Foundation closes what is still open, at no cost and in the integrity log.
     s = apply(s, formCore(T0 + 23 * DAY));
@@ -155,30 +178,31 @@ describe("Foundation Establishment (rulings 74, 76, 90, 98)", () => {
     expect(s.progress.steps.at(-1)!.tribulations).toEqual(["a", "b", "c", "d"]); // every pass goes to the hall of fame
   });
 
-  it("waives the thresholds for claims with evidence (fast track) and logs them", () => {
+  it("lets the evidence pay a Foundation claim's completion at once, exactly, for every Foundation tribulation, and logs it (rulings 76, 169)", () => {
     let s = foundation();
-    for (const id of ["a", "b", "c"]) s = apply(s, declare(id, T0 + 3 * H));
+    for (const id of ["a", "b", "c", "d"]) s = apply(s, declare(id, T0 + 3 * H));
     s = apply(s, claim("a", T0 + 4 * H, true), claim("b", T0 + 5 * H, true), claim("c", T0 + 6 * H, true));
     expect(where(s)).toEqual(["foundation_establishment", "great_circle"]);
     expect(flags(s, "fast_track_claim").map((f) => f.id)).toEqual(["a", "b", "c"]);
-    s = apply(s, formCore(T0 + 7 * H));
-    expect(where(s)).toEqual(["core_formation", "early"]); // all three with evidence: the breakthrough's 300 is waived too
-    expect(s.progress.steps.filter((x) => x.waived)).toHaveLength(4);
+    expect(s.tribulations.items.a).toMatchObject({ completedBy: "evidence", completedAt: T0 + 4 * H });
+    // Beyond the first three too; no Qi is taken, and none is added.
+    s = apply(s, claim("d", T0 + 7 * H, true));
+    expect(s.tribulations.items.d).toMatchObject({ completedBy: "evidence" });
+    s = apply(s, formCore(T0 + 8 * H));
+    expect(where(s)).toEqual(["core_formation", "early"]);
     expect(s.qi).toBe(0);
   });
 
-  it("forms a core only at the end of Foundation, picking the core discipline for free, and breaks through once 300 Qi is there", () => {
+  it("forms a core only at the end of Foundation, picking the core discipline for free, and breaks through at once: no threshold (ruling 169)", () => {
     let s = foundation();
     for (const id of ["a", "b", "c"]) s = apply(s, declare(id, T0 + 3 * H));
     expect(code(() => applyEvent(s, formCore(T0 + 4 * H)))).toBe("not_end_of_foundation");
-    s = apply(withQi(s, 750), claim("a", T0 + DAY), claim("b", T0 + DAY + H), claim("c", T0 + DAY + 2 * H));
+    s = apply(withQi(s, 3 * 350), ...pass("a", T0 + DAY), ...pass("b", T0 + DAY + H), ...pass("c", T0 + DAY + 2 * H));
+    expect(s.qi).toBe(0); // 3 x 350 for the completions; the pick is free
     s = apply(s, formCore(T0 + 2 * DAY, "Physics"));
     expect(s.progress.areas.main).toBe("Physics");
-    expect(s.qi).toBe(0); // 3 x 250 for the levels; the pick is free
-    expect(realmStatus(s).next).toMatchObject({ kind: "breakthrough", ready: true, waitingForQi: true });
-    expect(code(() => applyEvent(s, formCore(T0 + 2 * DAY + H)))).toBe("core_already_chosen");
-    s = apply(withQi(s, 300), poke(T0 + 3 * DAY));
     expect(where(s)).toEqual(["core_formation", "early"]);
+    expect(code(() => applyEvent(s, formCore(T0 + 2 * DAY + H)))).toBe("not_end_of_foundation");
   });
 
   it("charges 125 Qi for a Main change mid-Foundation, with no restart and no tribulation removed", () => {
@@ -190,50 +214,52 @@ describe("Foundation Establishment (rulings 74, 76, 90, 98)", () => {
     expect(s.qi).toBe(0);
     expect(where(s)).toEqual(["foundation_establishment", "mid"]);
     s = apply(s, claim("b", T0 + 3 * DAY, true));
-    expect(realmStatus(s).tribulations).toEqual({ passed: 2, total: 3 }); // Foundation spans fields
+    expect(realmStatus(s).tribulations).toEqual({ passed: 2, total: 3, awaiting: 0 }); // Foundation spans fields
   });
 });
 
 describe("Core Formation (rulings 78, 85, 91)", () => {
   const core = () => withQi(replay([created, interview, ...overrides(8)]), 5000);
 
-  it("counts the share once the set holds 5, levels at 30/60/90% for 550 Qi each, and 100% breaks through for 700", () => {
+  it("counts the completed share once the set holds 5, levels at 30/60/90%, 100% breaks through; each completion 700 Qi (ruling 169)", () => {
     let s = core();
     for (const id of ["a", "b", "c", "d"]) s = apply(s, declare(id, T0 + H));
-    s = apply(s, claim("a", T0 + DAY), claim("b", T0 + DAY + H));
+    s = apply(s, ...pass("a", T0 + DAY), ...pass("b", T0 + DAY + H));
     expect(where(s)).toEqual(["core_formation", "early"]); // 2 of 4, but the set is below 5
     s = apply(s, declare("e", T0 + 2 * DAY));
     expect(where(s)).toEqual(["core_formation", "mid"]); // 2 of 5 = 40%
     s = apply(s, claim("c", T0 + 3 * DAY));
+    expect(where(s)).toEqual(["core_formation", "mid"]); // claimed, not completed: still 40%
+    s = apply(s, complete("c", T0 + 3 * DAY + H));
     expect(where(s)).toEqual(["core_formation", "late"]); // 60%
-    s = apply(s, claim("d", T0 + 4 * DAY));
+    s = apply(s, ...pass("d", T0 + 4 * DAY));
     expect(where(s)).toEqual(["core_formation", "late"]); // 80%
-    s = apply(s, claim("e", T0 + 5 * DAY));
+    s = apply(s, ...pass("e", T0 + 5 * DAY));
     expect(where(s)).toEqual(["nascent_soul", null]); // 100%: great circle, then the breakthrough
-    expect(s.qi).toBe(5000 - 3 * 550 - 700);
+    expect(s.qi).toBe(5000 - 5 * 700);
   });
 
   it("never demotes when a tribulation is added, and drops deleted ones from the set", () => {
     let s = core();
     for (const id of ["a", "b", "c", "d", "e"]) s = apply(s, declare(id, T0 + H));
-    s = apply(s, claim("a", T0 + DAY), claim("b", T0 + DAY + H));
+    s = apply(s, ...pass("a", T0 + DAY), ...pass("b", T0 + DAY + H));
     expect(where(s)).toEqual(["core_formation", "mid"]);
     for (const id of ["f", "g", "h", "i", "j"]) s = apply(s, declare(id, T0 + 2 * DAY));
     expect(where(s)).toEqual(["core_formation", "mid"]); // 2 of 10 = 20%, still mid
     s = apply(s, ...["f", "g", "h", "i", "j"].map((id, k) => del(id, T0 + 3 * DAY + k)));
-    expect(realmStatus(s).tribulations).toEqual({ passed: 2, total: 5 });
+    expect(realmStatus(s).tribulations).toEqual({ passed: 2, total: 5, awaiting: 0 });
   });
 
-  it("charges 275 Qi to change the core discipline, closing the old tribulations at no cost, in the log, and returning to early Core Formation", () => {
+  it("charges 550 Qi (275 times the factor 2) to change the core discipline, closing the old tribulations at no cost and no refund, back to early Core Formation", () => {
     let s = apply(core(), decide("main", "Mathematics", T0 + H));
     for (const id of ["a", "b", "c", "d", "e"]) s = apply(s, declare(id, T0 + 2 * H));
-    s = apply(s, claim("a", T0 + DAY), claim("b", T0 + DAY + H));
+    s = apply(s, ...pass("a", T0 + DAY), ...pass("b", T0 + DAY + H));
     expect(where(s)).toEqual(["core_formation", "mid"]);
     const qi = s.qi;
     s = apply(s, decide("main", "Physics", T0 + 2 * DAY));
-    expect(s.qi).toBe(qi - 275);
+    expect(s.qi).toBe(qi - 550);
     expect(where(s)).toEqual(["core_formation", "early"]);
-    expect(realmStatus(s).tribulations).toEqual({ passed: 0, total: 0 });
+    expect(realmStatus(s).tribulations).toEqual({ passed: 0, total: 0, awaiting: 0 });
     expect(s.tribulations.items.a).toMatchObject({ status: "passed", closedAt: T0 + 2 * DAY }); // in the record
     expect(s.tribulations.items.c).toMatchObject({ status: "closed", closedAt: T0 + 2 * DAY });
     expect(flags(s, "tribulation_closed").map((f) => [f.id, f.detail])).toEqual(["a", "b", "c", "d", "e"].map((id) => [id, "discipline_change"]));
@@ -250,7 +276,7 @@ describe("Core Formation (rulings 78, 85, 91)", () => {
 describe("Nascent Soul (rulings 79, 95)", () => {
   const nascent = () => withQi(replay([created, interview, ...overrides(12)]), 5000);
 
-  it("defines the set freely until the lock, rejects claims before it, accepts additions after it, then transcends for 1,500 Qi", () => {
+  it("defines the set freely until the lock, rejects claims before it, accepts additions after it, then transcends when all are completed (1,400 Qi each)", () => {
     let s = nascent();
     expect(code(() => applyEvent(s, lock(T0 + H)))).toBe("empty_set");
     s = apply(s, declare("a", T0 + H, 200), declare("b", T0 + H, 200), declare("c", T0 + H, 200));
@@ -264,11 +290,11 @@ describe("Nascent Soul (rulings 79, 95)", () => {
     expect(s.progress.lockedAt).toBe(T0 + DAY);
     expect(code(() => applyEvent(s, lock(T0 + DAY + H)))).toBe("already_locked");
     expect(tribulationEditPrice(s, "a", T0 + 2 * DAY).kind).toBe("early"); // normal fees after the lock
-    s = apply(s, declare("late", T0 + 2 * DAY, 200), claim("a", T0 + 3 * DAY), claim("b", T0 + 4 * DAY));
-    expect(realmStatus(s).tribulations).toEqual({ passed: 2, total: 3 }); // an addition after the lock joins the set
-    s = apply(s, claim("late", T0 + 5 * DAY));
+    s = apply(s, declare("late", T0 + 2 * DAY, 200), ...pass("a", T0 + 3 * DAY), ...pass("b", T0 + 4 * DAY));
+    expect(realmStatus(s).tribulations).toEqual({ passed: 2, total: 3, awaiting: 0 }); // an addition after the lock joins the set
+    s = apply(s, ...pass("late", T0 + 5 * DAY));
     expect(where(s)).toEqual(["spirit_realm", null]);
-    expect(s.qi).toBe(5000 - 1500);
+    expect(s.qi).toBe(5000 - 3 * 1400);
     expect(code(() => applyEvent(s, ev("RealmOverride", T0 + 6 * DAY, { class: "monk" })))).toBe("final_realm");
     expect(code(() => applyEvent(s, declare("x", T0 + 6 * DAY)))).toBe("not_built");
   });
@@ -284,16 +310,18 @@ describe("Nascent Soul (rulings 79, 95)", () => {
     expect(empty.progress.enteredAt).toBe(T0 + 91 * DAY);
   });
 
-  it("deletes from the locked set at the failure loss plus 2%, and never transcends with no passed tribulation", () => {
+  it("deletes from the locked set at the failure loss plus 2%, and never transcends with no completed tribulation", () => {
     let s = apply(nascent(), declare("a", T0 + H, 200), declare("hard", T0 + H, 200), lock(T0 + DAY), claim("a", T0 + 2 * DAY));
-    // Loss: the 3,875 above 75% of 1,500 (ruling 80), plus 2%; gold: 45 plus 2%.
-    expect(tribulationDeletePrice(s, "hard", T0 + 3 * DAY)).toEqual({ qi: 3875 * 1.02, gold: 45 * 1.02, kind: "open" });
+    // Loss: the 3,950 above 75% of 1,400 (Nascent Soul's cost; rulings 80, 170), plus 2%; gold: 45 plus 2%.
+    expect(tribulationDeletePrice(s, "hard", T0 + 3 * DAY)).toEqual({ qi: 3950 * 1.02, gold: 45 * 1.02, kind: "open" });
     s = apply(s, del("hard", T0 + 3 * DAY));
-    expect(s.qi).toBeCloseTo(5000 - 3875 * 1.02, 9);
-    expect(realmStatus(s).next).toMatchObject({ ready: true, waitingForQi: true });
+    expect(s.qi).toBeCloseTo(5000 - 3950 * 1.02, 9);
+    // "a" is claimed but not completed, so the set isn't done; it is ready to complete once the balance covers 1,400.
+    expect(realmStatus(s)).toMatchObject({ next: { ready: false }, tribulations: { passed: 0, total: 1, awaiting: 1 } });
+    expect(awaitingCompletion(withQi(s, 1400))[0]).toMatchObject({ tribulationId: "a", cost: 1400, ready: true });
     const emptied = apply(nascent(), declare("x", T0 + H, 200), declare("y", T0 + H, 200), lock(T0 + DAY), del("x", T0 + 2 * DAY), del("y", T0 + 2 * DAY + H));
     expect(emptied.qi).toBeGreaterThanOrEqual(0); // floored like a failure, never rejected
-    expect(realmStatus(emptied)).toMatchObject({ realm: "nascent_soul", next: { ready: false }, tribulations: { passed: 0, total: 0 } });
+    expect(realmStatus(emptied)).toMatchObject({ realm: "nascent_soul", next: { ready: false }, tribulations: { passed: 0, total: 0, awaiting: 0 } });
   });
 
   it("closes the set on a discipline change, back to early Core Formation", () => {
@@ -306,12 +334,12 @@ describe("Nascent Soul (rulings 79, 95)", () => {
   });
 });
 
-/** Core Formation by override, a set of five passed for real: Nascent Soul with Qi to spare. */
+/** Core Formation by override, a set of five passed and completed for real (5 x 700 Qi): Nascent Soul with Qi to spare. */
 function honestNascent(qi = 5000): CultivatorState {
   let s = withQi(replay([created, interview, ...overrides(8)]), qi);
   const set = ["a", "b", "c", "d", "e"];
   for (const id of set) s = apply(s, declare(id, T0 + H, 300));
-  return apply(s, ...set.map((id, k) => claim(id, T0 + (1 + k) * DAY)));
+  return apply(s, ...set.flatMap((id, k) => pass(id, T0 + (1 + k) * DAY)));
 }
 
 describe("repent (rulings 101-107)", () => {
@@ -333,8 +361,8 @@ describe("repent (rulings 101-107)", () => {
     const qi = s.qi;
     s = apply(s, repent(T0 + 7 * DAY, ["c"]));
     expect(where(s)).toEqual(["core_formation", "late"]); // 4 of 5 = 80%
-    expect(s.qi).toBe(qi); // no refund, and the first repent costs nothing else
-    expect(s.tribulations.items.c).toMatchObject({ status: "failed", failedAt: T0 + 7 * DAY, due: null });
+    expect(s.qi).toBe(qi); // no refund of the completion, and the first repent costs nothing else
+    expect(s.tribulations.items.c).toMatchObject({ status: "failed", failedAt: T0 + 7 * DAY, due: null, completedAt: null });
     expect(s.tribulations.items.n1).toMatchObject({ status: "closed" });
     expect(s.progress.lockedAt).toBeNull();
     expect(s.inventory.legendary).toBe(0); // the undone breakthrough's legendary item
@@ -347,7 +375,10 @@ describe("repent (rulings 101-107)", () => {
     expect(s.progress.noRoll).toEqual(["core_formation:great_circle", "nascent_soul:-"]);
     // Passed again for real: the same milestones are reached with no new legendary roll.
     const before = pendingBreakthroughRolls(s).length;
-    s = apply(s, reschedule("c", T0 + 8 * DAY), claim("c", T0 + 9 * DAY));
+    // Passing again means completing again: 700 more (ruling 170).
+    const paid = s.tribulations.completionQi;
+    s = apply(s, reschedule("c", T0 + 8 * DAY), ...pass("c", T0 + 9 * DAY));
+    expect(s.tribulations.completionQi).toBe(paid + 700);
     expect(where(s)).toEqual(["nascent_soul", null]);
     expect(pendingBreakthroughRolls(s)).toHaveLength(before);
     expect(conqueredTribulations(s).map((t) => t.tribulationId)).toEqual(["a", "b", "c", "d", "e"]);
@@ -355,13 +386,13 @@ describe("repent (rulings 101-107)", () => {
 
   it("returns from Spirit Realm to Nascent Soul with the lock kept", () => {
     let s = withQi(replay([created, interview, ...overrides(12)]), 5000);
-    s = apply(s, declare("n1", T0 + H, 200), declare("n2", T0 + H, 200), lock(T0 + DAY), claim("n1", T0 + 2 * DAY), claim("n2", T0 + 3 * DAY));
+    s = apply(s, declare("n1", T0 + H, 200), declare("n2", T0 + H, 200), lock(T0 + DAY), ...pass("n1", T0 + 2 * DAY), ...pass("n2", T0 + 3 * DAY));
     expect(where(s)).toEqual(["spirit_realm", null]);
     s = apply(s, repent(T0 + 4 * DAY, ["n2"]));
     expect(where(s)).toEqual(["nascent_soul", null]);
     expect(s.progress.lockedAt).toBe(T0 + DAY);
-    expect(realmStatus(s).tribulations).toEqual({ passed: 1, total: 2 });
-    s = apply(s, reschedule("n2", T0 + 5 * DAY), claim("n2", T0 + 6 * DAY));
+    expect(realmStatus(s).tribulations).toEqual({ passed: 1, total: 2, awaiting: 0 });
+    s = apply(s, reschedule("n2", T0 + 5 * DAY), ...pass("n2", T0 + 6 * DAY));
     expect(where(s)).toEqual(["spirit_realm", null]);
     expect(s.progress.repents).toEqual({ spirit_realm: 1 });
   });
@@ -383,7 +414,8 @@ describe("repent (rulings 101-107)", () => {
       const before = { qi: s.qi, gold: s.gold, items: items() };
       s = apply(s, repent(at, ["e"]));
       const after = { qi: s.qi, gold: s.gold, items: items() };
-      s = apply(s, reschedule("e", at + H), claim("e", at + 2 * H));
+      // Dead after the fifth: nothing can be bought, a completion included (ruling 164).
+      s = apply(s, reschedule("e", at + H), ...(s.progress.diedAt === null ? pass("e", at + 2 * H) : [claim("e", at + 2 * H)]));
       return { before, after };
     };
     const first = cycle(1);
@@ -440,11 +472,12 @@ describe("the hall of fame (ruling 96)", () => {
   it("records the tribulations each breakthrough consumed, for the app and the Spirit Realm spirit", () => {
     let s = withQi(foundation(), 100_000);
     for (const id of ["a", "b", "c"]) s = apply(s, declare(id, T0 + 3 * H));
-    s = apply(s, claim("a", T0 + DAY), claim("b", T0 + 2 * DAY), claim("c", T0 + 3 * DAY), formCore(T0 + 4 * DAY));
+    s = apply(s, ...pass("a", T0 + DAY), ...pass("b", T0 + 2 * DAY), ...pass("c", T0 + 3 * DAY), formCore(T0 + 4 * DAY));
     const core = ["c1", "c2", "c3", "c4", "c5"];
     for (const id of core) s = apply(s, declare(id, T0 + 5 * DAY));
-    s = apply(s, ...core.map((id, k) => claim(id, T0 + (6 + k) * DAY)));
-    s = apply(s, declare("n1", T0 + 11 * DAY, 200), lock(T0 + 12 * DAY), claim("n1", T0 + 13 * DAY, true));
+    s = apply(s, ...core.flatMap((id, k) => pass(id, T0 + (6 + k) * DAY)));
+    // Evidence pays only in Foundation; in Nascent Soul the claim is completed with Qi.
+    s = apply(s, declare("n1", T0 + 11 * DAY, 200), lock(T0 + 12 * DAY), claim("n1", T0 + 13 * DAY, true), complete("n1", T0 + 13 * DAY));
     expect(where(s)).toEqual(["spirit_realm", null]);
     expect(s.progress.steps.filter((x) => x.kind === "breakthrough").map((x) => x.tribulations)).toEqual([[], ["a", "b", "c"], core, ["n1"]]);
     expect(conqueredTribulations(s).map((t) => t.tribulationId)).toEqual(["a", "b", "c", ...core, "n1"]);
@@ -458,10 +491,10 @@ describe("legendary rolls (rulings 83, 94, 111)", () => {
   it("rolls realm breakthroughs at 5, 10, 20 and 30% by the realm entered, and level-ups at 2%", () => {
     let s = withQi(foundation(), 100_000);
     for (const id of ["a", "b", "c"]) s = apply(s, declare(id, T0 + 3 * H));
-    s = apply(s, claim("a", T0 + DAY), claim("b", T0 + 2 * DAY), claim("c", T0 + 3 * DAY), formCore(T0 + 4 * DAY));
+    s = apply(s, ...pass("a", T0 + DAY), ...pass("b", T0 + 2 * DAY), ...pass("c", T0 + 3 * DAY), formCore(T0 + 4 * DAY));
     const core = ["c1", "c2", "c3", "c4", "c5"];
     for (const id of core) s = apply(s, declare(id, T0 + 5 * DAY));
-    s = apply(s, ...core.map((id, k) => claim(id, T0 + (6 + k) * DAY)), declare("n1", T0 + 11 * DAY, 200), lock(T0 + 12 * DAY), claim("n1", T0 + 13 * DAY));
+    s = apply(s, ...core.flatMap((id, k) => pass(id, T0 + (6 + k) * DAY)), declare("n1", T0 + 11 * DAY, 200), lock(T0 + 12 * DAY), ...pass("n1", T0 + 13 * DAY));
     const chances = pendingBreakthroughRolls(s).map((r) => [s.progress.steps[r.step - 1]!.kind, s.progress.steps[r.step - 1]!.realm, r.chance]);
     expect(chances.filter(([kind]) => kind === "breakthrough")).toEqual([
       ["breakthrough", "foundation_establishment", 0.05],
@@ -476,7 +509,7 @@ describe("legendary rolls (rulings 83, 94, 111)", () => {
     let s = withQi(replay([created, interview, decide("main", "Mathematics", T0), ...overrides(7)]), 100_000);
     const climb = (prefix: string, at: number) => {
       for (const id of [1, 2, 3, 4, 5]) s = apply(s, declare(`${prefix}${id}`, at));
-      s = apply(s, ...[1, 2, 3].map((id) => claim(`${prefix}${id}`, at + id * H)));
+      s = apply(s, ...[1, 2, 3].flatMap((id) => pass(`${prefix}${id}`, at + id * H)));
     };
     climb("a", T0 + DAY);
     expect(where(s)).toEqual(["core_formation", "late"]);
@@ -511,12 +544,12 @@ describe("legendary rolls (rulings 83, 94, 111)", () => {
 });
 
 describe("failures by realm (rulings 80, 92)", () => {
-  it("takes 25% of the next threshold, and down to 75% of it when the balance is above that", () => {
-    expect(failureQiLoss(withQi(replay([created, ...overrides(4)]), 0))).toBe(62.5);
+  it("takes 25% of the realm's cost (350 times the factor), and down to 75% of it when the balance is above that (ruling 170)", () => {
+    expect(failureQiLoss(withQi(replay([created, ...overrides(4)]), 0))).toBe(87.5);
     const core = replay([created, ...overrides(8)]);
-    expect(failureQiLoss(withQi(core, 300))).toBeCloseTo(137.5, 9);
-    expect(failureQiLoss(withQi(core, 1000))).toBeCloseTo(1000 - 412.5, 9);
-    expect(failureQiLoss(withQi(replay([created, ...overrides(12)]), 0))).toBe(375);
+    expect(failureQiLoss(withQi(core, 300))).toBeCloseTo(175, 9);
+    expect(failureQiLoss(withQi(core, 1000))).toBeCloseTo(1000 - 525, 9);
+    expect(failureQiLoss(withQi(replay([created, ...overrides(12)]), 0))).toBe(350);
   });
 });
 
@@ -540,7 +573,7 @@ describe("overrides, levels and closed-door flags (rulings 84-86)", () => {
 
   it("logs closed-door rest started within 72 hours of an open tribulation's deadline, never vacation", () => {
     const s = withQi(replay([created, ...overrides(8), declare("near", T0 + H, 5), declare("far", T0 + H, 20)]), 0);
-    const closed = apply(s, ev("RestStarted", T0 + H + 3 * DAY, { kind: "closed_door", until: T0 + 6 * DAY }));
+    const closed = apply(s, ev("RestStarted", T0 + H + 3 * DAY, { kind: "closed_door", oath: CLOSED_DOOR_OATH, until: T0 + 6 * DAY }));
     expect(flags(closed, "rest_near_tribulation").map((f) => f.id)).toEqual(["near"]);
     const vacation = apply({ ...s, gold: 1000 }, ev("RestStarted", T0 + H + 3 * DAY, { kind: "vacation", until: T0 + 6 * DAY }));
     expect(flags(vacation, "rest_near_tribulation")).toEqual([]);
@@ -551,7 +584,7 @@ describe("faked passes of the current realm (ruling 126)", () => {
   it("in Foundation: the level stays, and a later pass takes the deleted one's place among the three", () => {
     let s = withQi(foundation(), 10_000);
     for (const id of ["a", "b", "c", "d"]) s = apply(s, declare(id, T0 + 3 * H));
-    s = apply(s, claim("a", T0 + DAY), claim("b", T0 + 2 * DAY), claim("c", T0 + 3 * DAY));
+    s = apply(s, ...pass("a", T0 + DAY), ...pass("b", T0 + 2 * DAY), ...pass("c", T0 + 3 * DAY));
     expect(where(s)).toEqual(["foundation_establishment", "great_circle"]);
     const price = tribulationDeletePrice(s, "b", T0 + 4 * DAY);
     expect(price).toEqual({ qi: failureQiLoss(s) * 1.02, gold: 45 * 1.02, kind: "faked" });
@@ -559,13 +592,13 @@ describe("faked passes of the current realm (ruling 126)", () => {
     s = apply(s, del("b", T0 + 4 * DAY));
     expect(s.qi).toBeCloseTo(qi - price.qi, 9);
     expect(where(s)).toEqual(["foundation_establishment", "great_circle"]); // levels never drop (ruling 85)
-    expect(realmStatus(s).tribulations).toEqual({ passed: 2, total: 3 });
+    expect(realmStatus(s).tribulations).toEqual({ passed: 2, total: 3, awaiting: 0 });
     expect(s.main.flags.slice(-2).map((f) => [f.code, f.id, f.detail])).toEqual([
       ["tribulation_deleted", "b", "faked"],
       ["tribulation_faked", "b", undefined],
     ]);
     expect(code(() => applyEvent(s, formCore(T0 + 5 * DAY)))).toBe("not_end_of_foundation");
-    s = apply(withQi(s, 300), claim("d", T0 + 5 * DAY), formCore(T0 + 6 * DAY));
+    s = apply(withQi(s, 350), ...pass("d", T0 + 5 * DAY), formCore(T0 + 6 * DAY));
     expect(where(s)).toEqual(["core_formation", "early"]);
     expect(s.progress.steps.filter((x) => x.kind === "breakthrough").at(-1)!.tribulations).toEqual(["a", "c", "d"]);
   });
@@ -573,14 +606,14 @@ describe("faked passes of the current realm (ruling 126)", () => {
   it("in Core Formation: the percentage drops until the pass is replaced, and the level stays", () => {
     let s = withQi(replay([created, interview, ...overrides(8)]), 5000);
     for (const id of ["a", "b", "c", "d", "e"]) s = apply(s, declare(id, T0 + H));
-    s = apply(s, claim("a", T0 + DAY), claim("b", T0 + DAY + H), claim("c", T0 + DAY + 2 * H));
+    s = apply(s, ...pass("a", T0 + DAY), ...pass("b", T0 + DAY + H), ...pass("c", T0 + DAY + 2 * H));
     expect(where(s)).toEqual(["core_formation", "late"]); // 60%
     s = withQi(apply(s, del("c", T0 + 2 * DAY)), 5000);
-    expect(realmStatus(s).tribulations).toEqual({ passed: 2, total: 4 });
+    expect(realmStatus(s).tribulations).toEqual({ passed: 2, total: 4, awaiting: 0 });
     expect(where(s)).toEqual(["core_formation", "late"]);
-    s = apply(s, declare("f", T0 + 3 * DAY), claim("d", T0 + 4 * DAY), claim("e", T0 + 5 * DAY));
+    s = apply(s, declare("f", T0 + 3 * DAY), ...pass("d", T0 + 4 * DAY), ...pass("e", T0 + 5 * DAY));
     expect(where(s)).toEqual(["core_formation", "late"]); // 4 of 5 = 80%
-    s = apply(s, claim("f", T0 + 6 * DAY));
+    s = apply(s, ...pass("f", T0 + 6 * DAY));
     expect(where(s)).toEqual(["nascent_soul", null]);
   });
 

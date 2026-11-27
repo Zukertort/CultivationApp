@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { OATH_TEXT, TRIBULATION_OATH, type GameEvent } from "@cultivation/schema";
+import { OATH_TEXT, TRIBULATION_OATH, type GameEvent, CLOSED_DOOR_OATH } from "@cultivation/schema";
 import {
   DAY,
   RULES_V1 as RULES,
@@ -10,7 +10,6 @@ import {
   earnQi,
   pendingTribulationRolls,
   pushAlertPlan,
-  replay as replayWith,
   tribulationDeletePrice,
   tribulationDropOutcome,
   tribulationEditPrice,
@@ -18,7 +17,7 @@ import {
   type CultivatorState,
   type RulesConfig,
 } from "./index.js";
-import { noWear } from "./test-support.js";
+import { noWear, strictReplay as replayWith } from "./test-support.js";
 
 // These tests measure Main and tribulation rules, not gear wear (rulings 147, 154).
 const RULES_V1 = noWear(RULES);
@@ -36,7 +35,7 @@ const ev = <T extends GameEvent["type"]>(type: T, at: number, rest: Omit<Extract
 
 const created = ev("CultivatorCreated", T0, { name: "Ricardo", tzOffsetMinutes: -180, oath: OATH_TEXT });
 const interview = ev("InterviewAnswered", T0, { interests: { main: "Mathematics", body: "BJJ", soul: "" } });
-// Tribulations exist from Foundation on (ruling 89); overrides reach early Core Formation, whose next threshold is 550 Qi.
+// Tribulations exist from Foundation on (ruling 89); overrides reach early Core Formation, whose cost is 700 Qi (factor 2; ruling 170).
 const toCore = Array.from({ length: 8 }, (_, i) => ev("RealmOverride", T0 + i + 1, { class: "monk" }));
 // The free robe is taken off so these tests measure ruling 80's loss alone; armor is tested in gear.test.ts.
 const start = [created, ...toCore, ev("GearUnequipped", T0 + 10, { slot: "armor" })];
@@ -139,8 +138,8 @@ describe("missed deadlines (rulings 65-66)", () => {
     expect(s.qi).toBe(1000); // not applied yet
     const failed = advanceTo(s, T0 + 11 * DAY);
     expect(failed.tribulations.items.x).toMatchObject({ status: "failed", failedAt: DEADLINE, failures: 1, due: null });
-    // The next threshold is 550: the loss is the larger of 137.5 and the 587.5 above 412.5 (ruling 80).
-    expect(failed.qi).toBe(412.5);
+    // Core Formation's cost is 700: the loss is the larger of 175 and the 475 above 525 (rulings 80, 170).
+    expect(failed.qi).toBe(525);
     expect(failed.gold).toBe(955);
   });
 
@@ -149,16 +148,16 @@ describe("missed deadlines (rulings 65-66)", () => {
     const s = advanceTo(rich(replay([...start, declare()]), 10, 0), T0 + 11 * DAY);
     expect(s.qi).toBe(0);
     expect(s.gold).toBe(0);
-    // The loss is 137.5 Qi and 45 gold: 10 Qi paid, 127.5 owed but capped at 50; 45 gold owed.
-    expect(s.tribulations.spent.failures).toEqual({ qi: 60, gold: 45, count: 1 });
-    expect(s.tribulations.spent.debt).toEqual({ qi: 50, gold: 45 });
-    expect(s.main.debt).toEqual({ qi: 50, gold: 45 });
-    expect(s.main.debtPostponed).toEqual({ qi: 50, gold: 45 });
+    // The loss is 175 Qi and 45 gold: 10 Qi paid, 165 owed but capped at 100 (50 times the factor 2); 45 gold owed.
+    expect(s.tribulations.spent.failures).toEqual({ qi: 110, gold: 45, count: 1 });
+    expect(s.tribulations.spent.debt).toEqual({ qi: 100, gold: 45 });
+    expect(s.main.debt).toEqual({ qi: 100, gold: 45 });
+    expect(s.main.debtPostponed).toEqual({ qi: 100, gold: 45 });
     expect(s.main.deviation).not.toBeNull();
   });
 
   it("a small unpaid failure is debt below the cap, without deviation, repaid first from gains (ruling 148)", () => {
-    const s = advanceTo(rich(replay([...start, declare()]), 135, 40), T0 + 11 * DAY);
+    const s = advanceTo(rich(replay([...start, declare()]), 172.5, 40), T0 + 11 * DAY);
     expect(s.main.debt.qi).toBeCloseTo(2.5);
     expect(s.main.debt.gold).toBeCloseTo(5);
     expect(s.main.deviation).toBeNull();
@@ -171,28 +170,29 @@ describe("missed deadlines (rulings 65-66)", () => {
 
   it("at the cap, failure debt takes the place of forgivable tax debt, so the comeback can't forgive it (ruling 148)", () => {
     const s = structuredClone(replay([...start, declare()]));
-    s.main.debt = { qi: 50, gold: 0 };
+    // Core Formation's cap is 100 Qi (ruling 170).
+    s.main.debt = { qi: 100, gold: 0 };
     const after = advanceTo(rich(s, 0, 100), T0 + 11 * DAY);
-    expect(after.main.debt.qi).toBe(50);
-    expect(after.main.debtPostponed.qi).toBe(50);
+    expect(after.main.debt.qi).toBe(100);
+    expect(after.main.debtPostponed.qi).toBe(100);
   });
 
   it("applies the failure at the next event about the tribulation when that comes first", () => {
     const s = apply(base(), reschedule(DEADLINE + H, DEADLINE + 5 * DAY));
-    expect(s.qi).toBe(412.5);
+    expect(s.qi).toBe(525);
     expect(s.tribulations.items.x).toMatchObject({ status: "open", failures: 1, spanStart: DEADLINE + H });
   });
 
   it("keeps a failed tribulation without a deadline until rescheduled; each failure costs again", () => {
     let s = advanceTo(base(), T0 + 30 * DAY);
     expect(tribulationStatus(s, "x")).toBe("failed");
-    expect(s.qi).toBe(412.5);
+    expect(s.qi).toBe(525);
     expect(code(() => applyEvent(base(), reschedule(T0 + DAY, T0 + 20 * DAY)))).toBe("not_failed");
     expect(code(() => applyEvent(s, reschedule(T0 + 30 * DAY, T0 + 30 * DAY + H)))).toBe("deadline_too_soon");
     s = apply(s, reschedule(T0 + 30 * DAY, T0 + 40 * DAY));
     s = advanceTo(s, T0 + 41 * DAY);
     expect(s.tribulations.items.x!.failures).toBe(2);
-    expect(s.qi).toBe(275); // already at 75%: a quarter of the threshold, 137.5
+    expect(s.qi).toBe(350); // already at 75%: a quarter of the cost, 175
 
     s = apply(s, reschedule(T0 + 41 * DAY, T0 + 50 * DAY), claim(T0 + 45 * DAY));
     expect(tribulationStatus(s, "x")).toBe("passed");
@@ -202,11 +202,11 @@ describe("missed deadlines (rulings 65-66)", () => {
 describe("editing and deleting (ruling 67)", () => {
   it("edits free within the first hour, 20 Qi in the first three quarters, and a failure's loss in the last quarter (ruling 93)", () => {
     expect(tribulationEditPrice(base(), "x", DECLARED + H)).toEqual({ qi: 0, gold: 0, kind: "free" });
-    expect(tribulationEditPrice(base(), "x", DECLARED + H + 1)).toEqual({ qi: 20, gold: 0, kind: "early" });
+    expect(tribulationEditPrice(base(), "x", DECLARED + H + 1)).toEqual({ qi: 40, gold: 0, kind: "early" });
     expect(tribulationEditPrice(base(), "x", DECLARED + 7.5 * DAY - 1).kind).toBe("early");
-    expect(tribulationEditPrice(base(), "x", DECLARED + 7.5 * DAY)).toEqual({ qi: 587.5, gold: 45, kind: "late" });
+    expect(tribulationEditPrice(base(), "x", DECLARED + 7.5 * DAY)).toEqual({ qi: 475, gold: 45, kind: "late" });
     const s = apply(base(), edit(DECLARED + 30 * 60 * 1000), edit(DECLARED + DAY), edit(DECLARED + 8 * DAY));
-    expect(s.qi).toBe(412.5); // 20, then the 567.5 above 412.5
+    expect(s.qi).toBe(525); // 40 (20 times the factor 2), then the 435 above 525
     expect(s.gold).toBe(1000 - 45);
     expect(s.tribulations.items.x!.criteria).toBe("Score at least 70");
     expect(s.main.flags.filter((f) => f.code !== "realm_override").map((f) => [f.code, f.detail])).toEqual([
@@ -218,7 +218,7 @@ describe("editing and deleting (ruling 67)", () => {
 
   it("measures the last quarter from the reschedule, and charges 20 Qi to edit a failed tribulation", () => {
     let s = advanceTo(base(), T0 + 12 * DAY);
-    expect(tribulationEditPrice(s, "x", T0 + 12 * DAY)).toEqual({ qi: 20, gold: 0, kind: "failed" });
+    expect(tribulationEditPrice(s, "x", T0 + 12 * DAY)).toEqual({ qi: 40, gold: 0, kind: "failed" });
     s = apply(s, reschedule(T0 + 12 * DAY, T0 + 20 * DAY));
     expect(tribulationEditPrice(s, "x", T0 + 17 * DAY)).toMatchObject({ kind: "early" });
     expect(tribulationEditPrice(s, "x", T0 + 18 * DAY)).toMatchObject({ kind: "late" });
@@ -239,16 +239,16 @@ describe("editing and deleting (ruling 67)", () => {
   });
 
   it("deletes an open tribulation for a failure's loss plus 2%, and a failed one for 40 Qi (ruling 93)", () => {
-    expect(tribulationDeletePrice(base(), "x", T0 + DAY)).toEqual({ qi: 587.5 * 1.02, gold: 45 * 1.02, kind: "open" });
+    expect(tribulationDeletePrice(base(), "x", T0 + DAY)).toEqual({ qi: 475 * 1.02, gold: 45 * 1.02, kind: "open" });
     const s = apply(base(), del(T0 + DAY));
-    expect(s.qi).toBeCloseTo(1000 - 587.5 * 1.02, 9);
+    expect(s.qi).toBeCloseTo(1000 - 475 * 1.02, 9);
     expect(s.gold).toBeCloseTo(1000 - 45 * 1.02, 9);
     expect(tribulationStatus(s, "x")).toBe("deleted");
     expect(s.main.flags).toContainEqual({ at: T0 + DAY, code: "tribulation_deleted", id: "x", detail: "open" });
     expect(code(() => applyEvent(s, claim(T0 + 2 * DAY)))).toBe("tribulation_deleted");
     // A failed one: the failure was already paid.
     const failed = apply(advanceTo(base(), T0 + 12 * DAY), del(T0 + 12 * DAY));
-    expect(failed.qi).toBe(1000 - 587.5 - 40);
+    expect(failed.qi).toBe(1000 - 475 - 80); // 40 Qi times the factor 2
     expect(failed.gold).toBe(1000 - 45);
     expect(code(() => applyEvent(advanceTo(rich(replay([...start, declare()]), 30), T0 + 12 * DAY), del(T0 + 12 * DAY)))).toBe("insufficient_qi");
     // An open one is never rejected: like a failure, the loss is floored at the balances.
@@ -283,8 +283,8 @@ describe("editing and deleting (ruling 67)", () => {
 
   it("debt left at the cap after a comeback doesn't start deviation again until new debt is added (ruling 156)", () => {
     const s = structuredClone(replay([...start]));
-    s.main.debt = { qi: 50, gold: 0 };
-    s.main.debtPostponed = { qi: 50, gold: 0 };
+    s.main.debt = { qi: 100, gold: 0 };
+    s.main.debtPostponed = { qi: 100, gold: 0 };
     s.main.deviation = null;
     addDebt(s, 0, 0, T0 + DAY, RULES_V1, false);
     expect(s.main.deviation).toBeNull();
@@ -301,7 +301,7 @@ describe("rest (ruling 70)", () => {
   });
 
   it("pushes the deadline back by the days spent in closed-door cultivation", () => {
-    const s = apply(base(), ev("RestStarted", T0 + 8 * DAY, { kind: "closed_door", until: T0 + 12 * DAY }));
+    const s = apply(base(), ev("RestStarted", T0 + 8 * DAY, { kind: "closed_door", oath: CLOSED_DOOR_OATH, until: T0 + 12 * DAY }));
     expect(code(() => applyEvent(s, claim(DEADLINE + H)))).toBeUndefined(); // during the rest
     const after = advanceTo(s, T0 + 12 * DAY);
     expect(after.tribulations.items.x!.due!.deadline).toBe(DEADLINE + 4 * DAY);
@@ -311,7 +311,7 @@ describe("rest (ruling 70)", () => {
   });
 
   it("extends a deadline even when the rest starts at the deadline itself, the last moment a claim is allowed", () => {
-    const s = apply(base(), ev("RestStarted", DEADLINE, { kind: "closed_door", until: DEADLINE + 2 * DAY }));
+    const s = apply(base(), ev("RestStarted", DEADLINE, { kind: "closed_door", oath: CLOSED_DOOR_OATH, until: DEADLINE + 2 * DAY }));
     const after = advanceTo(s, DEADLINE + 2 * DAY);
     expect(after.tribulations.items.x!.due!.deadline).toBe(DEADLINE + 2 * DAY);
     expect(tribulationStatus(after, "x")).toBe("open");
@@ -359,7 +359,7 @@ describe("push alerts (rulings 69-70)", () => {
     const vplan = pushAlertPlan(vacation, T0 + 9 * H).filter((a) => a.kind !== "daily_reminder");
     expect(new Set(vplan.map((a) => a.kind))).toEqual(new Set(["tribulation_deadline", "rest_ending"]));
     expect(vplan.at(-1)).toMatchObject({ kind: "rest_ending", at: T0 + 10 * DAY });
-    const closed = apply(s, ev("RestStarted", T0 + 9 * H, { kind: "closed_door", until: T0 + 10 * DAY }));
+    const closed = apply(s, ev("RestStarted", T0 + 9 * H, { kind: "closed_door", oath: CLOSED_DOOR_OATH, until: T0 + 10 * DAY }));
     // Inside the rest only the return date pushes; the deadlines it pushed back alert after it.
     const cplan = pushAlertPlan(closed, T0 + 9 * H).filter((a) => a.kind !== "daily_reminder");
     expect(cplan.filter((a) => a.at <= T0 + 10 * DAY).map((a) => a.kind)).toEqual(["rest_ending"]);

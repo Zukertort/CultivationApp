@@ -114,7 +114,7 @@ function simulate(p: Persona, policy: Policy): Result {
     plan(c, d);
   }
   const s = c.s;
-  const spentOnSteps = s.progress.steps.reduce((a, x) => a + x.qiSpent, 0);
+  const spentOnSteps = s.tribulations.completionQi;
   const debt = s.tribulations.spent.debt;
   return {
     label: p.label,

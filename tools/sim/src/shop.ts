@@ -18,6 +18,7 @@ import {
   RULES_V1,
   advanceTo,
   armorAtRisk,
+  completionCost,
   goldForPoints,
   itemValue,
   potionPrice,
@@ -35,7 +36,7 @@ import {
   type Realm,
   type RulesConfig,
 } from "@cultivation/rules";
-import { Cultivator, routineDay, setupBasic, study, tribulationPlan, type Habits, type Routine } from "@cultivation/scenarios";
+import { Cultivator, routineDay, setupBasic, study, tribulationPlan, weeklyMilestones, type Habits, type Income, type Routine } from "@cultivation/scenarios";
 import { goblin, type Goblin } from "./gear.js";
 
 const YEARS3 = 1095;
@@ -159,14 +160,14 @@ const goldPerDay = (r: Run, realm: Realm) => {
 
 type ArmorPolicy = "none" | "robe" | "shop";
 
-function repairIfDue(c: Cultivator, now: CultivatorState, slot: "armor" | "weapon", at: number): void {
+export function repairIfDue(c: Cultivator, now: CultivatorState, slot: "armor" | "weapon", at: number): void {
   const item = wornItem(now, slot);
   if (!item || item.damageBp <= 0) return;
   const due = item.damageBp >= RULES_V1.gear.warnAtBp || (slot === "armor" && armorAtRisk(now, c.rules) !== null);
   if (due && now.gold >= repairPrice(item, c.rules)) c.now("GearRepaired", at, { itemId: item.id });
 }
 
-function buyAndWear(c: Cultivator, slot: "armor" | "weapon", at: number): void {
+export function buyAndWear(c: Cultivator, slot: "armor" | "weapon", at: number): void {
   const realm = c.s.main.realm;
   if (realm === "qi_condensation") return;
   const r = realm as GearRealm;
@@ -189,7 +190,7 @@ export const armorMorning =
   };
 
 /** Takes off any armor at night (a new robe arrives worn at a breakthrough), so it never wears armor the next day. */
-const noArmorEvening = (c: Cultivator, d: number): void => {
+export const noArmorEvening = (c: Cultivator, d: number): void => {
   if (c.s.gear.worn.armor !== null) c.now("GearUnequipped", c.at(d, 23), { slot: "armor" });
 };
 
@@ -357,9 +358,8 @@ export function runShopScenarios(outDir: string): void {
       const qiYearN = ((n.per[realm]?.qi ?? NaN) / (n.per[realm]?.days ?? NaN)) * YEAR;
       const qiYearW = ((w.per[realm]?.qi ?? NaN) / (w.per[realm]?.days ?? NaN)) * YEAR;
       const st = w.per[realm];
-      // The Qi the realm's steps cost (each step counted in the realm it was taken from), at each run's Qi a day.
-      const steps = n.c.s.progress.steps;
-      const need = steps.reduce((a, x, i) => a + ((steps[i - 1]?.realm ?? "qi_condensation") === realm ? x.qiSpent : 0), 0);
+      // The Qi the realm's completions cost (ruling 169), at each run's Qi a day.
+      const need = Object.values(n.c.s.tribulations.items).filter((t) => t.realm === realm && t.completedBy === "qi").length * completionCost(realm);
       const paceN = need / (qiYearN / YEAR);
       const paceW = need / (qiYearW / YEAR);
       weaponRows.push([p.label, short(realm), f0(qiYearN), f0(qiYearW), f0(qiYearW - qiYearN), f0(need), f0(paceN), f0(paceN - paceW), f0(stayN), f0(stayN - stayW), f0(st?.bought ?? NaN), f0(st?.repairs ?? NaN)]);
@@ -511,6 +511,42 @@ export function runShopScenarios(outDir: string): void {
     potionRows.push([p.label, f0(spent), f0(extraGold), f1(spent > 0 ? extraGold / spent : NaN), f0(extraQi), f1(spent > 0 ? extraQi / spent : NaN)]);
   }
   table("Shop: potion buyer (a gain potion bought and drunk every day for a year) vs none", ["persona", "potions gold", "extra gold", "gold back per gold", "extra Main Qi", "Qi per gold"], potionRows, csv);
+
+  // 8b. Big-day potion drinker: a gain potion drunk only on the morning a quest's project-effort milestone is completed
+  // (gain potions are for big completion days, not a daily buy).
+  const milestoner: Income = (c, day) => {
+    study(c, day);
+    weeklyMilestones(c, day);
+  };
+  /** weeklyMilestones completes a milestone on day 5 of each week, at 15:00. */
+  const completesMilestone = (day: number) => (day % 364) % 7 === 5;
+  const bigDayRows: (string | number)[][] = [];
+  for (const p of PERSONAS) {
+    const persona: Persona = { ...p, routine: { ...p.routine, income: milestoner } };
+    const n = run({ persona, days: YEAR, morning: armorMorning("robe"), id: `big-none-${p.key}` });
+    const b = run({
+      persona,
+      days: YEAR,
+      morning: (c, d, now) => {
+        armorMorning("robe")(c, d, now);
+        if (!completesMilestone(d)) return;
+        const at = c.at(d, 5);
+        if (c.now("PotionBought", at, { potion: "gain" })) c.now("PotionUsed", at, { potion: "gain" });
+      },
+      id: `big-potion-${p.key}`,
+    });
+    const extraGold = b.c.goldEarned - n.c.goldEarned;
+    const extraQi = b.c.s.main.earned.qi - n.c.s.main.earned.qi;
+    const spent = b.c.s.shopSpent.potions;
+    if (extraGold >= spent) potionLoop = true;
+    bigDayRows.push([`${p.label} + weekly milestones`, f0(spent / Math.max(1, potionPrice(b.c.s))), f0(spent), f0(extraGold), f1(spent > 0 ? extraGold / spent : NaN), f0(extraQi), f1(spent > 0 ? extraQi / spent : NaN)]);
+  }
+  table(
+    "Shop: big-day potion drinker (a gain potion only on the morning a quest's project-effort milestone is completed, one year) vs none",
+    ["persona", "potions (approx.)", "potions gold", "extra gold", "gold back per gold", "extra Main Qi", "Qi per gold"],
+    bigDayRows,
+    csv,
+  );
 
   // 9. Class hopper: changes class every 30 days in Core Formation and Nascent Soul.
   const hopper = run({

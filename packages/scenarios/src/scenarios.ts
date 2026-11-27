@@ -10,7 +10,7 @@
  * before today: the engine's calendar weeks and months depend on the start
  * date, so the day it's reached can move by a few days with the start.
  */
-import { OATH_TEXT, type ClassId, type GameEvent } from "@cultivation/schema";
+import { OATH_TEXT, type ClassId, type GameEvent, CLOSED_DOOR_OATH } from "@cultivation/schema";
 import {
   DAY,
   RULES_V1,
@@ -190,6 +190,10 @@ const geared = (s: CultivatorState) => {
 
 const WHITE_ROBE = "robe:foundation_establishment";
 
+/** Foundation tribulations completed by their evidence (rulings 76, 169). */
+const fastTracked = (s: CultivatorState) =>
+  Object.entries(s.tribulations.items).filter(([, t]) => t.realm === "foundation_establishment" && t.completedBy === "evidence" && t.evidence > 0);
+
 // ---- The catalog ------------------------------------------------------------
 
 export const SCENARIOS: readonly Scenario[] = [
@@ -228,12 +232,39 @@ export const SCENARIOS: readonly Scenario[] = [
     {
       id: "foundation-ready",
       title: "Foundation, one tribulation left",
-      description: "Two of Foundation's three tribulations passed and the third open: one pass from great circle and the end-of-Foundation choice.",
-      days: 70,
+      description: "Two of Foundation's three tribulations completed and the third claimed, awaiting its 350 Qi (or still open): one completion from great circle and the end-of-Foundation choice (ruling 169).",
+      days: 150,
       day: persona({ income: study }, {}),
-      stop: (c) => c.s.main.realm === "foundation_establishment" && status(c).tribulations?.passed === 2 && openTribulations(c.s).length === 1,
+      stop: (c) => c.s.main.realm === "foundation_establishment" && status(c).tribulations?.passed === 2 && openTribulations(c.s).length + (status(c).tribulations?.awaiting ?? 0) === 1,
     },
-    (s) => [inRealm(s, "foundation_establishment"), realmStatus(s).tribulations?.passed === 2 || "not 2 passes", openTribulations(s).length === 1 || "no open tribulation", alive(s)],
+    (s) => [
+      inRealm(s, "foundation_establishment"),
+      realmStatus(s).tribulations?.passed === 2 || "not 2 completed",
+      openTribulations(s).length + (realmStatus(s).tribulations?.awaiting ?? 0) === 1 || "no third tribulation open or awaiting",
+      alive(s),
+    ],
+  ),
+  scenario(
+    {
+      id: "foundation-fast-track",
+      title: "Foundation, fast track",
+      description: "Foundation tribulations claimed with a photo and a link: each completes at once, paid by the evidence, with no Qi spent, and is logged as a fast-track claim (rulings 76, 169).",
+      days: 40,
+      day: persona({ income: study }, { fastTrack: true }),
+      stop: (c) => c.s.main.realm === "foundation_establishment" && fastTracked(c.s).length >= 2,
+    },
+    (s) => {
+      const done = fastTracked(s);
+      const flagged = new Set(s.main.flags.filter((f) => f.code === "fast_track_claim").map((f) => f.id));
+      return [
+        inRealm(s, "foundation_establishment"),
+        done.length >= 2 || `${done.length} completed by evidence`,
+        done.every(([id]) => flagged.has(id)) || "a fast-track claim is missing from the integrity log",
+        done.every(([, t]) => t.completedAt === t.passedAt) || "an evidence claim didn't complete at its claim",
+        (realmStatus(s).tribulations?.awaiting ?? 0) === 0 || "an evidence claim is awaiting its Qi",
+        alive(s),
+      ];
+    },
   ),
   scenario(
     {
@@ -393,7 +424,7 @@ export const SCENARIOS: readonly Scenario[] = [
       id: "dead",
       title: "Dead avatar (repent cycler)",
       description: "The repent cycler after the 5th repent from Nascent Soul: the avatar is dead and nothing pays until the revival quest (ruling 106).",
-      days: 120,
+      days: 400,
       day: persona({ income: weeklyMilestones }, { eager: true, repentCycle: true }),
       stop: (c) => c.s.progress.diedAt !== null,
     },
@@ -465,7 +496,7 @@ export const SCENARIOS: readonly Scenario[] = [
         if (day === 8) {
           c.now("TribulationDeclared", c.at(day, 22), { tribulationId: "rest-pushed", title: "Publish the essay", criteria: "The essay is published online", deadline: c.at(days + 1, 23) + 59 * 60_000 });
         }
-        if (day === restStart) c.now("RestStarted", c.at(day, 9), { kind: "closed_door", until: c.at(days + 4, 9) });
+        if (day === restStart) c.now("RestStarted", c.at(day, 9), { kind: "closed_door", oath: CLOSED_DOOR_OATH, until: c.at(days + 4, 9) });
       },
     },
     (s, now) => {

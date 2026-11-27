@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { OATH_TEXT, type Difficulty, type Effort, type GameEvent, type Period } from "@cultivation/schema";
+import { OATH_TEXT, type Difficulty, type Effort, type GameEvent, type Period, CLOSED_DOOR_OATH } from "@cultivation/schema";
 import {
   DAY,
   RULES_V1 as RULES,
@@ -19,7 +19,6 @@ import {
   questDeadlineAlerts,
   questDropChance,
   questDropOutcome,
-  replay as replayFromStart,
   staleTasks,
   taxForecast,
   workDays,
@@ -27,7 +26,7 @@ import {
   type CultivatorState,
   type RulesConfig,
 } from "./index.js";
-import { noWear } from "./test-support.js";
+import { noWear, strictReplay as replayFromStart } from "./test-support.js";
 
 // These tests measure Main and tribulation rules, not gear wear (rulings 147, 154).
 const RULES_V1 = noWear(RULES);
@@ -342,7 +341,7 @@ describe("repetition decay (rulings 18-19, 37)", () => {
   });
 
   it("pauses the age during rest", () => {
-    const p = dailyPayouts(29, [ev("RestStarted", T0 + 10 * DAY + 12 * H, { kind: "closed_door", until: T0 + 24 * DAY + 12 * H })]);
+    const p = dailyPayouts(29, [ev("RestStarted", T0 + 10 * DAY + 12 * H, { kind: "closed_door", oath: CLOSED_DOOR_OATH, until: T0 + 24 * DAY + 12 * H })]);
     expect(p[28]).toBe(8); // 28 days since the first completion, 14 of them resting
   });
 
@@ -374,7 +373,7 @@ describe("repetition decay (rulings 18-19, 37)", () => {
       created,
       ev("BodyActivityDefined", T0, { activityId: "bjj", name: "BJJ", kind: "routine" }),
       ev("BodyActivityLogged", T0 + H, { activityId: "bjj" }),
-      ev("RestStarted", T0 + 5 * DAY, { kind: "closed_door", until: T0 + 19 * DAY }),
+      ev("RestStarted", T0 + 5 * DAY, { kind: "closed_door", oath: CLOSED_DOOR_OATH, until: T0 + 19 * DAY }),
     ];
     const s = replay(evs, RULES_V1, T0 + 30 * DAY + H);
     expect(s.companion.ageMs.bjj).toBe(16 * DAY);
@@ -517,7 +516,7 @@ describe("rest and deadlines (ruling 30)", () => {
   });
 
   it("extends deadlines by the days spent in closed-door cultivation", () => {
-    const s = replay([created, once("a", T0, T0 + 2 * DAY), ev("RestStarted", T0 + DAY, { kind: "closed_door", until: T0 + 4 * DAY })]);
+    const s = replay([created, once("a", T0, T0 + 2 * DAY), ev("RestStarted", T0 + DAY, { kind: "closed_door", oath: CLOSED_DOOR_OATH, until: T0 + 4 * DAY })]);
     expect(code(() => applyEvent(s, complete("a", T0 + 3 * DAY)))).toBeUndefined(); // during the rest
     const after = advanceTo(s, T0 + 4 * DAY);
     expect(after.main.tasks.a!.due!.deadline).toBe(T0 + 5 * DAY);
@@ -678,7 +677,7 @@ describe("procrastination tax (rulings 31-33, 40-44)", () => {
 
   it("never taxes a rest day and doesn't count rest toward the grace", () => {
     const s = replay(
-      [created, interview(), recurring("r", T0, 1, "day"), ev("RestStarted", T0 + 2 * DAY, { kind: "closed_door", until: T0 + 9 * DAY })],
+      [created, interview(), recurring("r", T0, 1, "day"), ev("RestStarted", T0 + 2 * DAY, { kind: "closed_door", oath: CLOSED_DOOR_OATH, until: T0 + 9 * DAY })],
       RULES_V1,
       T0 + 10 * DAY,
     );
@@ -843,7 +842,7 @@ describe("milestones and the year period (ruling 50)", () => {
   });
 
   it("shifts a milestone's deadline with closed-door rest, like any one-time deadline", () => {
-    const s = replay([created, milestones([T0 + 30 * DAY, undefined]), ev("RestStarted", T0 + DAY, { kind: "closed_door", until: T0 + 4 * DAY })], RULES_V1, T0 + 5 * DAY);
+    const s = replay([created, milestones([T0 + 30 * DAY, undefined]), ev("RestStarted", T0 + DAY, { kind: "closed_door", oath: CLOSED_DOOR_OATH, until: T0 + 4 * DAY })], RULES_V1, T0 + 5 * DAY);
     expect(s.main.tasks.m0!.due!.deadline).toBe(T0 + 33 * DAY);
     expect(s.main.quests.q!.due.deadline).toBe(T0 + 93 * DAY);
   });
@@ -1040,7 +1039,7 @@ describe("the cultivation streak (ruling 57)", () => {
     const done = Array.from({ length: 5 }, (_, d) => complete("r", T0 + d * DAY + 10 * H));
     let s = replay([created, interview(), daily, ...done], RULES_V1, T0 + 5 * DAY);
     expect(cultivationStreak(s)).toEqual({ current: 5, best: 5 });
-    s = apply(s, ev("RestStarted", T0 + 5 * DAY + H, { kind: "closed_door", until: T0 + 8 * DAY }));
+    s = apply(s, ev("RestStarted", T0 + 5 * DAY + H, { kind: "closed_door", oath: CLOSED_DOOR_OATH, until: T0 + 8 * DAY }));
     s = advanceTo(s, T0 + 8 * DAY);
     expect(cultivationStreak(s).current).toBe(5);
     // After the rest: no activity for 3 more days. The recurring task replaces the idle tax with ticks, but the streak still breaks.

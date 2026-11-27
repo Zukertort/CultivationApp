@@ -41,7 +41,14 @@
           "color": "#c9a227"
         }
       ],
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Photos you choose are attached as evidence to your tribulation claims.",
+          "cameraPermission": "Photos you take are attached as evidence to your tribulation claims."
+        }
+      ]
     ],
     "scheme": "cultivation"
   }

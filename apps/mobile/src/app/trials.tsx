@@ -2,12 +2,13 @@ import { useState } from "react";
 import { router, useLocalSearchParams } from "expo-router";
 import { Alert, View } from "react-native";
 import * as Crypto from "expo-crypto";
-import { REPENT_OATH, TRIBULATION_OATH } from "@cultivation/schema";
+import { REPENT_OATH, TRIBULATION_OATH, type ClaimEvidence } from "@cultivation/schema";
 import {
   DAY,
   RULES_V1,
   REALM_TRIBULATION_PURPOSE,
   TRIBULATION_TASKS_NOTE,
+  completionCost,
   effectiveDeadline,
   tribulationDeletePrice,
   tribulationEditPrice,
@@ -15,6 +16,8 @@ import {
   type StepOneRealm,
   type Tribulation,
 } from "@cultivation/rules";
+import { CompletionCard } from "../lib/completion";
+import { EvidencePicker } from "../lib/evidence";
 import { DateField, dayIn, daysLeft, endOfLocalDay } from "../lib/fields";
 import { now as clockNow } from "../lib/clock";
 import { useStore } from "../lib/store";
@@ -59,6 +62,7 @@ export default function Trials() {
 
   return (
     <Screen>
+      <CompletionCard />
       {entered === realm && intro ? (
         <Card title={`Breakthrough: ${words(realm)}`}>
           <T>{intro.next}</T>
@@ -163,23 +167,43 @@ const price = (p: { qi: number; gold: number }) => (p.qi === 0 && p.gold === 0 ?
 function TribulationCard({ id, t, st, onResult }: { id: string; t: Tribulation; st: string; onResult: Result }) {
   const { state, now, log } = useStore();
   const [mode, setMode] = useState<"none" | "claim" | "edit" | "reschedule">("none");
-  const [evidence, setEvidence] = useState("");
+  const [evidence, setEvidence] = useState<ClaimEvidence[]>([]);
   const [title, setTitle] = useState(t.title);
   const [criteria, setCriteria] = useState(t.criteria);
   const [due, setDue] = useState(() => dayIn(14));
   const deadline = t.due ? effectiveDeadline(t.due, state.rest, now) : null;
 
   const claim = async () => {
-    const ref = evidence.trim();
     const r = await log({
       type: "TribulationClaimed",
       tribulationId: id,
       oath: TRIBULATION_OATH,
       llmReview: "skipped",
-      ...(ref ? { evidence: [{ kind: "link" as const, ref }] } : {}),
+      ...(evidence.length > 0 ? { evidence } : {}),
     });
-    onResult(r.ok, r.ok ? `Passed: ${t.title}.` : r.message);
-    if (r.ok) setMode("none");
+    const fastTrack = r.ok && t.realm === "foundation_establishment" && evidence.length > 0;
+    onResult(r.ok, r.ok ? (fastTrack ? `Passed and completed by its evidence: ${t.title} (logged as fast track).` : `Passed: ${t.title}.`) : r.message);
+    if (r.ok) {
+      setMode("none");
+      setEvidence([]);
+    }
+  };
+  /** Rulings 76 and 169: in Foundation the evidence completes the tribulation at once; elsewhere it is stored with the claim. */
+  const confirmClaim = () => {
+    const cost = completionCost(t.realm);
+    const n = evidence.length;
+    const body =
+      t.realm === "foundation_establishment" && n > 0
+        ? `With ${n === 1 ? "this evidence" : `these ${n} pieces of evidence`}, the tribulation completes at once: no Qi is spent. The claim is logged in the integrity log as a fast-track claim.`
+        : n > 0
+          ? `The evidence is stored with the claim.${cost > 0 ? ` Completing it still costs ${cost} Qi from your balance, when you choose.` : ""}`
+          : cost > 0
+            ? `Completing it then costs ${cost} Qi from your balance, when you choose.${t.realm === "foundation_establishment" ? " With evidence, a Foundation claim completes at once for free." : ""}`
+            : "";
+    Alert.alert("Claim this tribulation?", `${TRIBULATION_OATH}${body ? `\n\n${body}` : ""}`, [
+      { text: "Cancel", style: "cancel" },
+      { text: "I swear it", onPress: () => void claim() },
+    ]);
   };
   const edit = async () => {
     const changes = { ...(title.trim() !== t.title ? { title: title.trim() } : {}), ...(criteria.trim() !== t.criteria ? { criteria: criteria.trim() } : {}) };
@@ -212,10 +236,10 @@ function TribulationCard({ id, t, st, onResult }: { id: string; t: Tribulation; 
       </T>
       {mode === "claim" ? (
         <View style={{ gap: 8 }}>
-          <Field label="Evidence link (optional)" value={evidence} onChangeText={setEvidence} autoCapitalize="none" keyboardType="url" maxLength={500} />
+          <EvidencePicker value={evidence} onChange={setEvidence} />
           <T style={{ fontStyle: "italic", color: C.gold }}>{TRIBULATION_OATH}</T>
           <Row>
-            <Button label="I swear it" onPress={() => void claim()} />
+            <Button label="I swear it" onPress={confirmClaim} />
             <Button label="Back" kind="ghost" onPress={() => setMode("none")} />
           </Row>
         </View>

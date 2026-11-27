@@ -124,6 +124,7 @@ export interface IntegrityFlag {
     | "tribulation_claimed"
     | "fast_track_claim"
     | "rest_near_tribulation"
+    | "closed_door_after_vacation"
     | "realm_override"
     | "tribulation_closed"
     | "tribulation_faked"

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { OATH_TEXT, type GameEvent } from "@cultivation/schema";
+import { OATH_TEXT, type GameEvent, CLOSED_DOOR_OATH } from "@cultivation/schema";
 import {
   DAY,
   RULES_V1,
@@ -13,10 +13,10 @@ import {
   pose,
   qiMultiplier,
   repetitionMultiplier,
-  replay,
   rouletteOutcome,
   type CultivatorState,
 } from "./index.js";
+import { strictReplay as replay } from "./test-support.js";
 
 // Day 0 = 2026-11-02 00:00 in Buenos Aires (UTC-3), so local days line up with weeks.
 const T0 = Date.UTC(2026, 10, 2, 3);
@@ -115,7 +115,7 @@ describe("repetition decay", () => {
 describe("rest", () => {
   it("pauses food decay during closed-door cultivation", () => {
     const s0 = replay([created, defineRoutine("bjj"), log("bjj", T0)]);
-    const resting = applyEvent(s0, ev("RestStarted", T0 + DAY, { kind: "closed_door", until: T0 + 11 * DAY }));
+    const resting = applyEvent(s0, ev("RestStarted", T0 + DAY, { kind: "closed_door", oath: CLOSED_DOOR_OATH, until: T0 + 11 * DAY }));
     const after = advanceTo(resting, T0 + 11 * DAY);
     expect(after.companion.food).toBeCloseTo(400 - 200 / 7, 6);
     expect(after.rest).toBeNull();
@@ -123,10 +123,10 @@ describe("rest", () => {
 
   it("caps closed-door cultivation at 14 days per period and 30 per window", () => {
     const s0 = replay([created]);
-    expect(code(() => applyEvent(s0, ev("RestStarted", T0, { kind: "closed_door", until: T0 + 15 * DAY })))).toBe("closed_door_too_long");
-    let s = applyEvent(s0, ev("RestStarted", T0, { kind: "closed_door", until: T0 + 14 * DAY }));
-    s = applyEvent(s, ev("RestStarted", T0 + 20 * DAY, { kind: "closed_door", until: T0 + 34 * DAY }));
-    expect(code(() => applyEvent(s, ev("RestStarted", T0 + 40 * DAY, { kind: "closed_door", until: T0 + 43 * DAY })))).toBe("closed_door_quota");
+    expect(code(() => applyEvent(s0, ev("RestStarted", T0, { kind: "closed_door", oath: CLOSED_DOOR_OATH, until: T0 + 15 * DAY })))).toBe("closed_door_too_long");
+    let s = applyEvent(s0, ev("RestStarted", T0, { kind: "closed_door", oath: CLOSED_DOOR_OATH, until: T0 + 14 * DAY }));
+    s = applyEvent(s, ev("RestStarted", T0 + 20 * DAY, { kind: "closed_door", oath: CLOSED_DOOR_OATH, until: T0 + 34 * DAY }));
+    expect(code(() => applyEvent(s, ev("RestStarted", T0 + 40 * DAY, { kind: "closed_door", oath: CLOSED_DOOR_OATH, until: T0 + 43 * DAY })))).toBe("closed_door_quota");
   });
 
   it("charges gold for vacations", () => {

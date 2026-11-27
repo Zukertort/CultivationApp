@@ -54,7 +54,8 @@ function simulate(p: Persona) {
   for (; day < DAYS && c.s.main.realm !== "spirit_realm"; day++) {
     routineDay(c, { income: p.income }, day);
     plan(c, day);
-    if (realmStatus(c.s).next?.waitingForQi) c.waitingDays += 1;
+    // Claims awaiting completion: waiting for the Qi to complete them (ruling 169).
+    if ((realmStatus(c.s).tribulations?.awaiting ?? 0) > 0) c.waitingDays += 1;
   }
   const steps = c.s.progress.steps;
   const monthOf = (realm: Realm) => {
@@ -66,7 +67,7 @@ function simulate(p: Persona) {
     reached: REALM_ORDER.map(monthOf),
     end: `${c.s.main.realm}${c.s.progress.level ? ` ${c.s.progress.level}` : ""}`,
     waitingMonths: (c.waitingDays / MONTH).toFixed(1),
-    qiSpent: steps.reduce((sum, x) => sum + x.qiSpent, 0),
+    qiSpent: c.s.tribulations.completionQi,
     failures: c.s.tribulations.spent.failures.count,
     failureQi: c.s.tribulations.spent.failures.qi,
     largestFailure: c.s.tribulations.largestFailureQi,
@@ -89,8 +90,8 @@ export function runRealmScenarios(outDir: string): void {
     "Nascent Soul",
     "Spirit Realm",
     `end (${YEARS} years max)`,
-    "months waiting for Qi",
-    "Qi spent on steps",
+    "months with a claim awaiting completion",
+    "Qi spent completing tribulations",
     "failures",
     "Qi lost to failures",
     "largest single failure",

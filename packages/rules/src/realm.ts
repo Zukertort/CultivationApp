@@ -22,6 +22,7 @@ import { loseAllGear, loseStashItems } from "./gear.js";
 import { violate } from "./errors.js";
 import { workDays } from "./main.js";
 import { DAY } from "./time.js";
+import { realmFactor, realmQiBase } from "./factor.js";
 import type { Tribulation } from "./tribulation.js";
 
 export const LEVELS = ["early", "mid", "late", "great_circle"] as const;
@@ -87,9 +88,6 @@ export interface ProgressStep {
   /** The realm and level reached. */
   realm: Realm;
   level: Level | null;
-  qiSpent: number;
-  /** Fast track: Foundation's threshold was waived (ruling 76). */
-  waived: boolean;
   /** A breakthrough's consumed tribulations, for the hall of fame (ruling 96). */
   tribulations: string[];
   /** Its legendary roll came out legendary. */
@@ -159,14 +157,16 @@ function entries(s: CultivatorState, realm: Realm): Entry[] {
 
 const live = ([, t]: Entry) => t.closedAt === null && t.status !== "deleted";
 const ids = (list: Entry[]) => list.map(([id]) => id);
+/** Completed tribulations: claimed and their completion cost paid (or paid by evidence in Foundation); only these count (ruling 169). */
+const completed = (list: Entry[]) => list.filter(([, t]) => t.status === "passed" && t.completedAt !== null);
 const passed = (list: Entry[]) => list.filter(([, t]) => t.status === "passed");
 
-/** Foundation's passes in passing order: the first three set its levels; every one counts (rulings 76, 98). */
+/** Foundation's completed tribulations in the order they were completed: the first three set its levels; every one counts (rulings 76, 98, 169). */
 function foundationEntries(s: CultivatorState): Entry[] {
-  return passed(entries(s, "foundation_establishment").filter(live)).sort(([, a], [, b]) => a.passedAt! - b.passedAt!);
+  return completed(entries(s, "foundation_establishment").filter(live)).sort(([, a], [, b]) => a.completedAt! - b.completedAt!);
 }
 
-/** The first three Foundation passes, which set mid, late and great circle. */
+/** The first three completed Foundation tribulations, which set mid, late and great circle. */
 export function foundationPasses(s: CultivatorState): Tribulation[] {
   return foundationEntries(s)
     .slice(0, 3)
@@ -182,11 +182,11 @@ export function coreSet(s: CultivatorState): Tribulation[] {
   return coreEntries(s).map(([, t]) => t);
 }
 
-/** The share of Core Formation's set passed, or null while the set is below the minimum. */
+/** The share of Core Formation's set completed (ruling 169), or null while the set is below the minimum. */
 export function coreShare(s: CultivatorState, rules: RulesConfig = RULES_V1): number | null {
   const set = coreSet(s);
   if (set.length < rules.realms.coreMinSet) return null;
-  return set.filter((t) => t.status === "passed").length / set.length;
+  return set.filter((t) => t.status === "passed" && t.completedAt !== null).length / set.length;
 }
 
 /** Nascent Soul's set: every live tribulation declared in it, before or after the lock (ruling 79). */
@@ -240,11 +240,7 @@ export function isUnlockedNascent(s: CultivatorState, t: Tribulation): boolean {
 
 export interface NextStep {
   kind: "level" | "breakthrough";
-  /** The Qi threshold, before any waiver. */
-  qi: number;
-  /** Fast track: Foundation's threshold is waived (ruling 76). */
-  waived: boolean;
-  /** Everything but the Qi holds (areas decided, tribulations passed, choice made, set locked). */
+  /** Everything holds (areas decided, tribulations completed, choice made, set locked): it happens at once (ruling 169: no Qi threshold). */
   ready: boolean;
   /** What's still missing besides Qi, for the character screen. */
   /** "lock_areas": all three decided, waiting for the cultivator to lock them (ruling 133). */
@@ -263,36 +259,29 @@ export function nextStep(s: CultivatorState, rules: RulesConfig = RULES_V1): Nex
   const p = s.progress;
   const realm = s.main.realm;
   const i = p.level === null ? -1 : LEVELS.indexOf(p.level);
-  const step = (kind: NextStep["kind"], qi: number, ready: boolean, missing: NextStep["missing"], waived = false): NextStep => ({
-    kind,
-    qi,
-    waived,
-    ready,
-    missing: ready ? null : missing,
-  });
+  const step = (kind: NextStep["kind"], ready: boolean, missing: NextStep["missing"]): NextStep => ({ kind, ready, missing: ready ? null : missing });
   switch (realm) {
     case "qi_condensation": {
       const decided = Object.values(p.areas).filter((a) => a !== null).length;
-      if (i < 3) return step("level", r.levelQi.qi_condensation, decided >= i + 1, "areas");
-      return step("breakthrough", r.breakthroughQi.qi_condensation, decided === 3 && p.areasLockedAt !== null, decided === 3 ? "lock_areas" : "areas");
+      if (i < 3) return step("level", decided >= i + 1, "areas");
+      return step("breakthrough", decided === 3 && p.areasLockedAt !== null, decided === 3 ? "lock_areas" : "areas");
     }
     case "foundation_establishment": {
       const passes = foundationPasses(s);
-      if (i < 3) return step("level", r.levelQi.foundation_establishment, passes.length >= i + 1, "tribulations", (passes[i]?.evidence ?? 0) > 0);
-      const allWithEvidence = passes.length === 3 && passes.every((t) => t.evidence > 0);
-      return step("breakthrough", r.breakthroughQi.foundation_establishment, p.coreChosen, "choice", allWithEvidence);
+      if (i < 3) return step("level", passes.length >= i + 1, "tribulations");
+      return step("breakthrough", p.coreChosen, "choice");
     }
     case "core_formation": {
       const share = coreShare(s, rules) ?? 0;
-      if (i < 3) return step("level", r.levelQi.core_formation, share >= r.coreShares[i]! - 1e-9, "tribulations");
-      return step("breakthrough", r.breakthroughQi.core_formation, share >= 1 - 1e-9, "tribulations");
+      if (i < 3) return step("level", share >= r.coreShares[i]! - 1e-9, "tribulations");
+      return step("breakthrough", share >= 1 - 1e-9, "tribulations");
     }
     case "nascent_soul": {
-      if (p.lockedAt === null) return step("breakthrough", r.breakthroughQi.nascent_soul, false, "lock");
+      if (p.lockedAt === null) return step("breakthrough", false, "lock");
       const set = nascentEntries(s);
-      // At least one passed tribulation (ruling 95): a set emptied by deletions never transcends.
-      const done = set.length > 0 && set.every(([, t]) => t.status === "passed");
-      return step("breakthrough", r.breakthroughQi.nascent_soul, done, "tribulations");
+      // At least one completed tribulation (ruling 95): a set emptied by deletions never transcends.
+      const done = set.length > 0 && set.every(([, t]) => t.status === "passed" && t.completedAt !== null);
+      return step("breakthrough", done, "tribulations");
     }
     default:
       return null;
@@ -300,23 +289,19 @@ export function nextStep(s: CultivatorState, rules: RulesConfig = RULES_V1): Nex
 }
 
 /**
- * The Qi a tribulation failure takes (ruling 80, for every tribulation; ruling
- * 92): 25% of the next step's threshold, and down to 75% of it when the
+ * The Qi a tribulation failure takes (rulings 80, 92, 170): 25% of the
+ * realm's cost (K times the realm factor), and down to 75% of it when the
  * balance would stay above that, so a failure always means extra work.
- * Floored at the balance by the caller. Tribulations live in Foundation, Core
- * Formation and Nascent Soul, whose next steps all cost Qi; anywhere else
- * Nascent Soul's threshold stands in.
  */
 export function failureQiLoss(s: CultivatorState, rules: RulesConfig = RULES_V1): number {
-  const next = nextStep(s, rules);
-  const t = next && next.qi > 0 ? next.qi : rules.realms.breakthroughQi.nascent_soul;
+  const t = realmQiBase(s.main.realm, rules);
   const share = rules.realms.failureShare;
   return Math.max(share * t, s.qi - (1 - share) * t);
 }
 
 // ---- Advancing --------------------------------------------------------------
 
-function record(s: CultivatorState, at: number, kind: ProgressStep["kind"], qiSpent: number, waived: boolean, tribulations: string[] = []): ProgressStep {
+function record(s: CultivatorState, at: number, kind: ProgressStep["kind"], tribulations: string[] = []): ProgressStep {
   const p = s.progress;
   const entry: ProgressStep = {
     step: p.steps.length + 1,
@@ -324,8 +309,6 @@ function record(s: CultivatorState, at: number, kind: ProgressStep["kind"], qiSp
     kind,
     realm: s.main.realm,
     level: p.level,
-    qiSpent,
-    waived,
     tribulations,
     legendary: false,
     repented: false,
@@ -340,7 +323,7 @@ function consumed(s: CultivatorState): string[] {
     case "foundation_establishment":
       return ids(foundationEntries(s));
     case "core_formation":
-      return ids(passed(coreEntries(s)));
+      return ids(completed(coreEntries(s)));
     case "nascent_soul":
       return ids(nascentEntries(s));
     default:
@@ -392,20 +375,17 @@ function earnLegendaryRoll(s: CultivatorState, step: ProgressStep, rules: RulesC
 }
 
 /**
- * Take every step whose conditions and Qi hold, spending each threshold
- * (rulings 74, 76). Called after every event; a step that waits for Qi
- * ("passed, waiting for Qi") happens at the event that brings the Qi.
+ * Take every step whose conditions hold (rulings 74, 169): there are no Qi
+ * thresholds, since each tribulation's completion is paid on its own.
+ * Called after every event.
  */
 export function advanceProgress(s: CultivatorState, at: number, rules: RulesConfig): void {
   for (let guard = 0; guard < 32; guard++) {
     const next = nextStep(s, rules);
     if (!next || !next.ready) return;
-    const cost = next.waived ? 0 : next.qi;
-    if (s.qi < cost) return;
-    s.qi -= cost;
     const used = next.kind === "breakthrough" ? consumed(s) : [];
     moveOn(s, next.kind, at);
-    earnLegendaryRoll(s, record(s, at, next.kind, cost, next.waived, used), rules);
+    earnLegendaryRoll(s, record(s, at, next.kind, used), rules);
   }
 }
 
@@ -493,7 +473,9 @@ export function checkRevival(s: CultivatorState, at: number, rules: RulesConfig)
 
 // ---- Handlers ---------------------------------------------------------------
 
-function payQi(s: CultivatorState, qi: number): void {
+/** Pay a Qi price, scaled by the realm factor (ruling 170). */
+function payQi(s: CultivatorState, base: number, rules: RulesConfig): void {
+  const qi = base * realmFactor(s.main.realm, rules);
   if (s.qi < qi) violate("insufficient_qi", `this costs ${qi} Qi`);
   s.qi -= qi;
 }
@@ -510,7 +492,7 @@ function changeCoreDiscipline(s: CultivatorState, at: number): void {
   p.level = "early";
   p.enteredAt = at;
   p.lockedAt = null;
-  record(s, at, "restart", 0, false);
+  record(s, at, "restart");
 }
 
 /**
@@ -527,10 +509,10 @@ export function onAreaDecided(s: CultivatorState, e: EventOf<"AreaDecided">, rul
   const prices = rules.realms.prices;
   const realm = s.main.realm;
   if (prev !== null && realm !== "qi_condensation") {
-    if (e.path !== "main") payQi(s, prices.areaChangeQi);
-    else if (realm === "foundation_establishment") payQi(s, prices.foundationSwitchQi);
+    if (e.path !== "main") payQi(s, prices.areaChangeQi, rules);
+    else if (realm === "foundation_establishment") payQi(s, prices.foundationSwitchQi, rules);
     else if (realm === "core_formation" || realm === "nascent_soul") {
-      payQi(s, prices.coreChangeQi);
+      payQi(s, prices.coreChangeQi, rules);
       changeCoreDiscipline(s, e.at);
     } else violate("not_built", "changing discipline in Spirit Realm comes with Step 2");
   }
@@ -574,7 +556,7 @@ export function onRealmOverride(s: CultivatorState, e: EventOf<"RealmOverride">,
     chooseClassAtCore(s, e.class, e.at);
   }
   moveOn(s, next.kind, e.at);
-  record(s, e.at, "override", 0, false);
+  record(s, e.at, "override");
   s.main.flags.push({ at: e.at, code: "realm_override", id: String(s.progress.steps.length) });
 }
 
@@ -653,6 +635,9 @@ export function onRepented(s: CultivatorState, e: EventOf<"Repented">, rules: Ru
     t.status = "failed";
     t.failedAt = e.at;
     t.passedAt = null;
+    // Its completion was spent and isn't refunded; passing again means completing again (ruling 170).
+    t.completedAt = null;
+    t.completedBy = null;
     t.due = null;
     s.main.flags.push({ at: e.at, code: "tribulation_faked", id });
   }
@@ -684,7 +669,7 @@ export function onRepented(s: CultivatorState, e: EventOf<"Repented">, rules: Ru
     if (x.legendary) legendary += 1;
   }
   s.inventory.legendary -= Math.min(s.inventory.legendary, legendary);
-  record(s, e.at, "repent", 0, false);
+  record(s, e.at, "repent");
 
   // Escalation, counted per realm left over the lifetime (ruling 104).
   const count = (p.repents[realm] ?? 0) + 1;
@@ -769,25 +754,28 @@ export function conqueredTribulations(state: CultivatorState, realm?: Realm): Co
 export interface RealmStatus {
   realm: Realm;
   level: Level | null;
-  next: (NextStep & { waitingForQi: boolean }) | null;
-  /** Foundation: passes toward great circle (of 3); Core Formation and Nascent Soul: passed and set size. */
-  tribulations: { passed: number; total: number } | null;
+  next: NextStep | null;
+  /** Foundation: completed toward great circle (of 3); Core Formation and Nascent Soul: completed and set size. `awaiting`: claimed, waiting to be completed (ruling 169). */
+  tribulations: { passed: number; total: number; awaiting: number } | null;
   dead: boolean;
 }
 
-/** Realm, level and the next requirement, for the character screen ("passed, waiting for Qi" included). */
+/** Realm, level and the next requirement, for the character screen (claims awaiting completion included). */
 export function realmStatus(state: CultivatorState, rules: RulesConfig = RULES_V1): RealmStatus {
   const next = nextStep(state, rules);
   const realm = state.main.realm;
-  const count = (list: Entry[]) => ({ passed: passed(list).length, total: list.length });
+  const count = (list: Entry[]) => ({ passed: completed(list).length, total: list.length, awaiting: passed(list).length - completed(list).length });
   let tribulations: RealmStatus["tribulations"] = null;
-  if (realm === "foundation_establishment") tribulations = { passed: foundationPasses(state).length, total: 3 };
+  if (realm === "foundation_establishment") {
+    const f = entries(state, "foundation_establishment").filter(live);
+    tribulations = { passed: foundationPasses(state).length, total: 3, awaiting: passed(f).length - completed(f).length };
+  }
   if (realm === "core_formation") tribulations = count(coreEntries(state));
   if (realm === "nascent_soul") tribulations = count(nascentEntries(state));
   return {
     realm,
     level: state.progress.level,
-    next: next && { ...next, waitingForQi: next.ready && state.qi < (next.waived ? 0 : next.qi) },
+    next,
     tribulations,
     dead: state.progress.diedAt !== null,
   };

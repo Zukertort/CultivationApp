@@ -5,16 +5,11 @@
  * class wearables are never sold.
  */
 import type { EventOf } from "@cultivation/schema";
-import { GEAR_REALMS, RULES_V1, type PriceRealm, type Realm, type RulesConfig } from "./config.js";
+import { RULES_V1, type RulesConfig } from "./config.js";
 import type { CultivatorState } from "./engine.js";
 import { violate } from "./errors.js";
+import { priceRealm } from "./factor.js";
 import { DAY } from "./time.js";
-
-/** The realm whose prices apply: Spirit Realm's above it (Step 2+). */
-export function priceRealm(realm: Realm): PriceRealm {
-  if (realm === "qi_condensation" || (GEAR_REALMS as readonly Realm[]).includes(realm)) return realm as PriceRealm;
-  return "spirit_realm";
-}
 
 /** A gain potion's shop price in the current realm (ruling 160). */
 export function potionPrice(state: CultivatorState, rules: RulesConfig = RULES_V1): number {

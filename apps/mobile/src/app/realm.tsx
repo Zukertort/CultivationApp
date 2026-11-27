@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { Alert, View } from "react-native";
 import type { ClassId } from "@cultivation/schema";
-import { DAY, RULES_V1, conqueredTribulations, foundationPasses, realmStatus, type Realm } from "@cultivation/rules";
+import { DAY, RULES_V1, completionCost, conqueredTribulations, foundationPasses, realmStatus } from "@cultivation/rules";
+import { useAdmin } from "../lib/admin";
 import { ClassPicker } from "../lib/classes";
+import { CompletionCard } from "../lib/completion";
 import { GearWarnings } from "../lib/gear";
 import { AreaDecisions } from "../lib/onboarding";
 import { useStore } from "../lib/store";
@@ -19,6 +21,7 @@ const MISSING: Record<string, string> = {
 export default function RealmScreen() {
   const { state, now } = useStore();
   const [note, setNote] = useState<{ text: string; error: boolean } | null>(null);
+  const admin = useAdmin();
   const status = realmStatus(state);
   const p = state.progress;
   const next = status.next;
@@ -48,26 +51,23 @@ export default function RealmScreen() {
       <Card title="Next step">
         {next ? (
           <>
-            <T>
-              {next.kind === "level" ? "Level-up" : "Breakthrough"}: {next.waived ? "Qi waived (fast track)" : `${next.qi} Qi`}
-            </T>
-            {next.qi > 0 && !next.waived ? <Meter value={state.qi / next.qi} /> : null}
-            {next.ready ? (
-              <T style={{ color: next.waitingForQi ? C.gold : C.good }}>{next.waitingForQi ? "Passed, waiting for Qi." : "Ready."}</T>
-            ) : (
-              <T muted>{MISSING[next.missing ?? ""] ?? ""}</T>
-            )}
+            <T>{next.kind === "level" ? "Level-up" : "Breakthrough"}</T>
+            {next.ready ? <T style={{ color: C.good }}>Ready.</T> : <T muted>{MISSING[next.missing ?? ""] ?? ""}</T>}
             {status.tribulations ? (
               <T muted>
-                Tribulations: {status.tribulations.passed} of {status.tribulations.total} passed
+                {`Tribulations: ${status.tribulations.passed} of ${status.tribulations.total} completed`}
+                {status.tribulations.awaiting > 0 ? `, ${status.tribulations.awaiting} awaiting completion` : ""}
                 {realm === "core_formation" ? " (the percentage counts from 5; levels at 30, 60 and 90%, the breakthrough at 100%)" : ""}
               </T>
             ) : null}
+            {completionCost(realm) > 0 ? <T muted>{`Completing a ${words(realm)} tribulation costs ${completionCost(realm)} Qi.`}</T> : null}
           </>
         ) : (
           <T muted>Spirit Realm: progression continues with Step 2.</T>
         )}
       </Card>
+
+      <CompletionCard />
 
       <Note text={note?.text ?? null} error={note?.error} />
 
@@ -96,7 +96,7 @@ export default function RealmScreen() {
 
       <History />
       <HallOfFame />
-      <Override realm={realm} onResult={result} />
+      {admin ? <admin.RealmOverride realm={realm} onResult={result} /> : null}
       <T muted>{when(now)}</T>
     </Screen>
   );
@@ -186,8 +186,6 @@ function History() {
           {when(x.at)} · {x.kind}
           {x.repented ? " (repented)" : ""} · {words(x.realm)}
           {x.level ? ` ${words(x.level)}` : ""}
-          {x.qiSpent ? ` · ${x.qiSpent} Qi` : ""}
-          {x.waived ? " · fast track" : ""}
           {x.legendary ? " · legendary item" : ""}
         </T>
       ))}
@@ -206,45 +204,6 @@ function HallOfFame() {
           {t.title} <T muted>· {words(t.realm)} · {when(t.passedAt)}</T>
         </T>
       ))}
-    </Card>
-  );
-}
-
-/** Ruling 84: advance one step for free, logged; out of Foundation it must pick the class (ruling 113). */
-function Override({ realm, onResult }: { realm: Realm; onResult: (ok: boolean, text: string) => void }) {
-  const { state, log } = useStore();
-  const [open, setOpen] = useState(false);
-  const [cls, setCls] = useState<ClassId | null>(null);
-  const status = realmStatus(state);
-  if (!status.next) return null;
-  const leavingFoundation = realm === "foundation_establishment" && status.next.kind === "breakthrough" && state.class.id === null;
-  if (!open) return <Button label="Manual override…" kind="ghost" onPress={() => setOpen(true)} />;
-  return (
-    <Card title="Manual override">
-      <T muted>Advances one level or realm, ignoring Qi and tribulations. It costs nothing and earns no legendary roll, but it stays in your integrity log.</T>
-      {leavingFoundation ? <ClassPicker value={cls} onChange={setCls} /> : null}
-      <Row>
-        <Button
-          label="Override"
-          kind="danger"
-          disabled={leavingFoundation && cls === null}
-          onPress={() =>
-            Alert.alert("Advance by override?", "It is logged in the integrity log.", [
-              { text: "Cancel", style: "cancel" },
-              {
-                text: "Override",
-                style: "destructive",
-                onPress: () =>
-                  void log({ type: "RealmOverride", ...(cls ? { class: cls } : {}) }).then((r) => {
-                    onResult(r.ok, r.ok ? "Advanced by override (logged)." : r.message);
-                    if (r.ok) setOpen(false);
-                  }),
-              },
-            ])
-          }
-        />
-        <Button label="Close" kind="ghost" onPress={() => setOpen(false)} />
-      </Row>
     </Card>
   );
 }
