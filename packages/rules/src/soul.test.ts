@@ -17,6 +17,7 @@ import {
   type CultivatorState,
   type HeartDemon,
   type SoulState,
+  legendaryItems,
 } from "./index.js";
 import { strictReplay as replay } from "./test-support.js";
 
@@ -561,7 +562,7 @@ describe("soul drops", () => {
     expect(gain("qi").qi).toBeCloseTo(10, 9);
     expect(gain("gain_potion").inventory.gainPotions).toBe(1);
     expect(gain("legendary_potion").inventory.legendaryPotions).toBe(1);
-    expect(gain("legendary").inventory.legendary).toBe(1);
+    expect(legendaryItems(gain("legendary")).length).toBe(1);
     expect(gain("none").soul.drops).toEqual({ none: 1 });
     expect(pendingCount(gain("none"))).toBe(0);
     expect(loss("lose_gold").gold).toBe(0);
@@ -676,6 +677,7 @@ function soulWith(demons: { hp: number; defeated?: boolean; idleMs?: number }[],
       defeats: d.defeated ? 1 : 0,
       revivals: 0,
       frozenUntil: null,
+      boostedUntil: null,
     };
     soul.demons[`d${i}`] = demon;
   });

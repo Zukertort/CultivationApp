@@ -4,14 +4,17 @@
  * the rules engine reports and returns exactly the events the server will
  * append (SoulDropRolled, MainQuestDropRolled, TribulationDropRolled,
  * ClassDropRolled, BreakthroughRolled), so the event log never needs a
- * migration. Rolls made here are not tamper-proof; that is accepted while
- * dogfooding. Delete this module when the server rolls.
+ * migration. A legendary outcome carries its slot, and a wearable class drop
+ * its legendary flag, both from the same roll (ruling 176). Rolls made here
+ * are not tamper-proof; that is accepted while dogfooding. Delete this module
+ * when the server rolls.
  */
 import * as Crypto from "expo-crypto";
 import {
   RULES_V1,
   breakthroughRollOutcome,
-  classDropOutcome,
+  breakthroughRollSlot,
+  classDropRoll,
   pendingBreakthroughRolls,
   pendingClassDrops,
   pendingQuestRolls,
@@ -19,9 +22,11 @@ import {
   pendingTribulationRolls,
   questDropOutcome,
   soulDropOutcome,
+  soulDropSlot,
   tribulationDropOutcome,
   type CultivatorState,
 } from "@cultivation/rules";
+import type { GearSlot } from "@cultivation/schema";
 import type { EventInput } from "./store";
 
 /** A uniform number in [0, 1) from the platform's secure random source. */
@@ -34,12 +39,18 @@ function uniform(): number {
 export function rollPending(state: CultivatorState): EventInput[] {
   const out: EventInput[] = [];
   for (const p of pendingSoulRolls(state.soul)) {
-    const drops = Array.from({ length: p.count }, () => soulDropOutcome(p.color, p.polarity, uniform(), RULES_V1));
-    out.push({ type: "SoulDropRolled", eventId: p.eventId, drops });
+    const us = Array.from({ length: p.count }, () => uniform());
+    const drops = us.map((u) => soulDropOutcome(p.color, p.polarity, u, RULES_V1));
+    const legendarySlots = us.map((u) => soulDropSlot(p.color, p.polarity, u, RULES_V1)).filter((x): x is GearSlot => x !== undefined);
+    out.push({ type: "SoulDropRolled", eventId: p.eventId, drops, ...(legendarySlots.length > 0 ? { legendarySlots } : {}) });
   }
   for (const p of pendingQuestRolls(state)) out.push({ type: "MainQuestDropRolled", eventId: p.eventId, drop: questDropOutcome(p.chance, uniform(), RULES_V1) });
   for (const p of pendingTribulationRolls(state)) out.push({ type: "TribulationDropRolled", eventId: p.eventId, drop: tribulationDropOutcome(uniform(), RULES_V1) });
-  for (const p of pendingClassDrops(state)) out.push({ type: "ClassDropRolled", eventId: p.eventId, drop: classDropOutcome(p.group, p.chance, uniform()) });
-  for (const p of pendingBreakthroughRolls(state)) out.push({ type: "BreakthroughRolled", step: p.step, item: breakthroughRollOutcome(p.chance, uniform()) });
+  for (const p of pendingClassDrops(state)) out.push({ type: "ClassDropRolled", eventId: p.eventId, ...classDropRoll(p.group, p.chance, uniform(), RULES_V1) });
+  for (const p of pendingBreakthroughRolls(state)) {
+    const u = uniform();
+    const slot = breakthroughRollSlot(p.chance, u);
+    out.push({ type: "BreakthroughRolled", step: p.step, item: breakthroughRollOutcome(p.chance, u), ...(slot ? { slot } : {}) });
+  }
   return out;
 }

@@ -14,7 +14,7 @@ import { clockOffset, now as clockNow, setClockOffset } from "../lib/clock";
 import { useStore } from "../lib/store";
 import { Button, C, Card, Note, Row, T, when } from "../lib/ui";
 import { saveOffset } from "./loader";
-import { useDev } from "./root";
+import { useDev } from "./context";
 
 const HOUR = 60 * MINUTE;
 

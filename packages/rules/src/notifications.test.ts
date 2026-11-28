@@ -24,6 +24,7 @@ function withDemons(hps: number[]): CultivatorState {
       defeats: 0,
       revivals: 0,
       frozenUntil: null,
+      boostedUntil: null,
     };
     s.soul.demons[`d${i}`] = d;
   });

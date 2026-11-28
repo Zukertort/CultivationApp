@@ -13,6 +13,12 @@ function classShare(state: CultivatorState, rules: RulesConfig): { gold: number;
   return id === null ? { gold: 0, qi: 0 } : rules.classes.table[id];
 }
 
+/** A legendary keep's share of the additive gold pool while it keeps the tier (ruling 177). */
+export function keepGoldBonus(state: CultivatorState, rules: RulesConfig = RULES_V1): number {
+  const until = state.class.keepGoldUntil;
+  return until !== null && state.clock < until ? rules.classes.wearables.legendary.keepGoldBonus : 0;
+}
+
 export function masteredCount(state: CultivatorState): number {
   return state.masteries.length;
 }
@@ -87,12 +93,12 @@ export function potionStatus(state: CultivatorState, at: number): PotionStatus {
 
 /** Gold multiplier for soul drops, the roulette and anything outside Body and Main: no tier bonus (ruling 35). */
 export function goldMultiplier(state: CultivatorState, rules: RulesConfig = RULES_V1): number {
-  return (1 + classShare(state, rules).gold + potionBonus(state, rules)) * goldItems(state, rules);
+  return (1 + classShare(state, rules).gold + potionBonus(state, rules) + keepGoldBonus(state, rules)) * goldItems(state, rules);
 }
 
 /** Gold multiplier for Body and Main gold: the fitness tier's bonus joins the pool (ruling 35). */
 export function trainingGoldMultiplier(state: CultivatorState, rules: RulesConfig = RULES_V1): number {
-  return (1 + rules.tiers[state.companion.tier].goldBonus + classShare(state, rules).gold + potionBonus(state, rules)) * goldItems(state, rules);
+  return (1 + rules.tiers[state.companion.tier].goldBonus + classShare(state, rules).gold + potionBonus(state, rules) + keepGoldBonus(state, rules)) * goldItems(state, rules);
 }
 
 /** Qi multiplier for every Qi gain: the pose bonus and the worn weapon join the pool (rulings 35, 143). */

@@ -9,7 +9,7 @@ const COVERS = {
   soul: "core tasks can also hit a heart demon",
   body: "core tasks can also count as a Body routine",
   hybrid: "core tasks can also count for Body and Soul",
-  unique: "core only: the biggest bonus, and a 2% legendary roll per tribulation",
+  unique: "core only: the biggest bonus, and a 6% legendary roll per tribulation",
 } as const;
 
 export function ClassPicker({ value, onChange }: { value: ClassId | null; onChange: (c: ClassId) => void }) {

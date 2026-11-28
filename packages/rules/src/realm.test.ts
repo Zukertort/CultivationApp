@@ -17,6 +17,7 @@ import {
   tribulationDeletePrice,
   tribulationEditPrice,
   type CultivatorState,
+  legendaryItems,
 } from "./index.js";
 import { strictReplay as replay } from "./test-support.js";
 
@@ -356,7 +357,7 @@ describe("repent (rulings 101-107)", () => {
     expect(where(s)).toEqual(["nascent_soul", null]);
     const nsStep = s.progress.steps.at(-1)!.step;
     s = apply(s, ev("BreakthroughRolled", T0 + 5 * DAY + H, { step: nsStep, item: "legendary" }));
-    expect(s.inventory.legendary).toBe(1);
+    expect(legendaryItems(s).length).toBe(1);
     s = apply(s, declare("n1", T0 + 6 * DAY, 200));
     const qi = s.qi;
     s = apply(s, repent(T0 + 7 * DAY, ["c"]));
@@ -365,7 +366,7 @@ describe("repent (rulings 101-107)", () => {
     expect(s.tribulations.items.c).toMatchObject({ status: "failed", failedAt: T0 + 7 * DAY, due: null, completedAt: null });
     expect(s.tribulations.items.n1).toMatchObject({ status: "closed" });
     expect(s.progress.lockedAt).toBeNull();
-    expect(s.inventory.legendary).toBe(0); // the undone breakthrough's legendary item
+    expect(legendaryItems(s).length).toBe(0); // the undone breakthrough's legendary item
     expect(conqueredTribulations(s)).toEqual([]); // the repented breakthrough leaves the hall of fame
     expect(s.main.flags.slice(-3).map((f) => [f.code, f.id, f.detail])).toEqual([
       ["tribulation_faked", "c", undefined],
@@ -406,7 +407,7 @@ describe("repent (rulings 101-107)", () => {
   it("escalates per realm: an item, then two and a quarter of the gold, then everything but a third of Qi, then death", () => {
     let s = honestNascent(100_000);
     s = { ...s, inventory: { ...s.inventory, gainPotions: 3, legendaryPotions: 1, scales: 1 } };
-    const items = () => s.inventory.gainPotions + s.inventory.legendaryPotions + s.inventory.scales + s.inventory.legendary;
+    const items = () => s.inventory.gainPotions + s.inventory.legendaryPotions + s.inventory.scales + legendaryItems(s).length;
     /** Repent at Nascent Soul, then pass the faked one again and break back through; returns the balances just before and after the repent. */
     const cycle = (k: number) => {
       const at = T0 + (10 + 2 * k) * DAY;
@@ -535,7 +536,7 @@ describe("legendary rolls (rulings 83, 94, 111)", () => {
   it("stores a legendary item in the inventory and flags an orphan roll", () => {
     const s = apply(replay([created, interview]), decide("main", "Mathematics"));
     const rolled = apply(s, ev("BreakthroughRolled", T0 + 2 * H, { step: 1, item: "legendary" }));
-    expect(rolled.inventory.legendary).toBe(1);
+    expect(legendaryItems(rolled).length).toBe(1);
     expect(rolled.progress.legendaryRolls).toEqual({ none: 0, legendary: 1 });
     expect(apply(rolled, ev("BreakthroughRolled", T0 + 3 * H, { step: 1, item: "legendary" })).anomalies.map((a) => a.code)).toEqual(["orphan_breakthrough_roll"]);
     expect(breakthroughRollOutcome(0.02, 0.0199)).toBe("legendary");

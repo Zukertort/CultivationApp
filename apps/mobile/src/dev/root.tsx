@@ -4,35 +4,17 @@
  * app when a scenario is loaded or the mode changes; while it does, no
  * database is open.
  */
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { ActivityIndicator, View } from "react-native";
 import { AdminContext } from "../lib/admin";
 import { setClockOffset } from "../lib/clock";
 import { DB_NAME } from "../lib/db";
 import { C, T } from "../lib/ui";
 import { ADMIN_CONTROLS } from "./admin";
-import { loadScenario, readAdmin, readMode, readScenarioInfo, writeAdmin, writeMode, SCENARIO_DB, type LoadResult, type Mode } from "./loader";
+import { databaseErrorText } from "../lib/db-errors";
+import { DevContext, type Dev } from "./context";
+import { loadScenario, readDevSettings, readScenarioInfo, writeAdmin, writeMode, SCENARIO_DB, type Mode } from "./loader";
 import { DevPanel } from "./panel";
-
-interface Dev {
-  mode: Mode;
-  scenarioId: string | null;
-  /** The last load's result, until the next load or mode change. */
-  lastLoad: (LoadResult & { id: string }) | null;
-  load: (id: string) => void;
-  setMode: (m: Mode) => void;
-  /** Admin mode: shows controls not meant for normal play (lib/admin). Off by default. */
-  admin: boolean;
-  setAdmin: (on: boolean) => void;
-}
-
-const DevContext = createContext<Dev | null>(null);
-
-export function useDev(): Dev {
-  const d = useContext(DevContext);
-  if (!d) throw new Error("useDev must be used inside DevRoot");
-  return d;
-}
 
 type Phase = { kind: "starting" } | { kind: "busy"; label: string } | { kind: "open"; mode: Mode; scenarioId: string | null; generation: number } | { kind: "error"; message: string };
 
@@ -42,9 +24,6 @@ export function DevRoot({ render }: { render: (dbName: string, overlay: ReactNod
   const [lastLoad, setLastLoad] = useState<Dev["lastLoad"]>(null);
   const generation = useRef(0);
   const [admin, setAdminState] = useState(false);
-  useEffect(() => {
-    void readAdmin().then(setAdminState);
-  }, []);
   const setAdmin = useCallback((on: boolean) => {
     setAdminState(on);
     void writeAdmin(on);
@@ -61,11 +40,16 @@ export function DevRoot({ render }: { render: (dbName: string, overlay: ReactNod
     return { kind: "open" as const, mode, scenarioId: info.id };
   }, []);
 
+  // One read of the dev settings at startup: two first opens racing in expo-sqlite's web worker each set up
+  // SQLite and its file pool, and the loser crashes on the files the winner holds (the web startup crash).
   useEffect(() => {
-    void readMode()
-      .then(open)
+    void readDevSettings()
+      .then((settings) => {
+        setAdminState(settings.admin);
+        return open(settings.mode);
+      })
       .then((p) => setPhase({ ...p, generation: 0 }))
-      .catch((e: unknown) => setPhase({ kind: "error", message: String(e) }));
+      .catch((e: unknown) => setPhase({ kind: "error", message: databaseErrorText(e) }));
   }, [open]);
 
   const setMode = useCallback(
@@ -75,7 +59,7 @@ export function DevRoot({ render }: { render: (dbName: string, overlay: ReactNod
       void writeMode(mode)
         .then(() => open(mode))
         .then((p) => setPhase({ ...p, generation: ++generation.current }))
-        .catch((e: unknown) => setPhase({ kind: "error", message: String(e) }));
+        .catch((e: unknown) => setPhase({ kind: "error", message: databaseErrorText(e) }));
     },
     [open],
   );
@@ -93,7 +77,7 @@ export function DevRoot({ render }: { render: (dbName: string, overlay: ReactNod
             setLastLoad({ ...r, id });
             setPhase({ ...p, generation: ++generation.current });
           } catch (e) {
-            setPhase({ kind: "error", message: e instanceof Error ? e.message : String(e) });
+            setPhase({ kind: "error", message: databaseErrorText(e) });
           }
         })();
       }, 50);

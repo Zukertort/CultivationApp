@@ -1,6 +1,6 @@
 import "../lib/web-alert";
-import { useEffect, useState, type ReactNode } from "react";
-import { ActivityIndicator, View } from "react-native";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { ActivityIndicator, Platform, View } from "react-native";
 import { Tabs } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { SQLiteProvider, useSQLiteContext } from "expo-sqlite";
@@ -9,6 +9,8 @@ import { OATH_TEXT } from "@cultivation/schema";
 import { GearWatcher } from "../lib/gear";
 import { BreakthroughWatcher } from "../lib/breakthrough";
 import { DB_NAME, getMeta, migrate, setMeta } from "../lib/db";
+import { OTHER_TAB_TEXT, databaseErrorText } from "../lib/db-errors";
+import { acquireTabLock } from "../lib/tab-lock";
 import { AreasStep, Interview } from "../lib/onboarding";
 import { NotificationsProvider } from "../lib/notifications-context";
 import { StoreProvider, useStore } from "../lib/store";
@@ -24,10 +26,16 @@ import { Button, C, Card, Field, Note, Screen, T } from "../lib/ui";
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const DevRoot: typeof import("../dev/root").DevRoot | null = __DEV__ ? (require("../dev/root") as typeof import("../dev/root")).DevRoot : null;
 
-/** The app on one database; `overlay` (the dev badge) sits inside its providers. */
+/** The app on one database; `overlay` (the dev badge) sits inside its providers. A database that can't open shows why. */
 function App({ dbName, overlay }: { dbName: string; overlay?: ReactNode }) {
+  const [error, setError] = useState<string | null>(null);
+  // SQLiteProvider calls onError while rendering: keep it stable (the provider compares it) and set state after.
+  const onError = useCallback((e: Error) => {
+    setTimeout(() => setError(databaseErrorText(e)), 0);
+  }, []);
+  if (error) return <Blocked text={error} />;
   return (
-    <SQLiteProvider databaseName={dbName} onInit={migrate}>
+    <SQLiteProvider databaseName={dbName} onInit={migrate} onError={onError}>
       <StoreProvider>
         <Gate />
         {overlay}
@@ -36,11 +44,38 @@ function App({ dbName, overlay }: { dbName: string; overlay?: ReactNode }) {
   );
 }
 
+/** A full-screen message with a retry (a reload), for a database this tab can't open. */
+function Blocked({ text }: { text: string }) {
+  const reload = () => {
+    const loc = (globalThis as { location?: { reload: () => void } }).location;
+    loc?.reload();
+  };
+  return (
+    <View style={{ flex: 1, backgroundColor: C.bg, justifyContent: "center", padding: 24, gap: 12 }}>
+      <T>{text}</T>
+      {Platform.OS === "web" ? <Button label="Try again" onPress={reload} /> : null}
+    </View>
+  );
+}
+
 export default function RootLayout() {
+  // On the web only one tab may hold the database files: take the tab lock before any database opens.
+  const [lock, setLock] = useState<"waiting" | "held" | "elsewhere">("waiting");
+  useEffect(() => {
+    void acquireTabLock().then((ok) => setLock(ok ? "held" : "elsewhere"));
+  }, []);
   return (
     <SafeAreaProvider>
       <StatusBar style="light" />
-      {DevRoot ? <DevRoot render={(dbName, overlay) => <App dbName={dbName} overlay={overlay} />} /> : <App dbName={DB_NAME} />}
+      {lock === "waiting" ? (
+        <View style={{ flex: 1, backgroundColor: C.bg }} />
+      ) : lock === "elsewhere" ? (
+        <Blocked text={OTHER_TAB_TEXT} />
+      ) : DevRoot ? (
+        <DevRoot render={(dbName, overlay) => <App dbName={dbName} overlay={overlay} />} />
+      ) : (
+        <App dbName={DB_NAME} />
+      )}
     </SafeAreaProvider>
   );
 }

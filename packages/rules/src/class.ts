@@ -2,17 +2,19 @@
  * Main path, part 4: classes. A class adds gold and Qi bonuses to every gain,
  * lets tagged Main tasks also count for Body or Soul (as its group allows),
  * and earns a class drop on passed tribulations: wearables for Soul, Body and
- * Hybrid classes, a legendary-item roll for Unique ones.
+ * Hybrid classes (10% of them legendary, ruling 177), a legendary-item roll
+ * for Unique ones (legendary gear of the claim's realm, ruling 176).
  *
  * Settled rules live in docs/design.md, Rulings 113-125. The only random
  * outcome is the class drop, rolled by the server and stored in the claim or
  * a ClassDropRolled event.
  */
 import { noPurchaseWhileDead } from "./shop.js";
-import type { ClassDrop, ClassId, Effort, EventOf } from "@cultivation/schema";
+import type { ClassDrop, ClassId, Effort, EventOf, GearSlot } from "@cultivation/schema";
 import { GROWTH_COLORS, RULES_V1, type ClassGroup, type RulesConfig } from "./config.js";
 import type { CultivatorState } from "./engine.js";
 import { violate } from "./errors.js";
+import { grantLegendary, legendarySlotOutcome } from "./gear.js";
 import { DAY } from "./time.js";
 
 // ---- State ------------------------------------------------------------------
@@ -41,8 +43,12 @@ export interface ClassState {
   history: ClassChange[];
   pendingDrops: Record<string, PendingClassDrop>;
   drops: Record<ClassDrop, number>;
-  /** Wearables worn, by kind. */
-  worn: { soul: number; pet_keep: number; pet_halo: number };
+  /** Wearable drops that were legendary (ruling 177), also counted in `drops`. */
+  legendaryWearables: number;
+  /** Wearables worn, by kind; `legendary` counts the legendary ones among them. */
+  worn: { soul: number; pet_keep: number; pet_halo: number; legendary: number };
+  /** A legendary keep's gold bonus runs until then (ruling 177). */
+  keepGoldUntil: number | null;
 }
 
 export function initialClass(): ClassState {
@@ -51,7 +57,9 @@ export function initialClass(): ClassState {
     history: [],
     pendingDrops: {},
     drops: { none: 0, soul_wearable: 0, pet_keep: 0, pet_halo: 0, legendary: 0 },
-    worn: { soul: 0, pet_keep: 0, pet_halo: 0 },
+    legendaryWearables: 0,
+    worn: { soul: 0, pet_keep: 0, pet_halo: 0, legendary: 0 },
+    keepGoldUntil: null,
   };
 }
 
@@ -90,20 +98,24 @@ export function checkCrossTags(s: CultivatorState, task: { effort: Effort; alsoB
 
 // ---- Choosing ---------------------------------------------------------------
 
-function heldWearables(s: CultivatorState): number {
+export function heldWearables(s: CultivatorState): number {
   const inv = s.inventory;
-  return inv.soulWearables + inv.petKeepWearables + inv.petHaloWearables;
+  return inv.soulWearables + inv.petKeepWearables + inv.petHaloWearables + inv.legendarySoulWearables + inv.legendaryPetKeepWearables + inv.legendaryPetHaloWearables;
 }
 
 function setClass(s: CultivatorState, to: ClassId, at: number, gold: number): void {
   const c = s.class;
   let forfeited = 0;
   if (c.id !== null) {
-    // A change forfeits the held soul and pet wearables; worn ones keep running (ruling 118).
+    // A change forfeits the held soul and pet wearables, legendary ones included; worn ones keep running (rulings 118, 177).
     forfeited = heldWearables(s);
-    s.inventory.soulWearables = 0;
-    s.inventory.petKeepWearables = 0;
-    s.inventory.petHaloWearables = 0;
+    const inv = s.inventory;
+    inv.soulWearables = 0;
+    inv.petKeepWearables = 0;
+    inv.petHaloWearables = 0;
+    inv.legendarySoulWearables = 0;
+    inv.legendaryPetKeepWearables = 0;
+    inv.legendaryPetHaloWearables = 0;
   }
   c.history.push({ at, from: c.id, to, gold, forfeited });
   c.id = to;
@@ -166,28 +178,76 @@ export function classDropOutcome(group: ClassGroup, chance: number, u: number): 
   }
 }
 
-function applyClassDrop(s: CultivatorState, drop: ClassDrop): void {
+/** The server's roll for whether a wearable class drop is legendary (ruling 177): u in [0, 1). */
+export function wearableLegendaryOutcome(u: number, rules: RulesConfig = RULES_V1): boolean {
+  if (!(u >= 0 && u < 1)) throw new RangeError("u must be in [0, 1)");
+  return u < rules.classes.wearables.legendary.share;
+}
+
+interface ClassDropHit {
+  /** The claim's event id: it keys the legendary item and its slot fallback. */
+  claimId: string;
+  at: number;
+  tribulationId: string;
+  legendary: boolean | undefined;
+  slot: GearSlot | undefined;
+}
+
+/**
+ * Apply a class drop: a wearable (legendary when the server rolled it so;
+ * events from before part 4 carry no flag and stay ordinary, ruling 177), or
+ * a Unique class's legendary item, legendary gear of the claimed
+ * tribulation's realm (ruling 176).
+ */
+/**
+ * The server's full class drop roll from one uniform u (rulings 119, 120,
+ * 176, 177): the drop, and where u landed inside its band decides a
+ * wearable's legendary flag (the first `share` of the band) or a Unique
+ * legendary item's slot. Stored as ClassDropRolled's drop, legendary and slot.
+ */
+export function classDropRoll(group: ClassGroup, chance: number, u: number, rules: RulesConfig = RULES_V1): { drop: ClassDrop; legendary?: boolean; slot?: GearSlot } {
+  const drop = classDropOutcome(group, chance, u);
+  if (drop === "none") return { drop };
+  const f = u / chance;
+  if (drop === "legendary") return { drop, slot: legendarySlotOutcome(f) };
+  // The sub-band the kind came from, rescaled to [0, 1).
+  const [start, width] =
+    group === "soul" ? [0, 1] : group === "body" ? (f < 0.5 ? [0, 0.5] : [0.5, 0.5]) : f < 0.5 ? [0, 0.5] : f < 0.75 ? [0.5, 0.25] : [0.75, 0.25];
+  return { drop, legendary: wearableLegendaryOutcome(Math.min(0.999999, (f - start) / width), rules) };
+}
+
+function applyClassDrop(s: CultivatorState, drop: ClassDrop, hit: ClassDropHit, rules: RulesConfig): void {
   s.class.drops[drop] += 1;
   const inv = s.inventory;
-  if (drop === "soul_wearable") inv.soulWearables += 1;
-  if (drop === "pet_keep") inv.petKeepWearables += 1;
-  if (drop === "pet_halo") inv.petHaloWearables += 1;
-  if (drop === "legendary") inv.legendary += 1;
+  const legendary = hit.legendary === true && drop !== "legendary" && drop !== "none";
+  if (legendary) s.class.legendaryWearables += 1;
+  if (drop === "soul_wearable") legendary ? (inv.legendarySoulWearables += 1) : (inv.soulWearables += 1);
+  if (drop === "pet_keep") legendary ? (inv.legendaryPetKeepWearables += 1) : (inv.petKeepWearables += 1);
+  if (drop === "pet_halo") legendary ? (inv.legendaryPetHaloWearables += 1) : (inv.petHaloWearables += 1);
+  if (drop === "legendary") {
+    const realm = s.tribulations.items[hit.tribulationId]?.realm ?? s.main.realm;
+    grantLegendary(s, { key: hit.claimId, at: hit.at, realm, slot: hit.slot, source: "class" }, rules);
+  }
 }
 
 /** A claim that earned its item roll also earns the class drop (ruling 119): stored, or pending for the server. */
-export function earnClassDrop(s: CultivatorState, e: { id: string; at: number; tribulationId: string; classDrop?: ClassDrop | undefined }, rules: RulesConfig): void {
+export function earnClassDrop(
+  s: CultivatorState,
+  e: { id: string; at: number; tribulationId: string; classDrop?: ClassDrop | undefined; classDropLegendary?: boolean | undefined; classDropSlot?: GearSlot | undefined },
+  rules: RulesConfig,
+): void {
   const odds = classDropChance(s, rules);
   if (!odds) return;
-  if (e.classDrop !== undefined) applyClassDrop(s, e.classDrop);
+  if (e.classDrop !== undefined) applyClassDrop(s, e.classDrop, { claimId: e.id, at: e.at, tribulationId: e.tribulationId, legendary: e.classDropLegendary, slot: e.classDropSlot }, rules);
   else s.class.pendingDrops[e.id] = { eventId: e.id, at: e.at, tribulationId: e.tribulationId, ...odds };
 }
 
 /** Record a pending class drop's outcome; false when nothing is pending for that event (the caller flags it). */
-export function onClassDropRolled(s: CultivatorState, e: EventOf<"ClassDropRolled">): boolean {
-  if (!s.class.pendingDrops[e.eventId]) return false;
+export function onClassDropRolled(s: CultivatorState, e: EventOf<"ClassDropRolled">, rules: RulesConfig): boolean {
+  const p = s.class.pendingDrops[e.eventId];
+  if (!p) return false;
   delete s.class.pendingDrops[e.eventId];
-  applyClassDrop(s, e.drop);
+  applyClassDrop(s, e.drop, { claimId: e.eventId, at: e.at, tribulationId: p.tribulationId, legendary: e.legendary, slot: e.slot }, rules);
   return true;
 }
 
@@ -197,40 +257,50 @@ export function pendingClassDrops(state: CultivatorState): PendingClassDrop[] {
 
 // ---- Wearables --------------------------------------------------------------
 
+const HELD = {
+  soul: ["soulWearables", "legendarySoulWearables"],
+  pet_keep: ["petKeepWearables", "legendaryPetKeepWearables"],
+  pet_halo: ["petHaloWearables", "legendaryPetHaloWearables"],
+} as const;
+
 /**
  * Wear a class wearable (ruling 118): a soul wearable freezes a demon's
  * growth for 7 days; a keep pet wearable keeps the companion at its tier for
  * 30 days (no food loss, no demotion; promotions still work); a halo pet
- * wearable grants a halo ticket. Each is used up.
+ * wearable grants a halo ticket. Each is used up. A legendary one (ruling
+ * 177) adds: +50% damage to the frozen demon while frozen; +5% gold in the
+ * additive pool while the tier is kept; a ticket worth +15% instead of +10%.
  */
 export function onWearableUsed(s: CultivatorState, e: EventOf<"WearableUsed">, rules: RulesConfig): void {
   const inv = s.inventory;
   const w = rules.classes.wearables;
+  const legendary = e.legendary === true;
+  const key = HELD[e.wearable][legendary ? 1 : 0];
+  const what = `${legendary ? "legendary " : ""}${e.wearable === "soul" ? "soul" : e.wearable === "pet_keep" ? "keep pet" : "halo pet"} wearable`;
+  if (inv[key] < 1) violate("no_wearable", `no ${what} held`);
   switch (e.wearable) {
     case "soul": {
-      if (inv.soulWearables < 1) violate("no_wearable", "no soul wearable held");
       if (e.demonId === undefined) violate("demon_required", "a soul wearable is worn on a demon");
       const d = s.soul.demons[e.demonId];
       if (!d) violate("unknown_demon", `demon ${e.demonId} does not exist`);
       if (d.frozenUntil !== null && e.at < d.frozenUntil) violate("already_frozen", "this demon is already frozen");
-      inv.soulWearables -= 1;
       d.frozenUntil = e.at + w.freezeDays * DAY;
+      if (legendary) d.boostedUntil = d.frozenUntil;
       break;
     }
     case "pet_keep": {
-      if (inv.petKeepWearables < 1) violate("no_wearable", "no keep pet wearable held");
       const c = s.companion;
       if (c.tierKeptUntil !== null && e.at < c.tierKeptUntil) violate("already_active", "the companion is already kept");
-      inv.petKeepWearables -= 1;
       c.tierKeptUntil = e.at + w.keepDays * DAY;
+      if (legendary) s.class.keepGoldUntil = c.tierKeptUntil;
       break;
     }
     case "pet_halo": {
-      if (inv.petHaloWearables < 1) violate("no_wearable", "no halo pet wearable held");
-      inv.petHaloWearables -= 1;
-      s.haloTickets.push({ grantedAt: e.at, expiresAt: e.at + rules.halo.ticketDays * DAY });
+      s.haloTickets.push({ grantedAt: e.at, expiresAt: e.at + rules.halo.ticketDays * DAY, ...(legendary ? { bonus: w.legendary.haloBonus } : {}) });
       break;
     }
   }
+  inv[key] -= 1;
   s.class.worn[e.wearable] += 1;
+  if (legendary) s.class.worn.legendary += 1;
 }

@@ -10,7 +10,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Alert, View } from "react-native";
 import { CLOSED_DOOR_OATH, type GearSlot } from "@cultivation/schema";
 import { DAY, GEAR_REALMS, RULES_V1, potionPrice, potionStatus, vacationDaysLeft, vacationPrice, repairPrice, sellPrice, shopPrice, stash, wearable, wornItem, type GearItem, type GearRealm } from "@cultivation/rules";
-import { GearWarnings, durability, gearName, gearStats, isDead } from "../lib/gear";
+import { GearWarnings, LEGENDARY_COLOR, durability, gearName, gearStats, isDead } from "../lib/gear";
 import { now as clockNow } from "../lib/clock";
 import { useStore, type EventInput } from "../lib/store";
 import { Button, C, Card, Chip, Field, Meter, Note, Row, Screen, Segmented, T, when, wholeNumber, words } from "../lib/ui";
@@ -162,6 +162,7 @@ export default function StoreScreen() {
               </Row>
             </ItemView>
           ))}
+          <Wearables />
           <T style={{ fontWeight: "700" }}>Potions</T>
           <T muted>{`Gain potions: ${potions.gainHeld}${gainActive ? ` (one active until ${new Date(potions.gainActiveUntil!).toLocaleTimeString()})` : ""}. +10% gold and Qi for 24 hours.`}</T>
           <Button label="Drink a gain potion" kind="ghost" disabled={potions.gainHeld < 1 || gainActive} onPress={() => void act({ type: "PotionUsed", potion: "gain" }, "The gain potion is active for 24 hours.")} />
@@ -180,14 +181,43 @@ export default function StoreScreen() {
 
 function ItemView({ item, children }: { item: GearItem; children?: ReactNode }) {
   const left = durability(item);
+  const legendary = item.kind === "legendary";
   return (
     <View style={{ gap: 4 }}>
-      <T style={{ fontWeight: "700" }}>{gearName(item)}</T>
+      <T style={{ fontWeight: "700", ...(legendary ? { color: LEGENDARY_COLOR } : {}) }}>{gearName(item)}</T>
+      {legendary ? <T muted>Legendary: drop only, never sold in the shop. Sells for 70% of double the shop price, less damage.</T> : null}
       {gearStats(item) ? <T muted>{gearStats(item)}</T> : null}
       <Meter value={left} color={left <= 0.05 ? C.danger : left <= 0.25 ? C.gold : C.good} />
       <T muted>Durability {Math.round(left * 100)}%</T>
       {children}
     </View>
+  );
+}
+
+/**
+ * Class wearables held (ruling 118), legendary ones marked (ruling 177).
+ * Wearing them comes with the class screen; a class change forfeits them.
+ */
+function Wearables() {
+  const { state } = useStore();
+  const inv = state.inventory;
+  const rows: { label: string; n: number; legendary: boolean; what: string }[] = [
+    { label: "Soul wearable", n: inv.soulWearables, legendary: false, what: "freezes a demon's growth for 7 days" },
+    { label: "Legendary soul wearable", n: inv.legendarySoulWearables, legendary: true, what: "freezes a demon for 7 days, and every hit on it does 50% more meanwhile" },
+    { label: "Keep pet wearable", n: inv.petKeepWearables, legendary: false, what: "keeps the companion's tier for 30 days" },
+    { label: "Legendary keep pet wearable", n: inv.legendaryPetKeepWearables, legendary: true, what: "keeps the tier for 30 days, with +5% gold meanwhile" },
+    { label: "Halo pet wearable", n: inv.petHaloWearables, legendary: false, what: "a halo ticket: +10% on the next legendary roll" },
+    { label: "Legendary halo pet wearable", n: inv.legendaryPetHaloWearables, legendary: true, what: "a halo ticket: +15% on the next legendary roll" },
+  ];
+  const held = rows.filter((r) => r.n > 0);
+  return (
+    <>
+      <T style={{ fontWeight: "700" }}>Class wearables</T>
+      {held.length === 0 ? <T muted>None held.</T> : null}
+      {held.map((r) => (
+        <T key={r.label} muted={!r.legendary} style={r.legendary ? { color: LEGENDARY_COLOR } : undefined}>{`${r.label} x${r.n}: ${r.what}.`}</T>
+      ))}
+    </>
   );
 }
 
