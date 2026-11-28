@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { parseEvent } from "@cultivation/schema";
-import { RULES_V1, advanceTo, replay } from "@cultivation/rules";
+import { REPENT_OATH, parseEvent, type GameEvent } from "@cultivation/schema";
+import { RULES_V1, advanceTo, applyEvent, legendaryItems, replay } from "@cultivation/rules";
 import { SCENARIOS, type ScenarioContext } from "./scenarios.js";
 
 const HOUR = 60 * 60 * 1000;
@@ -55,5 +55,22 @@ describe("scenarios", () => {
     expect(log[0]).toMatchObject({ type: "CultivatorCreated", tzOffsetMinutes: 60 });
     const state = advanceTo(replay(log, RULES_V1), ctx.today + 10 * HOUR, RULES_V1);
     expect(sc.check(state, ctx.today + 10 * HOUR)).toEqual([]);
+  });
+
+  it("legendary-repent: a repent removes the breakthrough's worn legendary and keeps the class one (rulings 103, 179)", () => {
+    const sc = SCENARIOS.find((s) => s.id === "legendary-repent")!;
+    const ctx = ctxFor(0);
+    const now = ctx.today + 10 * HOUR;
+    const s = advanceTo(replay(sc.build(ctx), RULES_V1), now, RULES_V1);
+    const fromStep = legendaryItems(s).find((i) => i.source?.kind === "step")!;
+    const fromClass = legendaryItems(s).find((i) => i.source?.kind === "class")!;
+    expect(fromStep.realm).toBe("nascent_soul");
+    expect(fromClass.realm).toBe("core_formation");
+    const faked = Object.entries(s.tribulations.items).find(([, t]) => t.realm === "core_formation" && t.status === "passed" && t.closedAt === null)![0];
+    const repent = { id: "r1", userId: "device-user", at: now, type: "Repented", oath: REPENT_OATH, faked: [faked] } as GameEvent;
+    const after = applyEvent(s, repent, RULES_V1);
+    expect(after.main.realm).toBe("core_formation");
+    expect(legendaryItems(after).map((i) => i.id)).toEqual([fromClass.id]);
+    expect(after.gear.lost.at(-1)).toMatchObject({ reason: "repent", item: { id: fromStep.id } });
   });
 });

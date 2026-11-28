@@ -21,6 +21,7 @@ import {
   shopPrice,
   stash,
   wornItem,
+  legendaryItems,
   effectiveDeadline,
   localDay,
   realmStatus,
@@ -29,7 +30,7 @@ import {
   type Level,
   type Realm,
 } from "@cultivation/rules";
-import { Cultivator } from "./cultivator.js";
+import { Cultivator, type CultivatorOptions } from "./cultivator.js";
 import { both, routineDay, setupBasic, study, tribulationPlan, weeklyMilestones, weeklyProject, type Habits, type Income, type Routine } from "./habits.js";
 
 export interface ScenarioContext {
@@ -61,6 +62,8 @@ interface Spec {
   /** Days covered; with `stop`, the first guess. */
   days: number;
   seed?: number;
+  /** Fix chosen server rolls to legal values (ruling 182; see CultivatorOptions.fixRoll). */
+  fixRoll?: CultivatorOptions["fixRoll"];
   setup?: (c: Cultivator, ctx: ScenarioContext) => void;
   /** Makes one run's day function (fresh habit state per run); `days` is the run's length, so day `days` is today. */
   day: () => Day;
@@ -72,7 +75,7 @@ interface Spec {
 const MAX_IDLE_DAYS = 2;
 
 function runOnce(ctx: ScenarioContext, spec: Spec, days: number): { c: Cultivator; reached: number | null } {
-  const c = new Cultivator({ start: ctx.today - days * DAY, userId: ctx.userId, idPrefix: `scn-${spec.id}-`, seed: spec.seed ?? 23, rollAll: true });
+  const c = new Cultivator({ start: ctx.today - days * DAY, userId: ctx.userId, idPrefix: `scn-${spec.id}-`, seed: spec.seed ?? 23, rollAll: true, ...(spec.fixRoll ? { fixRoll: spec.fixRoll } : {}) });
   (spec.setup ?? basic)(c, ctx);
   const day = spec.day();
   for (let d = 0; d < days; d++) {
@@ -189,6 +192,28 @@ const geared = (s: CultivatorState) => {
 };
 
 const WHITE_ROBE = "robe:foundation_establishment";
+
+/** The legendary items the repent scenario sets up: the Nascent Soul breakthrough's weapon (worn) and a Unique class roll's armor (stash). */
+const repentLegendaries = (s: CultivatorState) => {
+  const items = legendaryItems(s);
+  const nsStep = s.progress.steps.find((x) => x.kind === "breakthrough" && x.realm === "nascent_soul" && !x.repented);
+  const fromStep = items.find((i) => i.source?.kind === "step" && i.source.step === nsStep?.step);
+  const fromClass = items.find((i) => i.source?.kind === "class");
+  return { fromStep, fromClass };
+};
+
+/**
+ * The stand-in server's two fixed rolls (ruling 182): the Nascent Soul breakthrough's legendary roll lands in its
+ * upper half (a weapon, worn: no weapon is held), and the first Core Formation class roll in its lower half (a
+ * Unique legendary armor, into the stash: the robe is worn).
+ */
+const legendaryRepentRolls: CultivatorOptions["fixRoll"] = (r, s) => {
+  if (r.kind === "breakthrough") {
+    const step = s.progress.steps[r.pending.step - 1];
+    return step?.kind === "breakthrough" && step.realm === "nascent_soul" ? r.pending.chance * 0.75 : undefined;
+  }
+  return s.main.realm === "core_formation" && !legendaryItems(s).some((i) => i.source?.kind === "class") ? r.pending.chance * 0.25 : undefined;
+};
 
 /** Foundation tribulations completed by their evidence (rulings 76, 169). */
 const fastTracked = (s: CultivatorState) =>
@@ -440,6 +465,33 @@ export const SCENARIOS: readonly Scenario[] = [
       stop: (c) => repents(c.s) === 1 && c.s.main.realm === "core_formation",
     },
     (s) => [inRealm(s, "core_formation"), repents(s) === 1 || `${repents(s)} repents`, alive(s)],
+  ),
+  scenario(
+    {
+      id: "legendary-repent",
+      title: "Legendary items before a repent",
+      description:
+        "Just into Nascent Soul as a Monk: the breakthrough's legendary weapon is worn, and a Core Formation legendary armor from the Unique class roll is in the stash. Repent (mark a Core Formation tribulation faked): the weapon must go, worn or not (ruling 103), and the armor stay (ruling 179).",
+      days: 50,
+      fixRoll: legendaryRepentRolls,
+      day: persona({ income: weeklyMilestones }, { eager: true }),
+      stop: (c) => {
+        const { fromStep, fromClass } = repentLegendaries(c.s);
+        return c.s.main.realm === "nascent_soul" && fromStep !== undefined && fromClass !== undefined;
+      },
+    },
+    (s) => {
+      const { fromStep, fromClass } = repentLegendaries(s);
+      const worn = new Set(Object.values(s.gear.worn));
+      const faked = Object.values(s.tribulations.items).some((t) => t.realm === "core_formation" && t.status === "passed" && t.closedAt === null);
+      return [
+        inRealm(s, "nascent_soul"),
+        (fromStep !== undefined && worn.has(fromStep.id)) || "the breakthrough's legendary isn't worn",
+        (fromClass !== undefined && !worn.has(fromClass.id)) || "no class legendary in the stash",
+        faked || "no Core Formation tribulation left to mark faked",
+        alive(s),
+      ];
+    },
   ),
   scenario(
     {
