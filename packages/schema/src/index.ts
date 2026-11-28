@@ -20,6 +20,13 @@ const base = {
   at: epochMs,
 };
 
+/**
+ * Gear slots (ruling 137). Defined early: a legendary outcome carries the
+ * slot the server rolled for it (Roadmap part 4). Events from before part 4
+ * have none; the rules engine then picks the slot from a hash of the event id.
+ */
+export const GearSlot = z.enum(["armor", "weapon"]);
+
 // ---- Onboarding -----------------------------------------------------------
 
 export const OATH_TEXT = "I will not fake my achievements and I will cultivate with all my heart.";
@@ -121,8 +128,9 @@ export const HeartDemonDeleted = z.object({
  * Outcome of a soul drop roll, rolled on the server with
  * `soulDropOutcome(color, polarity, u)`. Positive tasks roll for gains at
  * growth colors; negative tasks roll for losses at weakening colors. Until
- * gear exists, a common item is a potion of either kind (ruling 58);
- * "lose_item" loses a potion.
+ * A common item is a potion of either kind (ruling 58); "legendary" is a
+ * legendary armor or weapon (Rainbow only, at most one per 365 days; ruling
+ * 176); "lose_item" follows the repent order (ruling 146).
  */
 export const SoulDrop = z.enum(["none", "gold", "qi", "gain_potion", "legendary_potion", "legendary", "lose_gold", "lose_qi", "lose_item"]);
 
@@ -136,6 +144,8 @@ export const SoulTaskLogged = z.object({
    * logged offline: the server appends a SoulDropRolled on sync instead.
    */
   drop: SoulDrop.optional(),
+  /** The slot the server rolled for a "legendary" drop (ruling 176). */
+  legendarySlot: GearSlot.optional(),
 });
 
 /** A soul quest attacks several demons at once (one meditation session against several demons). */
@@ -157,6 +167,8 @@ export const SoulQuestCompleted = z.object({
   questId: id,
   /** Outcomes when rolled at logging time; omitted when logged offline (see SoulDropRolled). */
   drops: z.array(SoulDrop).max(20).optional(),
+  /** The slots rolled for its "legendary" drops, in order (ruling 176). */
+  legendarySlots: z.array(GearSlot).max(20).optional(),
 });
 
 /**
@@ -169,6 +181,8 @@ export const SoulDropRolled = z.object({
   /** The SoulTaskLogged or SoulQuestCompleted event the rolls belong to. */
   eventId: id,
   drops: z.array(SoulDrop).min(1).max(20),
+  /** The slots rolled for its "legendary" drops, in order (ruling 176). */
+  legendarySlots: z.array(GearSlot).max(20).optional(),
 });
 
 // ---- Main: interview, tasks and quests --------------------------------------
@@ -395,6 +409,10 @@ export const TribulationClaimed = z.object({
   drop: MainQuestDrop.optional(),
   /** The class drop's outcome (rulings 119-120), if the server rolled it at logging time. */
   classDrop: z.lazy(() => ClassDrop).optional(),
+  /** A wearable class drop that is legendary (ruling 177), rolled with it. */
+  classDropLegendary: z.boolean().optional(),
+  /** The slot rolled for a Unique class's legendary item (ruling 176). */
+  classDropSlot: GearSlot.optional(),
 });
 
 /** Appended by the server on sync for a claim whose earned item roll has no recorded outcome. */
@@ -426,7 +444,8 @@ export const ClassId = z.enum(["bard", "erudite", "warrior", "knight", "dancer",
 
 /**
  * A passed tribulation's class drop (rulings 119-120): a soul wearable, a pet
- * wearable of either kind, or for Unique classes a legendary item.
+ * wearable of either kind, or for Unique classes a legendary item. A
+ * wearable may be legendary (ruling 177), stored with it.
  */
 export const ClassDrop = z.enum(["none", "soul_wearable", "pet_keep", "pet_halo", "legendary"]);
 
@@ -452,6 +471,10 @@ export const ClassDropRolled = z.object({
   /** The TribulationClaimed event the roll belongs to. */
   eventId: id,
   drop: ClassDrop,
+  /** A wearable drop that is legendary (ruling 177); absent means ordinary. */
+  legendary: z.boolean().optional(),
+  /** The slot rolled for a Unique class's legendary item (ruling 176). */
+  slot: GearSlot.optional(),
 });
 
 /** Wears a class wearable (ruling 118): a soul wearable on a demon, or a pet wearable. */
@@ -461,6 +484,8 @@ export const WearableUsed = z.object({
   wearable: z.enum(["soul", "pet_keep", "pet_halo"]),
   /** The demon a soul wearable freezes. */
   demonId: id.optional(),
+  /** Wear a legendary one of that kind (ruling 177). */
+  legendary: z.boolean().optional(),
 });
 
 /** Locks Nascent Soul's tribulation set, within 90 days of entering (ruling 79). */
@@ -520,6 +545,8 @@ export const BreakthroughRolled = z.object({
   type: z.literal("BreakthroughRolled"),
   step: z.number().int().min(1),
   item: z.enum(["none", "legendary"]),
+  /** The slot rolled for a legendary item (ruling 176). */
+  slot: GearSlot.optional(),
 });
 
 // ---- Rest -------------------------------------------------------------------
@@ -596,11 +623,11 @@ export const RouletteSpun = z.object({
   ...base,
   type: z.literal("RouletteSpun"),
   prize: RoulettePrize,
+  /** The slot rolled for a legendary prize (ruling 176). */
+  slot: GearSlot.optional(),
 });
 
 // ---- Gear (rulings 137-145) -------------------------------------------------
-
-export const GearSlot = z.enum(["armor", "weapon"]);
 
 /**
  * Buys the current realm's gear for a slot (ruling 140): its shop gear, or

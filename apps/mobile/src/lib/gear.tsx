@@ -1,7 +1,8 @@
 /**
  * Gear names, stat lines, the gear warnings with their one-tap actions, and
- * the System messages: an item lost, and a new robe put in the stash
- * (rulings 137-158). Numbers come from @cultivation/rules.
+ * the System messages: an item lost, a new robe put in the stash (rulings
+ * 137-158), and "Legendary!" on every legendary roll (rulings 176-177).
+ * Numbers come from @cultivation/rules.
  */
 import { useEffect, useState } from "react";
 import { Alert, View } from "react-native";
@@ -32,11 +33,15 @@ const ROBE_COLOR: Record<GearRealm, string> = {
   spirit_realm: "Green",
 };
 
-export function gearName(i: Pick<GearItem, "kind" | "slot" | "realm">): string {
+export function gearName(i: Pick<GearItem, "kind" | "slot" | "realm"> & { name?: string | undefined }): string {
   if (i.kind === "robe") return `${ROBE_COLOR[i.realm]} robe`;
   const what = `${words(i.realm)} ${i.slot}`;
-  return i.kind === "legendary" ? `Legendary ${what.toLowerCase()}` : what;
+  // A legendary item carries its pool name (cosmetic; ruling 176).
+  return i.kind === "legendary" ? `${i.name ?? "Legendary"} (legendary ${what.toLowerCase()})` : what;
 }
+
+/** Legendary items and wearables are marked in gold. */
+export const LEGENDARY_COLOR = C.gold;
 
 /** "A failed tribulation takes 8 Qi and 4 gold less" / "+2% Qi on every gain". */
 export function gearStats(i: Pick<GearItem, "kind" | "slot" | "realm">): string {
@@ -131,6 +136,10 @@ export function GearWarnings() {
 
 const LOST_SEEN = "gear_lost_seen";
 const ROBES_SEEN = "gear_robes_seen";
+const LEGENDARY_SEEN = "gear_legendary_seen";
+const LEGENDARY_WEARABLES_SEEN = "class_legendary_wearables_seen";
+
+const SOURCE_TEXT = { step: "the level-up or breakthrough", class: "the class drop", roulette: "the golden ticket", soul: "a soul drop" } as const;
 
 const LOST_TEXT = { broken: "broke and was lost", repent: "taken by the repent", soul: "lost to a heart demon", death: "lost with the avatar's death" } as const;
 
@@ -168,6 +177,33 @@ export function GearWatcher() {
   useOnce(LOST_SEEN, lost.length, (from) => {
     const lines = lost.slice(from).map((l) => `${gearName(l.item)}: ${LOST_TEXT[l.reason]}.`);
     Alert.alert("System", lines.join("\n"));
+  });
+
+  // "Legendary!" on every legendary roll: the item, where it went, or the gold the 365-day cap paid instead (ruling 176).
+  const legendary = state.gear.legendary;
+  useOnce(LEGENDARY_SEEN, legendary.length, (from) => {
+    for (const r of legendary.slice(from)) {
+      const item = r.itemId === null ? null : state.gear.items[r.itemId];
+      if (r.itemId === null) {
+        const per = r.source === "roulette" ? "The golden ticket gives" : "Soul drops give";
+        Alert.alert("Legendary!", `${per} one legendary item every ${RULES_V1.gear.legendaryCapDays} days, and one came less than ${RULES_V1.gear.legendaryCapDays} days ago: ${r.gold.toFixed(0)} gold instead.`);
+        continue;
+      }
+      if (!item) continue;
+      const isWorn = state.gear.worn[item.slot] === item.id;
+      const where = isWorn ? "I wear it now." : wearable(state, item) ? "It's in the stash." : `It's in the stash, worn from ${words(item.realm)} on.`;
+      const worn = wornItem(state, item.slot);
+      const buttons = !isWorn && wearable(state, item)
+        ? [
+            { text: "Keep it in the stash", style: "cancel" as const },
+            { text: "Wear", onPress: () => void log({ type: "GearEquipped", itemId: item.id }) },
+          ]
+        : undefined;
+      Alert.alert("Legendary!", `From ${SOURCE_TEXT[r.source]}: the ${gearName(item)}. ${gearStats(item)}. ${where}${worn && !isWorn ? ` (The ${gearName(worn).toLowerCase()} I wear: ${gearStats(worn).toLowerCase()}.)` : ""}`, buttons);
+    }
+  });
+  useOnce(LEGENDARY_WEARABLES_SEEN, state.class.legendaryWearables, () => {
+    Alert.alert("Legendary!", "A legendary class wearable: it's held with the others in the Stash.");
   });
 
   const robes = state.gear.robesGranted;

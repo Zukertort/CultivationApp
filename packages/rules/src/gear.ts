@@ -14,11 +14,19 @@
  * never does, and the weapon doesn't wear with use. With no armor worn all
  * day, the companion's damage takes Qi and gold instead (ruling 154). No
  * event carries damage; replay derives it.
+ *
+ * Legendary items (Roadmap part 4; ruling 176): a legendary outcome gives the
+ * legendary armor or weapon of its realm (Foundation's when rolled in Qi
+ * Condensation), named from the realm's pool. The slot is rolled by the
+ * server and stored in the event; older events get it from a hash of the
+ * event id. Soul drops and the roulette give at most one each per 365
+ * rolling days; other hits pay gold instead.
  */
 import type { EventOf, GearSlot } from "@cultivation/schema";
 import { GEAR_REALMS, REALMS, RULES_V1, type GearKind, type GearRealm, type Realm, type RulesConfig } from "./config.js";
 import type { CultivatorState } from "./engine.js";
 import { violate } from "./errors.js";
+import { DAY } from "./time.js";
 
 export const FULL_DURABILITY_BP = 10_000;
 const SLOTS: readonly GearSlot[] = ["armor", "weapon"];
@@ -32,7 +40,41 @@ export interface GearItem {
   /** Damage in basis points of durability; it breaks at 10,000. */
   damageBp: number;
   obtainedAt: number;
+  /** A legendary item's name from its realm's pool (cosmetic; ruling 176). */
+  name?: string;
+  /** A legendary item's source; `step` names the level-up or breakthrough that gave it, which a repent removes (ruling 103). */
+  source?: { kind: LegendarySource; step?: number };
 }
+
+/** Where a legendary item came from (ruling 176). */
+export type LegendarySource = "step" | "class" | "roulette" | "soul";
+
+/** Sources capped at one legendary item per `legendaryCapDays` rolling days (ruling 176). */
+export type CappedSource = Extract<LegendarySource, "roulette" | "soul">;
+
+/** A legendary hit: the item given, or the gold paid instead when its source was capped. */
+export interface LegendaryRecord {
+  at: number;
+  source: LegendarySource;
+  /** The item given; null when the cap paid gold instead. */
+  itemId: string | null;
+  realm: GearRealm;
+  slot: GearSlot;
+  /** Gold paid instead (capped hits only). */
+  gold: number;
+}
+
+/**
+ * Legendary pools (ruling 121): two named armors and two named weapons per
+ * realm. The names are cosmetic; every legendary of a realm and slot has the
+ * same stats. Picked by a hash of the event key, never stored.
+ */
+export const LEGENDARY_NAMES: Record<GearRealm, Record<GearSlot, readonly [string, string]>> = {
+  foundation_establishment: { armor: ["Cloudstep Vestment", "Jade Dew Robe"], weapon: ["Morning Frost Sword", "Pine Needle Spear"] },
+  core_formation: { armor: ["Golden Core Mantle", "Amber Scale Armor"], weapon: ["Sunforge Saber", "Golden Crane Halberd"] },
+  nascent_soul: { armor: ["Azure Soul Raiment", "Tidal Mirror Plate"], weapon: ["Azure Dragon Glaive", "Starfall Sword"] },
+  spirit_realm: { armor: ["Verdant Spirit Shroud", "Thousand-Leaf Armor"], weapon: ["Spirit Willow Whip", "Emerald Thunder Blade"] },
+};
 
 export type GearLossReason = "broken" | "repent" | "soul" | "death";
 
@@ -51,10 +93,24 @@ export interface GearState {
   gold: { bought: number; repaired: number; sold: number };
   /** What the companion's damage took with no armor worn (ruling 154). */
   unarmored: { qi: number; gold: number; days: number };
+  /** Every legendary hit, given or paid as gold, oldest first (ruling 176). */
+  legendary: LegendaryRecord[];
+  /** When each capped source last gave a legendary item (ruling 176). */
+  legendaryLastAt: Record<CappedSource, number | null>;
 }
 
 export function initialGear(): GearState {
-  return { items: {}, worn: { armor: null, weapon: null }, robesGranted: [], armorWornToday: [], lost: [], gold: { bought: 0, repaired: 0, sold: 0 }, unarmored: { qi: 0, gold: 0, days: 0 } };
+  return {
+    items: {},
+    worn: { armor: null, weapon: null },
+    robesGranted: [],
+    armorWornToday: [],
+    lost: [],
+    gold: { bought: 0, repaired: 0, sold: 0 },
+    unarmored: { qi: 0, gold: 0, days: 0 },
+    legendary: [],
+    legendaryLastAt: { roulette: null, soul: null },
+  };
 }
 
 const realmIndex = (r: Realm) => REALMS.indexOf(r);
@@ -251,7 +307,28 @@ export function gearOnFailure(s: CultivatorState, tribulationId: string, failure
  * Returns how many were taken.
  */
 export function loseStashItems(s: CultivatorState, n: number, at: number, rules: RulesConfig, reason: "repent" | "soul"): number {
-  const items = stash(s).sort((a, b) => sellPrice(a, rules) - sellPrice(b, rules) || a.obtainedAt - b.obtainedAt);
+  return loseStash(s, n, at, rules, reason, false);
+}
+
+/**
+ * Repent penalties take legendary gear from the stash after scales, least
+ * valuable first, never worn (rulings 112, 145); soul drops never take it.
+ */
+export function loseStashLegendaries(s: CultivatorState, n: number, at: number, rules: RulesConfig): number {
+  return loseStash(s, n, at, rules, "repent", true);
+}
+
+/** A repent removes the legendary item the repented step gave, worn or in the stash (ruling 103); sold or broken, nothing. */
+export function removeStepLegendary(s: CultivatorState, step: number, at: number): void {
+  for (const item of Object.values(s.gear.items)) {
+    if (item.source?.kind === "step" && item.source.step === step) removeItem(s, item.id, at, "repent");
+  }
+}
+
+function loseStash(s: CultivatorState, n: number, at: number, rules: RulesConfig, reason: "repent" | "soul", legendary: boolean): number {
+  const items = stash(s)
+    .filter((i) => (i.kind === "legendary") === legendary)
+    .sort((a, b) => sellPrice(a, rules) - sellPrice(b, rules) || a.obtainedAt - b.obtainedAt);
   const taken = items.slice(0, Math.max(0, n));
   for (const i of taken) removeItem(s, i.id, at, reason);
   return taken.length;
@@ -260,6 +337,97 @@ export function loseStashItems(s: CultivatorState, n: number, at: number, rules:
 /** Death takes worn gear too; the avatar is left in ordinary clothes (ruling 145). */
 export function loseAllGear(s: CultivatorState, at: number): void {
   for (const id of Object.keys(s.gear.items)) removeItem(s, id, at, "death");
+}
+
+// ---- Legendary items --------------------------------------------------------
+
+/** The server's roll for a legendary item's slot: u in [0, 1), armor below one half (ruling 176). */
+export function legendarySlotOutcome(u: number): GearSlot {
+  if (!(u >= 0 && u < 1)) throw new RangeError("u must be in [0, 1)");
+  return u < 0.5 ? "armor" : "weapon";
+}
+
+/** The slot stored in the event, else (events from before part 4) one picked by a hash of the event key. */
+export function legendarySlot(key: string, stored: GearSlot | undefined): GearSlot {
+  return stored ?? (fnv1a(`${key}|slot`) % 2 === 0 ? "armor" : "weapon");
+}
+
+/** The realm whose legendary a roll in `realm` gives: its own, or Foundation's in Qi Condensation (ruling 176). */
+export function legendaryRealm(realm: Realm): GearRealm {
+  return isGearRealm(realm) ? realm : "foundation_establishment";
+}
+
+/** The pool name for a legendary item, by a hash of its event key (cosmetic). */
+export function legendaryName(key: string, realm: GearRealm, slot: GearSlot): string {
+  const pool = LEGENDARY_NAMES[realm][slot];
+  return pool[fnv1a(`${key}|name`) % pool.length]!;
+}
+
+/** Legendary items held, worn or in the stash. */
+export function legendaryItems(state: CultivatorState): GearItem[] {
+  return Object.values(state.gear.items).filter((i) => i.kind === "legendary");
+}
+
+/** Is a capped source inside its window at `at` (ruling 176)? */
+export function legendaryCapped(state: CultivatorState, source: CappedSource, at: number, rules: RulesConfig = RULES_V1): boolean {
+  const last = state.gear.legendaryLastAt[source];
+  return last !== null && at - last < rules.gear.legendaryCapDays * DAY;
+}
+
+/** When a capped source can give a legendary item again; null when it can now. */
+export function legendaryCapEndsAt(state: CultivatorState, source: CappedSource, at: number, rules: RulesConfig = RULES_V1): number | null {
+  const last = state.gear.legendaryLastAt[source];
+  return last !== null && legendaryCapped(state, source, at, rules) ? last + rules.gear.legendaryCapDays * DAY : null;
+}
+
+export interface LegendaryGrant {
+  /** A unique key for the hit: the event id, plus an index when one event holds several. */
+  key: string;
+  at: number;
+  /** The realm the roll belongs to: the step's realm, the claimed tribulation's, or the current one. */
+  realm: Realm;
+  slot: GearSlot | undefined;
+  source: LegendarySource;
+  step?: number;
+  /** For capped sources: pays the gold due instead inside the window and returns it. */
+  goldInstead?: () => number;
+}
+
+/**
+ * A legendary outcome (ruling 176): the legendary armor or weapon of its
+ * realm, worn if the slot is empty and it is wearable, else into the stash.
+ * Soul drops and the roulette give at most one item each per rolling
+ * `legendaryCapDays`; other hits inside the window pay their gold instead.
+ * While dead nothing is given (ruling 106). Returns the item, or null.
+ */
+export function grantLegendary(s: CultivatorState, g: LegendaryGrant, rules: RulesConfig): GearItem | null {
+  if (s.progress.diedAt !== null) return null;
+  const realm = legendaryRealm(g.realm);
+  const slot = legendarySlot(g.key, g.slot);
+  const record: LegendaryRecord = { at: g.at, source: g.source, itemId: null, realm, slot, gold: 0 };
+  const capped = g.source === "roulette" || g.source === "soul" ? g.source : null;
+  if (capped !== null && legendaryCapped(s, capped, g.at, rules)) {
+    record.gold = g.goldInstead?.() ?? 0;
+    s.gear.legendary.push(record);
+    return null;
+  }
+  if (capped !== null) s.gear.legendaryLastAt[capped] = g.at;
+  const id = `legendary:${g.key}`;
+  if (s.gear.items[id]) violate("duplicate_gear", `gear ${id} already exists`);
+  const item: GearItem = {
+    id,
+    slot,
+    kind: "legendary",
+    realm,
+    damageBp: 0,
+    obtainedAt: g.at,
+    name: legendaryName(g.key, realm, slot),
+    source: g.step === undefined ? { kind: g.source } : { kind: g.source, step: g.step },
+  };
+  addItem(s, item);
+  record.itemId = id;
+  s.gear.legendary.push(record);
+  return item;
 }
 
 // ---- Handlers ---------------------------------------------------------------

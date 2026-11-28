@@ -36,7 +36,19 @@ export interface ClassRules {
     uniqueLegendaryChance: number;
   };
   /** How long a soul wearable freezes a demon's growth, and a keep pet wearable holds the companion's tier (ruling 118). */
-  wearables: { freezeDays: number; keepDays: number };
+  wearables: {
+    freezeDays: number;
+    keepDays: number;
+    /**
+     * SIM: legendary wearables (ruling 177): `share` of wearable class drops
+     * are legendary. A legendary soul wearable also adds `soulDamageBonus` to
+     * every damage dealt to its demon while frozen; a legendary keep adds
+     * `keepGoldBonus` to the additive gold pool while it keeps the tier; a
+     * legendary halo wearable's ticket adds `haloBonus` instead of the
+     * mastery ticket's bonus.
+     */
+    legendary: { share: number; soulDamageBonus: number; keepGoldBonus: number; haloBonus: number };
+  };
 }
 
 /** Main realms in order. Step 1 holds the first four; Spirit Realm starts Step 2. */
@@ -287,7 +299,7 @@ export type GearRealm = (typeof GEAR_REALMS)[number];
 /** Realms with their own shop prices; realms above Spirit Realm (Step 2+) use Spirit Realm's. */
 export const PRICE_REALMS = ["qi_condensation", ...GEAR_REALMS] as const;
 export type PriceRealm = (typeof PRICE_REALMS)[number];
-/** Robe: the free armor given on first entering a realm; shop: bought; legendary: from a legendary roll (Roadmap part 4). */
+/** Robe: the free armor given on first entering a realm; shop: bought; legendary: from a legendary roll, never bought (ruling 176). */
 export type GearKind = "robe" | "shop" | "legendary";
 
 /**
@@ -324,6 +336,12 @@ export interface GearRules {
   careAtBp: number;
   /** The before-deadline warning looks at tribulations due within this many hours (ruling 153). */
   riskHours: number;
+  /**
+   * SIM: repeatable sources (soul drops, the roulette) give at most one
+   * legendary item each per this many rolling days; other legendary hits in
+   * the window pay that source's gold instead (ruling 176).
+   */
+  legendaryCapDays: number;
 }
 
 export interface RulesConfig {
@@ -404,7 +422,7 @@ export interface RulesConfig {
 }
 
 export const RULES_V1: RulesConfig = Object.freeze({
-  version: "1.26.0",
+  version: "1.27.0",
   tiers: {
     turtle: { capacity: 30, weeklyLoss: 10, goldBonus: 0.01, coreQiBonus: 0, breakthroughLegendaryChance: 0 },
     panda: { capacity: 800, weeklyLoss: 200, goldBonus: 0.1, coreQiBonus: 0, breakthroughLegendaryChance: 0 },
@@ -644,6 +662,7 @@ export const RULES_V1: RulesConfig = Object.freeze({
     warnAtBp: 9500,
     careAtBp: 5000,
     riskHours: 72,
+    legendaryCapDays: 365,
   },
   classes: {
     table: {
@@ -662,8 +681,9 @@ export const RULES_V1: RulesConfig = Object.freeze({
       chance: 0.5,
       soulColorBonus: { green: 0.02, blue: 0.04, red: 0.06, golden: 0.08, translucent: 0.1, rainbow: 0.12 },
       tierBonus: { turtle: 0, panda: 0.02, horse: 0.04, tiger: 0.06, lion: 0.08 },
-      uniqueLegendaryChance: 0.02,
+      // Ruling 120 as amended: matches the other groups' wearables in days of income per claim (legendary simulator, ruling 178).
+      uniqueLegendaryChance: 0.04,
     },
-    wearables: { freezeDays: 7, keepDays: 30 },
+    wearables: { freezeDays: 7, keepDays: 30, legendary: { share: 0.1, soulDamageBonus: 0.5, keepGoldBonus: 0.05, haloBonus: 0.15 } },
   },
 } satisfies RulesConfig);

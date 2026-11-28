@@ -8,7 +8,7 @@
  * random outcomes come from a seeded PRNG standing in for the server's
  * secure RNG, so a run is reproducible.
  */
-import type { GameEvent } from "@cultivation/schema";
+import type { GameEvent, GearSlot } from "@cultivation/schema";
 import {
   DAY,
   RULES_V1,
@@ -17,7 +17,8 @@ import {
   advanceTo,
   applyEvent,
   breakthroughRollOutcome,
-  classDropOutcome,
+  breakthroughRollSlot,
+  classDropRoll,
   initialState,
   pendingBreakthroughRolls,
   pendingClassDrops,
@@ -26,6 +27,7 @@ import {
   pendingTribulationRolls,
   questDropOutcome,
   soulDropOutcome,
+  soulDropSlot,
   tribulationDropOutcome,
   type CultivatorState,
 } from "@cultivation/rules";
@@ -130,8 +132,10 @@ export class Cultivator {
     // In the order the server (and the app's temporary roller) appends them.
     if (this.rollAll) {
       for (const p of pendingSoulRolls(this.s.soul)) {
-        const drops = Array.from({ length: p.count }, () => soulDropOutcome(p.color, p.polarity, this.roll(), this.rules));
-        this.record(this.event("SoulDropRolled", this.s.clock, { eventId: p.eventId, drops }));
+        const us = Array.from({ length: p.count }, () => this.roll());
+        const drops = us.map((u) => soulDropOutcome(p.color, p.polarity, u, this.rules));
+        const slots = us.map((u) => soulDropSlot(p.color, p.polarity, u, this.rules)).filter((x): x is GearSlot => x !== undefined);
+        this.record(this.event("SoulDropRolled", this.s.clock, { eventId: p.eventId, drops, ...(slots.length > 0 ? { legendarySlots: slots } : {}) }));
       }
       for (const p of pendingQuestRolls(this.s)) this.record(this.event("MainQuestDropRolled", this.s.clock, { eventId: p.eventId, drop: questDropOutcome(p.chance, this.roll(), this.rules) }));
     }
@@ -139,11 +143,13 @@ export class Cultivator {
       this.record(this.event("TribulationDropRolled", this.s.clock, { eventId: p.eventId, drop: tribulationDropOutcome(this.roll()) }));
     }
     if (this.rollAll) {
-      for (const p of pendingClassDrops(this.s)) this.record(this.event("ClassDropRolled", this.s.clock, { eventId: p.eventId, drop: classDropOutcome(p.group, p.chance, this.roll()) }));
+      for (const p of pendingClassDrops(this.s)) this.record(this.event("ClassDropRolled", this.s.clock, { eventId: p.eventId, ...classDropRoll(p.group, p.chance, this.roll(), this.rules) }));
     }
     for (const p of pendingBreakthroughRolls(this.s)) {
       this.expectedLegendary += p.chance;
-      this.record(this.event("BreakthroughRolled", this.s.clock, { step: p.step, item: breakthroughRollOutcome(p.chance, this.roll()) }));
+      const u = this.roll();
+      const slot = breakthroughRollSlot(p.chance, u);
+      this.record(this.event("BreakthroughRolled", this.s.clock, { step: p.step, item: breakthroughRollOutcome(p.chance, u), ...(slot ? { slot } : {}) }));
     }
   }
   private applyTracked(e: GameEvent): void {

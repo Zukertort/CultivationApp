@@ -23,6 +23,7 @@ import { runCadenceScenarios } from "./cadence.js";
 import { runGearScenarios } from "./gear.js";
 import { runShopScenarios } from "./shop.js";
 import { runScalingScenarios } from "./scaling.js";
+import { runLegendaryScenarios } from "./legendary.js";
 
 const T0 = Date.UTC(2026, 10, 2, 3); // Monday 00:00 in Buenos Aires
 const TRAINING_HOUR = 19 * 60 * 60 * 1000;
@@ -139,5 +140,7 @@ runCadenceScenarios(outDir);
 runGearScenarios(outDir);
 runShopScenarios(outDir);
 runScalingScenarios(outDir);
+// 8. Legendary items: per year by source, the cap, the ladder, the goblin and the Unique chance.
+runLegendaryScenarios(outDir);
 
 console.log(`\nCSV written to ${outDir}`);

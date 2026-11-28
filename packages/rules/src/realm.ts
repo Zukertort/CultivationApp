@@ -14,11 +14,11 @@
  * tribulations left behind by a breakthrough, a discipline change or a
  * repent are closed at no cost, in the integrity log.
  */
-import type { EventOf } from "@cultivation/schema";
+import type { EventOf, GearSlot } from "@cultivation/schema";
 import { RULES_V1, type MainPath, type Realm, type RulesConfig, type StepOneRealm } from "./config.js";
 import type { CultivatorState } from "./engine.js";
 import { chooseClassAtCore } from "./class.js";
-import { loseAllGear, loseStashItems } from "./gear.js";
+import { grantLegendary, legendarySlotOutcome, loseAllGear, loseStashItems, loseStashLegendaries, removeStepLegendary } from "./gear.js";
 import { violate } from "./errors.js";
 import { workDays } from "./main.js";
 import { DAY } from "./time.js";
@@ -363,7 +363,8 @@ function earnLegendaryRoll(s: CultivatorState, step: ProgressStep, rules: RulesC
   let chance = (realmBase ?? base.level) + rules.tiers[s.companion.tier].breakthroughLegendaryChance;
   const tickets = s.haloTickets.filter((t) => step.at < t.expiresAt).sort((a, b) => a.expiresAt - b.expiresAt);
   if (tickets.length > 0) {
-    chance += rules.halo.legendaryBonus;
+    // A legendary halo wearable's ticket carries its own bonus (ruling 177).
+    chance += tickets[0]!.bonus ?? rules.halo.legendaryBonus;
     s.haloTickets.splice(s.haloTickets.indexOf(tickets[0]!), 1);
   }
   // An armed (drunk) legendary potion adds to a realm breakthrough's roll and is spent there (ruling 151).
@@ -434,12 +435,14 @@ export function clampWhileDead(s: CultivatorState, before: DeathSnapshot | null)
   const inv = s.inventory;
   inv.gainPotions = Math.min(inv.gainPotions, before.inventory.gainPotions);
   inv.legendaryPotions = Math.min(inv.legendaryPotions, before.inventory.legendaryPotions);
-  inv.legendary = Math.min(inv.legendary, before.inventory.legendary);
   inv.scales = Math.min(inv.scales, before.inventory.scales);
   inv.wings = inv.wings && before.inventory.wings;
   inv.soulWearables = Math.min(inv.soulWearables, before.inventory.soulWearables);
   inv.petKeepWearables = Math.min(inv.petKeepWearables, before.inventory.petKeepWearables);
   inv.petHaloWearables = Math.min(inv.petHaloWearables, before.inventory.petHaloWearables);
+  inv.legendarySoulWearables = Math.min(inv.legendarySoulWearables, before.inventory.legendarySoulWearables);
+  inv.legendaryPetKeepWearables = Math.min(inv.legendaryPetKeepWearables, before.inventory.legendaryPetKeepWearables);
+  inv.legendaryPetHaloWearables = Math.min(inv.legendaryPetHaloWearables, before.inventory.legendaryPetHaloWearables);
   s.main.debt.qi = Math.max(s.main.debt.qi, before.debt.qi);
   s.main.debt.gold = Math.max(s.main.debt.gold, before.debt.gold);
   pendingMaps(s).forEach((m, i) => {
@@ -572,16 +575,19 @@ function entryIndex(steps: ProgressStep[], realm: Realm): number {
 
 /**
  * Take up to `n` items, least valuable first; "all" empties the inventory and
- * the stash. A repent penalty (ruling 104) goes down the whole list; a soul
- * "lose item" drop takes one and stops before scales, legendary items and
- * wings (rulings 15, 146). Worn gear is never taken (ruling 145). Each takes
- * what exists: nothing is converted (ruling 104).
+ * the stash. The order (rulings 112, 146, 177): gain potion, soul, halo and
+ * keep wearables, their legendary versions, legendary potion, stash gear,
+ * scale, legendary gear, wings. A repent penalty (ruling 104) goes down the
+ * whole list; a soul "lose item" drop takes one and stops before scales,
+ * legendary gear and wings (rulings 15, 146). Worn gear is never taken
+ * (ruling 145). Each takes what exists: nothing is converted (ruling 104).
  */
 export function loseItems(s: CultivatorState, n: number | "all", at: number, rules: RulesConfig, by: "repent" | "soul" = "repent"): number {
   const inv = s.inventory;
   let left = n === "all" ? Infinity : n;
   let lost = 0;
-  const take = (key: "gainPotions" | "soulWearables" | "petHaloWearables" | "petKeepWearables" | "legendaryPotions" | "scales" | "legendary") => {
+  type Counted = "gainPotions" | "soulWearables" | "petHaloWearables" | "petKeepWearables" | "legendarySoulWearables" | "legendaryPetHaloWearables" | "legendaryPetKeepWearables" | "legendaryPotions" | "scales";
+  const take = (key: Counted) => {
     const k = Math.min(inv[key], left);
     inv[key] -= k;
     left -= k;
@@ -591,14 +597,19 @@ export function loseItems(s: CultivatorState, n: number | "all", at: number, rul
   take("soulWearables");
   take("petHaloWearables");
   take("petKeepWearables");
+  take("legendarySoulWearables");
+  take("legendaryPetHaloWearables");
+  take("legendaryPetKeepWearables");
   take("legendaryPotions");
-  // Stash gear, least valuable first (rulings 145, 146).
+  // Stash gear, least valuable first (rulings 145, 146); legendary gear comes after scales.
   const gear = loseStashItems(s, left, at, rules, by);
   left -= gear;
   lost += gear;
   if (by === "soul") return lost;
   take("scales");
-  take("legendary");
+  const legendary = loseStashLegendaries(s, left, at, rules);
+  left -= legendary;
+  lost += legendary;
   if (inv.wings && left > 0) {
     inv.wings = false;
     lost += 1;
@@ -659,16 +670,15 @@ export function onRepented(s: CultivatorState, e: EventOf<"Repented">, rules: Ru
       !x.repented &&
       (i === entryAt || (i > prevEntry && i < entryAt && x.realm === prev && x.level !== null && LEVELS.indexOf(x.level) > newIndex)),
   );
-  let legendary = 0;
   for (const x of undone) {
     x.repented = true;
     // Only milestones that earned a roll lose it; an override never rolled.
     const key = milestone(x.realm, x.level);
     if (x.kind !== "override" && !p.noRoll.includes(key)) p.noRoll.push(key);
     delete p.pendingRolls[String(x.step)];
-    if (x.legendary) legendary += 1;
+    // The legendary item the step gave goes, worn or in the stash; sold or broken, nothing (ruling 103).
+    if (x.legendary) removeStepLegendary(s, x.step, e.at);
   }
-  s.inventory.legendary -= Math.min(s.inventory.legendary, legendary);
   record(s, e.at, "repent");
 
   // Escalation, counted per realm left over the lifetime (ruling 104).
@@ -692,17 +702,24 @@ export function onRepented(s: CultivatorState, e: EventOf<"Repented">, rules: Ru
   }
 }
 
-/** Record a pending legendary roll; false when nothing is pending for that step (the caller flags it). */
-export function onBreakthroughRolled(s: CultivatorState, e: EventOf<"BreakthroughRolled">): boolean {
+/**
+ * Record a pending legendary roll; false when nothing is pending for that
+ * step (the caller flags it). A legendary outcome is legendary armor or a
+ * weapon of the step's realm, the realm entered for a breakthrough
+ * (Foundation's for a Qi Condensation level-up), never a wearable, and
+ * uncapped: milestones bound it (ruling 176).
+ */
+export function onBreakthroughRolled(s: CultivatorState, e: EventOf<"BreakthroughRolled">, rules: RulesConfig): boolean {
   const p = s.progress;
   if (!p.pendingRolls[String(e.step)]) return false;
   delete p.pendingRolls[String(e.step)];
   p.legendaryRolls[e.item] += 1;
-  // A legendary item is stored in the inventory until Roadmap part 4 makes it legendary gear (ruling 83).
   if (e.item === "legendary") {
-    s.inventory.legendary += 1;
     const step = p.steps[e.step - 1];
-    if (step) step.legendary = true;
+    if (step) {
+      step.legendary = true;
+      grantLegendary(s, { key: e.id, at: e.at, realm: step.realm, slot: e.slot, source: "step", step: step.step }, rules);
+    }
   }
   return true;
 }
@@ -711,6 +728,11 @@ export function onBreakthroughRolled(s: CultivatorState, e: EventOf<"Breakthroug
 export function breakthroughRollOutcome(chance: number, u: number): "none" | "legendary" {
   if (!(u >= 0 && u < 1)) throw new RangeError("u must be in [0, 1)");
   return u < chance ? "legendary" : "none";
+}
+
+/** The slot of a legendary step roll, from where u landed below the chance (ruling 176); undefined when it isn't legendary. */
+export function breakthroughRollSlot(chance: number, u: number): GearSlot | undefined {
+  return breakthroughRollOutcome(chance, u) === "legendary" ? legendarySlotOutcome(u / chance) : undefined;
 }
 
 // ---- Projections ------------------------------------------------------------

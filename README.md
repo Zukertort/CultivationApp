@@ -8,10 +8,10 @@ repo implements.
 
 | Path | What it is | Status |
 | --- | --- | --- |
-| `packages/schema` | Event types and Zod validators shared by every consumer | Body, Soul, Main, tribulations, realms, classes, base gear |
-| `packages/rules` | Deterministic rules engine: events in, state out | Step 1 rules through Roadmap part 2 (base gear) |
+| `packages/schema` | Event types and Zod validators shared by every consumer | Body, Soul, Main, tribulations, realms, classes, gear, the shop, legendary items |
+| `packages/rules` | Deterministic rules engine: events in, state out | Step 1 rules through Roadmap part 4 (legendary items) |
 | `packages/scenarios` | Persona habits and dev scenarios, shared by the simulator and the app | Used by the simulator and dev builds |
-| `tools/sim` | Economy simulator that runs the real rules engine | Food, Soul, Main, tribulations, realms, classes, cadence and gear reports |
+| `tools/sim` | Economy simulator that runs the real rules engine | Food, Soul, Main, tribulations, realms, classes, cadence, gear, shop, scaling and legendary reports |
 | `apps/mobile` | Expo app (iOS, Android, web) | Dogfooding screens; dev scenario loader in development builds |
 | `apps/server` | Hono API on Cloud Run + Postgres event store | Not started (Roadmap part 6) |
 

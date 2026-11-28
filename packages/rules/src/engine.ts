@@ -1,4 +1,4 @@
-import type { BodyActivityKind, EventOf, Evidence, GameEvent, RoulettePrize, SoulDrop } from "@cultivation/schema";
+import type { BodyActivityKind, EventOf, Evidence, GameEvent, GearSlot, RoulettePrize, SoulDrop } from "@cultivation/schema";
 import { RULES_V1, TIERS, type RulesConfig, type Tier } from "./config.js";
 import { RuleViolation, violate } from "./errors.js";
 import {
@@ -40,7 +40,7 @@ import {
   type MainState,
 } from "./main.js";
 import { chargeVacation, onPotionBought } from "./shop.js";
-import { gearMidnight, initialGear, onGearBought, onGearEquipped, onGearRepaired, onGearSold, onGearUnequipped, syncGear, type GearState } from "./gear.js";
+import { gearMidnight, grantLegendary, initialGear, legendarySlotOutcome, onGearBought, onGearEquipped, onGearRepaired, onGearSold, onGearUnequipped, syncGear, type GearState } from "./gear.js";
 import { initialClass, onClassChosen, onClassDropRolled, onWearableUsed, classCovers, type ClassState } from "./class.js";
 import {
   advanceProgress,
@@ -122,7 +122,8 @@ export interface CultivatorState {
   skills: Record<string, { name: string; ranks: string[]; rank: number | null; evidence: Evidence | null }>;
   /** Timestamps of each skill mastery, in order. */
   masteries: number[];
-  haloTickets: { grantedAt: number; expiresAt: number }[];
+  /** Halo tickets: from masteries, and from halo pet wearables (a legendary one carries its own `bonus`; ruling 177). */
+  haloTickets: { grantedAt: number; expiresAt: number; bonus?: number }[];
   rest: RestPeriod | null;
   closedDoorLog: RestPeriod[];
   /** Vacations taken, for the 30-days-per-91 cap (ruling 161); an early end shortens the entry. */
@@ -135,21 +136,23 @@ export interface CultivatorState {
   /**
    * Potions by kind (ruling 58); a drunk gain potion is active until
    * `gainPotionUntil`, and a drunk legendary potion stays armed until the next
-   * realm breakthrough's legendary roll (ruling 151). `legendary` counts
-   * legendary items.
+   * realm breakthrough's legendary roll (ruling 151). Legendary items are
+   * gear (ruling 176), in `gear`.
    */
   inventory: {
     gainPotions: number;
     legendaryPotions: number;
     legendaryPotionArmed: boolean;
     gainPotionUntil: number | null;
-    legendary: number;
     scales: number;
     wings: boolean;
-    /** Class wearables held (ruling 118). */
+    /** Class wearables held (ruling 118), and their legendary versions (ruling 177). */
     soulWearables: number;
     petKeepWearables: number;
     petHaloWearables: number;
+    legendarySoulWearables: number;
+    legendaryPetKeepWearables: number;
+    legendaryPetHaloWearables: number;
   };
   soul: SoulState;
   main: MainState;
@@ -200,12 +203,14 @@ export function initialState(rules: RulesConfig = RULES_V1): CultivatorState {
       legendaryPotions: 0,
       legendaryPotionArmed: false,
       gainPotionUntil: null,
-      legendary: 0,
       scales: 0,
       wings: false,
       soulWearables: 0,
       petKeepWearables: 0,
       petHaloWearables: 0,
+      legendarySoulWearables: 0,
+      legendaryPetKeepWearables: 0,
+      legendaryPetHaloWearables: 0,
     },
     soul: initialSoul(),
     main: initialMain(),
@@ -581,7 +586,8 @@ const onRouletteSpun: Handler<"RouletteSpun"> = (s, e, rules) => {
       addPotion(s, "legendary");
       break;
     case "legendary":
-      inv.legendary += 1;
+      // Legendary gear of the current realm, at most one per 365 days from the roulette; else the gold prize (ruling 176).
+      grantLegendary(s, { key: e.id, at: e.at, realm: s.main.realm, slot: e.slot, source: "roulette", goldInstead: () => payGold(s, rules.roulette.goldPrize * goldMultiplier(s, rules)) }, rules);
       break;
     case "scale":
       inv.scales += 1;
@@ -594,6 +600,12 @@ const onRouletteSpun: Handler<"RouletteSpun"> = (s, e, rules) => {
   }
 };
 
+/** Earn gold and return the amount (debt is repaid first, as with every gain). */
+function payGold(s: CultivatorState, amount: number): number {
+  earnGold(s, amount);
+  return amount;
+}
+
 /** Earn a task event's drop rolls, settle any stored outcomes, and apply them. */
 function rollSoulDrops(
   s: CultivatorState,
@@ -601,17 +613,28 @@ function rollSoulDrops(
   polarity: SoulPolarity,
   wanted: number,
   stored: readonly SoulDrop[] | undefined,
+  slots: readonly GearSlot[] | undefined,
   rules: RulesConfig,
 ): void {
   const earned = earnRolls(s.soul, localDay(e.at, s.tzOffsetMinutes), polarity, wanted, rules);
-  for (const drop of settleRolls(s.soul, e.id, e.at, polarity, earned, stored)) applySoulDrop(s, drop, rules);
+  applySoulDrops(s, e, settleRolls(s.soul, e.id, e.at, polarity, earned, stored), slots, rules);
+}
+
+/** Apply one event's soul drops; its n-th "legendary" takes the n-th stored slot and is keyed by the event id and n. */
+function applySoulDrops(s: CultivatorState, e: { id: string; at: number }, drops: readonly SoulDrop[], slots: readonly GearSlot[] | undefined, rules: RulesConfig): void {
+  let n = 0;
+  for (const drop of drops) {
+    const key = drop === "legendary" && n > 0 ? `${e.id}|${n}` : e.id;
+    applySoulDrop(s, drop, rules, { key, at: e.at, slot: drop === "legendary" ? slots?.[n] : undefined });
+    if (drop === "legendary") n += 1;
+  }
 }
 
 const onDropRolled: Handler<"SoulDropRolled"> = (s, e, rules) => {
   const drops = onSoulDropRolled(s.soul, e);
   // Nothing pending: a duplicate roll, or one a rebalance no longer earns. Flagged, never applied.
   if (drops === null) s.anomalies.push({ at: e.at, code: "orphan_drop_roll" });
-  else for (const drop of drops) applySoulDrop(s, drop, rules);
+  else applySoulDrops(s, e, drops, e.legendarySlots, rules);
 };
 
 /** Drink a gain potion (ruling 58): +10% gold and Qi for 24 hours, one active at a time. */
@@ -643,11 +666,12 @@ const onPotionUsed: Handler<"PotionUsed"> = (s, e, rules) => {
 
 /**
  * Apply a server-rolled soul drop. Gains get the gold/Qi multipliers; losses
- * never take a balance below 0. A gained item is a potion until Roadmap part 4
- * adds legendary items; a lost item follows the repent order, then stash gear
- * (rulings 15, 146).
+ * never take a balance below 0. A common item is a potion (rulings 15, 58); a
+ * "legendary" (Rainbow) is legendary gear, at most one per 365 days from soul
+ * drops, else the color's gold drop (ruling 176); a lost item follows the
+ * repent order, then stash gear (rulings 15, 146).
  */
-function applySoulDrop(s: CultivatorState, drop: SoulDrop, rules: RulesConfig): void {
+function applySoulDrop(s: CultivatorState, drop: SoulDrop, rules: RulesConfig, hit: { key: string; at: number; slot: GearSlot | undefined }): void {
   const d = rules.soul.drops;
   const inv = s.inventory;
   s.soul.drops[drop] = (s.soul.drops[drop] ?? 0) + 1;
@@ -667,7 +691,7 @@ function applySoulDrop(s: CultivatorState, drop: SoulDrop, rules: RulesConfig): 
       addPotion(s, "legendary");
       break;
     case "legendary":
-      inv.legendary += 1;
+      grantLegendary(s, { key: hit.key, at: hit.at, realm: s.main.realm, slot: hit.slot, source: "soul", goldInstead: () => payGold(s, d.gold * goldMultiplier(s, rules)) }, rules);
       break;
     case "lose_gold":
       s.gold = Math.max(0, s.gold - d.loseGold);
@@ -714,13 +738,13 @@ const handlers: { [T in GameEvent["type"]]: Handler<T> } = {
     const polarity = onSoulTaskLogged(s.soul, e, rules);
     // Practice counts against the Soul tax; a relapse doesn't (ruling 31).
     if (polarity === "positive") markActivity(s.main, "soul", e.at);
-    rollSoulDrops(s, e, polarity, 1, e.drop === undefined ? undefined : [e.drop], rules);
+    rollSoulDrops(s, e, polarity, 1, e.drop === undefined ? undefined : [e.drop], e.legendarySlot === undefined ? undefined : [e.legendarySlot], rules);
   },
   SoulQuestDefined: (s, e) => onQuestDefined(s.soul, e),
   SoulQuestCompleted: (s, e, rules) => {
     const hit = onQuestCompleted(s.soul, e, rules);
     markActivity(s.main, "soul", e.at);
-    rollSoulDrops(s, e, "positive", hit, e.drops, rules);
+    rollSoulDrops(s, e, "positive", hit, e.drops, e.legendarySlots, rules);
   },
   SoulDropRolled: onDropRolled,
   InterviewAnswered: (s, e) => onInterviewAnswered(s, e),
@@ -731,8 +755,8 @@ const handlers: { [T in GameEvent["type"]]: Handler<T> } = {
     if (paid !== null) crossCredit(s, e.taskId, e.at, paid.decay, rules);
   },
   ClassChosen: onClassChosen,
-  ClassDropRolled: (s, e) => {
-    if (!onClassDropRolled(s, e)) s.anomalies.push({ at: e.at, code: "orphan_class_drop_roll" });
+  ClassDropRolled: (s, e, rules) => {
+    if (!onClassDropRolled(s, e, rules)) s.anomalies.push({ at: e.at, code: "orphan_class_drop_roll" });
   },
   WearableUsed: onWearableUsed,
   MainTaskCancelled: onTaskCancelled,
@@ -758,8 +782,8 @@ const handlers: { [T in GameEvent["type"]]: Handler<T> } = {
   NascentSoulLocked: onNascentSoulLocked,
   Repented: onRepented,
   RealmOverride: onRealmOverride,
-  BreakthroughRolled: (s, e) => {
-    if (!onBreakthroughRolled(s, e)) s.anomalies.push({ at: e.at, code: "orphan_breakthrough_roll" });
+  BreakthroughRolled: (s, e, rules) => {
+    if (!onBreakthroughRolled(s, e, rules)) s.anomalies.push({ at: e.at, code: "orphan_breakthrough_roll" });
   },
   // Every gear event first applies missed deadlines, so a failure hits the armor worn at its deadline (ruling 147).
   GearBought: (s, e, rules) => {
@@ -848,6 +872,14 @@ export function replay(events: readonly GameEvent[], rules: RulesConfig = RULES_
     clampWhileDead(s, dead);
   }
   return s;
+}
+
+/** The slot of a legendary roulette prize, from where u landed inside the legendary band (ruling 176); undefined for any other prize. */
+export function rouletteSlot(u: number, rules: RulesConfig = RULES_V1): GearSlot | undefined {
+  if (rouletteOutcome(u, rules) !== "legendary") return undefined;
+  const o = rules.roulette.oddsBp;
+  const start = o.gold + o.qi + o.potion;
+  return legendarySlotOutcome((u * 10_000 - start) / o.legendary);
 }
 
 /**

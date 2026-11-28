@@ -9,7 +9,8 @@
  * the end-of-day color evaluation, the Golden clock); the cultivator's own
  * actions still apply at once. See "Rulings" in docs/design.md.
  */
-import type { EventOf, SoulDrop, SoulTask } from "@cultivation/schema";
+import type { EventOf, GearSlot, SoulDrop, SoulTask } from "@cultivation/schema";
+import { legendarySlotOutcome } from "./gear.js";
 import { GROWTH_COLORS, WEAKENING_COLORS, type RulesConfig, type SoulColor, type SoulDropBand } from "./config.js";
 import { potionKind } from "./economy.js";
 import { violate } from "./errors.js";
@@ -37,6 +38,8 @@ export interface HeartDemon {
   revivals: number;
   /** A soul wearable freezes its growth until then (ruling 118). */
   frozenUntil: number | null;
+  /** A legendary soul wearable adds to every damage dealt to it until then (ruling 177). */
+  boostedUntil: number | null;
 }
 
 export interface SoulQuest {
@@ -207,9 +210,11 @@ function revive(soul: SoulState, demonId: string, d: HeartDemon, at: number): vo
   soul.demonHistory.push({ at, demonId, kind: "revived" });
 }
 
+/** Damage from one positive task, quest hit or cross-credit; a legendary soul wearable adds its bonus while it runs (ruling 177), never to heals. */
 function attack(soul: SoulState, demonId: string, d: HeartDemon, at: number, rules: RulesConfig): void {
   d.idleMs = 0;
-  setHp(soul, demonId, d, d.hp - rules.soul.positiveDamage, at, rules);
+  const boost = d.boostedUntil !== null && at < d.boostedUntil ? rules.classes.wearables.legendary.soulDamageBonus : 0;
+  setHp(soul, demonId, d, d.hp - rules.soul.positiveDamage * (1 + boost), at, rules);
 }
 
 /**
@@ -288,6 +293,7 @@ export function onDemonCreated(soul: SoulState, e: EventOf<"HeartDemonCreated">,
     defeats: 0,
     revivals: 0,
     frozenUntil: null,
+    boostedUntil: null,
   };
   soul.firstDemonAt ??= e.at;
   soul.lastDemonCreatedAt = e.at;
@@ -411,22 +417,33 @@ export function dropMatchesPolarity(drop: SoulDrop, polarity: SoulPolarity): boo
  * outcome, inline on the task event or in a SoulDropRolled appended on sync.
  */
 export function soulDropOutcome(color: SoulColor, polarity: SoulPolarity, u: number, rules: RulesConfig): SoulDrop {
+  const hit = soulBand(color, polarity, u, rules);
+  if (hit === null) return "none";
+  if (hit.band !== "item") return hit.band;
+  // A common item is a potion; where the roll landed in its band picks the kind (rulings 15, 58).
+  return potionKind(hit.f, rules) === "gain" ? "gain_potion" : "legendary_potion";
+}
+
+/** The slot of a "legendary" soul drop, from where u landed inside the legendary band (ruling 176); undefined for any other outcome. */
+export function soulDropSlot(color: SoulColor, polarity: SoulPolarity, u: number, rules: RulesConfig): GearSlot | undefined {
+  const hit = soulBand(color, polarity, u, rules);
+  return hit?.band === "legendary" ? legendarySlotOutcome(hit.f) : undefined;
+}
+
+/** The band u lands in, and where inside it (0-1); null when it lands in none. */
+function soulBand(color: SoulColor, polarity: SoulPolarity, u: number, rules: RulesConfig): { band: SoulDropBand; f: number } | null {
   if (!(u >= 0 && u < 1)) throw new RangeError("u must be in [0, 1)");
-  if (!soulRolls(color, polarity)) return "none";
+  if (!soulRolls(color, polarity)) return null;
   const bp = Math.floor(u * 10_000);
   const odds = rules.soul.drops.oddsBp[color];
   let acc = 0;
   for (const band of SOUL_DROP_ORDER) {
     if (GAIN_BANDS.includes(band) !== (polarity === "positive")) continue;
     const width = odds[band] ?? 0;
-    if (bp < acc + width) {
-      if (band !== "item") return band;
-      // The item band is a potion until Roadmap part 4; where the roll landed in it picks the kind (ruling 58).
-      return potionKind((u * 10_000 - acc) / width, rules) === "gain" ? "gain_potion" : "legendary_potion";
-    }
+    if (bp < acc + width) return { band, f: (u * 10_000 - acc) / width };
     acc += width;
   }
-  return "none";
+  return null;
 }
 
 /**
