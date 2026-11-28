@@ -422,7 +422,7 @@ export interface RulesConfig {
 }
 
 export const RULES_V1: RulesConfig = Object.freeze({
-  version: "1.27.0",
+  version: "1.28.0",
   tiers: {
     turtle: { capacity: 30, weeklyLoss: 10, goldBonus: 0.01, coreQiBonus: 0, breakthroughLegendaryChance: 0 },
     panda: { capacity: 800, weeklyLoss: 200, goldBonus: 0.1, coreQiBonus: 0, breakthroughLegendaryChance: 0 },
@@ -681,8 +681,9 @@ export const RULES_V1: RulesConfig = Object.freeze({
       chance: 0.5,
       soulColorBonus: { green: 0.02, blue: 0.04, red: 0.06, golden: 0.08, translucent: 0.1, rainbow: 0.12 },
       tierBonus: { turtle: 0, panda: 0.02, horse: 0.04, tiger: 0.06, lion: 0.08 },
-      // Ruling 120 as amended: matches the other groups' wearables in days of income per claim (legendary simulator, ruling 178).
-      uniqueLegendaryChance: 0.04,
+      // Rulings 120, 178: matches the Body and Hybrid wearables' value in days of income per claim (legendary simulator).
+      // The Soul group is left out: its wearables' value is the soul color, which income doesn't measure.
+      uniqueLegendaryChance: 0.06,
     },
     wearables: { freezeDays: 7, keepDays: 30, legendary: { share: 0.1, soulDamageBonus: 0.5, keepGoldBonus: 0.05, haloBonus: 0.15 } },
   },

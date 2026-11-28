@@ -298,8 +298,9 @@ function calibration() {
   // The Unique chance that matches: a legendary's value in days of gold income times p = the average wearable value per claim.
   const monk = calibrate("monk", false, 100);
   const legendaryDays = legendarySale / (monk.goldEarned / CAL_DAYS);
-  // Each group (Soul, Body, Hybrid) counts once: its personas are averaged first.
-  for (const list of Object.values(byGroup)) perClaim.push(list.reduce((a, b) => a + b, 0) / list.length);
+  // Body and Hybrid only (ruling 178): the Soul group's wearables are worth the soul color, which income doesn't
+  // measure, so its 0 is a measurement gap, not a real zero. Each group counts once.
+  for (const [group, list] of Object.entries(byGroup)) if (group !== "soul") perClaim.push(list.reduce((a, b) => a + b, 0) / list.length);
   const target = perClaim.reduce((a, b) => a + b, 0) / perClaim.length;
   return { rows, legendarySale, legendaryDays, target, chance: target / legendaryDays };
 }
@@ -361,7 +362,7 @@ export function runLegendaryScenarios(outDir: string): void {
   console.log(calHeader.join("\t"));
   for (const r of cal.rows) console.log(r.join("\t"));
   console.log(
-    `A Core Formation legendary sells for ${cal.legendarySale.toFixed(1)} gold, ${cal.legendaryDays.toFixed(1)} days of a Monk's gold income; matching ${cal.target.toFixed(2)} days per claim needs a Unique chance of ${(100 * cal.chance).toFixed(1)}% (config: ${(100 * RULES_V1.classes.drop.uniqueLegendaryChance).toFixed(1)}%).`,
+    `A Core Formation legendary sells for ${cal.legendarySale.toFixed(1)} gold, ${cal.legendaryDays.toFixed(1)} days of a Monk's gold income; matching Body and Hybrid's ${cal.target.toFixed(2)} days per claim needs a Unique chance of ${(100 * cal.chance).toFixed(1)}% (config: ${(100 * RULES_V1.classes.drop.uniqueLegendaryChance).toFixed(1)}%).`,
   );
   writeFileSync(join(outDir, "legendary-unique.csv"), [calHeader.join(","), ...cal.rows.map((r) => r.map((x) => `"${x}"`).join(","))].join("\n"));
 }

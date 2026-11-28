@@ -200,7 +200,7 @@ describe("class drops (rulings 119, 120)", () => {
     expect(at("acrobat", "violet", "lion")).toBeCloseTo(0.58, 9);
   });
 
-  it("split by group: Body's pet kinds 50/50, Hybrid's soul or pet 50/50, Unique's 4% legendary item (ruling 120 as amended)", () => {
+  it("split by group: Body's pet kinds 50/50, Hybrid's soul or pet 50/50, Unique's 6% legendary item (rulings 120, 178)", () => {
     expect(classDropOutcome("soul", 0.5, 0.49)).toBe("soul_wearable");
     expect(classDropOutcome("body", 0.5, 0.2)).toBe("pet_keep");
     expect(classDropOutcome("body", 0.5, 0.3)).toBe("pet_halo");
@@ -211,7 +211,7 @@ describe("class drops (rulings 119, 120)", () => {
     expect(classDropOutcome("unique", 0.02, 0.019)).toBe("legendary");
     const monk = apply(core("monk"), claim("a", T0 + DAY, "legendary"));
     expect(legendaryItems(monk).length).toBe(1);
-    expect(classDropChance(monk)).toEqual({ group: "unique", chance: 0.04 });
+    expect(classDropChance(monk)).toEqual({ group: "unique", chance: 0.06 });
   });
 });
 

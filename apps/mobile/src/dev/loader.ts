@@ -27,21 +27,41 @@ function assertScenarioDb(name: string): void {
   if (name === DB_NAME || name !== SCENARIO_DB) throw new Error(`dev tools write only to ${SCENARIO_DB}`);
 }
 
-async function withDevDb<T>(f: (db: SQLiteDatabase) => Promise<T>): Promise<T> {
-  const db = await openDatabaseAsync(DEV_DB);
-  try {
-    await db.execAsync("CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
-    return await f(db);
-  } finally {
-    await db.closeAsync();
-  }
+/**
+ * Dev and scenario database work runs one at a time: each opens, works and
+ * closes, and two opens at once (one before expo-sqlite's web worker has set
+ * up SQLite) race in the worker.
+ */
+let queue: Promise<unknown> = Promise.resolve();
+function serial<T>(f: () => Promise<T>): Promise<T> {
+  const run = queue.then(f, f);
+  queue = run.catch(() => undefined);
+  return run;
+}
+
+function withDevDb<T>(f: (db: SQLiteDatabase) => Promise<T>): Promise<T> {
+  return serial(async () => {
+    const db = await openDatabaseAsync(DEV_DB);
+    try {
+      await db.execAsync("CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
+      return await f(db);
+    } finally {
+      await db.closeAsync();
+    }
+  });
+}
+
+/** The dev mode and admin mode, read in one open at startup. */
+export async function readDevSettings(): Promise<{ mode: Mode; admin: boolean }> {
+  return withDevDb(async (db) => {
+    const rows = await db.getAllAsync<{ key: string; value: string }>("SELECT key, value FROM kv WHERE key IN ('mode', 'admin')");
+    const get = (k: string) => rows.find((r) => r.key === k)?.value;
+    return { mode: get("mode") === "scenario" ? "scenario" : "real", admin: get("admin") === "1" };
+  });
 }
 
 export async function readMode(): Promise<Mode> {
-  return withDevDb(async (db) => {
-    const row = await db.getFirstAsync<{ value: string }>("SELECT value FROM kv WHERE key = 'mode'");
-    return row?.value === "scenario" ? "scenario" : "real";
-  });
+  return (await readDevSettings()).mode;
 }
 
 export async function writeMode(mode: Mode): Promise<void> {
@@ -50,22 +70,24 @@ export async function writeMode(mode: Mode): Promise<void> {
 
 /** The dev panel's admin mode (ruling 84): off is normal play. */
 export async function readAdmin(): Promise<boolean> {
-  return withDevDb(async (db) => (await db.getFirstAsync<{ value: string }>("SELECT value FROM kv WHERE key = 'admin'"))?.value === "1");
+  return (await readDevSettings()).admin;
 }
 
 export async function writeAdmin(on: boolean): Promise<void> {
   await withDevDb((db) => db.runAsync("INSERT INTO kv (key, value) VALUES ('admin', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", [on ? "1" : "0"]).then(() => {}));
 }
 
-async function withScenarioDb<T>(f: (db: SQLiteDatabase) => Promise<T>): Promise<T> {
+function withScenarioDb<T>(f: (db: SQLiteDatabase) => Promise<T>): Promise<T> {
   assertScenarioDb(SCENARIO_DB);
-  const db = await openDatabaseAsync(SCENARIO_DB);
-  try {
-    await migrate(db);
-    return await f(db);
-  } finally {
-    await db.closeAsync();
-  }
+  return serial(async () => {
+    const db = await openDatabaseAsync(SCENARIO_DB);
+    try {
+      await migrate(db);
+      return await f(db);
+    } finally {
+      await db.closeAsync();
+    }
+  });
 }
 
 export interface ScenarioInfo {
