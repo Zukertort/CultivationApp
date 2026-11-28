@@ -26,6 +26,8 @@ import {
   pendingSoulRolls,
   pendingTribulationRolls,
   questDropOutcome,
+  type PendingBreakthroughRoll,
+  type PendingClassDrop,
   soulDropOutcome,
   soulDropSlot,
   tribulationDropOutcome,
@@ -65,6 +67,14 @@ export interface CultivatorOptions {
   trackGold?: boolean;
   /** The rules to run under (default RULES_V1); the simulator's sweeps pass variants. */
   rules?: RulesConfig;
+  /**
+   * Dev scenarios only (ruling 182): fix the uniform u the stand-in server
+   * uses for a breakthrough or class roll, to a legal value in [0, 1). The
+   * outcome still comes from the rules' own outcome functions, so the event
+   * is one the server could have appended; the seeded draw is still made, so
+   * the other rolls don't shift. Return undefined to keep the draw.
+   */
+  fixRoll?: (roll: { kind: "breakthrough"; pending: PendingBreakthroughRoll } | { kind: "class"; pending: PendingClassDrop }, state: CultivatorState) => number | undefined;
 }
 
 export class Cultivator {
@@ -77,6 +87,7 @@ export class Cultivator {
   private readonly idPrefix: string;
   private readonly rollAll: boolean;
   private readonly roll: () => number;
+  private readonly fixRoll: CultivatorOptions["fixRoll"];
   private queue: GameEvent[] = [];
   private seq = 0;
   waitingDays = 0;
@@ -95,6 +106,7 @@ export class Cultivator {
     this.rollAll = o.rollAll ?? false;
     this.trackGold = o.trackGold ?? false;
     this.roll = rng(o.seed ?? 23);
+    this.fixRoll = o.fixRoll;
   }
 
   at(day: number, hour: number): number {
@@ -143,11 +155,16 @@ export class Cultivator {
       this.record(this.event("TribulationDropRolled", this.s.clock, { eventId: p.eventId, drop: tribulationDropOutcome(this.roll()) }));
     }
     if (this.rollAll) {
-      for (const p of pendingClassDrops(this.s)) this.record(this.event("ClassDropRolled", this.s.clock, { eventId: p.eventId, ...classDropRoll(p.group, p.chance, this.roll(), this.rules) }));
+      for (const p of pendingClassDrops(this.s)) {
+        const drawn = this.roll();
+        const u = this.fixRoll?.({ kind: "class", pending: p }, this.s) ?? drawn;
+        this.record(this.event("ClassDropRolled", this.s.clock, { eventId: p.eventId, ...classDropRoll(p.group, p.chance, u, this.rules) }));
+      }
     }
     for (const p of pendingBreakthroughRolls(this.s)) {
       this.expectedLegendary += p.chance;
-      const u = this.roll();
+      const drawn = this.roll();
+      const u = this.fixRoll?.({ kind: "breakthrough", pending: p }, this.s) ?? drawn;
       const slot = breakthroughRollSlot(p.chance, u);
       this.record(this.event("BreakthroughRolled", this.s.clock, { step: p.step, item: breakthroughRollOutcome(p.chance, u), ...(slot ? { slot } : {}) }));
     }
